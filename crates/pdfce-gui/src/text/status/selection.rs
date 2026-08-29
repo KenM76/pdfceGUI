@@ -267,9 +267,30 @@ impl TextStyleRefusal {
             Self::Unpinnable => {
                 "pdfce could not tell exactly which piece of text that is, so it changed nothing rather than risk restyling a different one that reads the same."
             }
-            // Remedy first, and it names the list the operator is looking at.
+            // ★★★ Remedy first, and it names the list the operator is looking
+            // at — and it is the SECOND wording, corrected on 2026-08-29.
+            //
+            // It read: *"pdfce can only switch text to a font this page already
+            // carries. Pick one of the faces in the list."* That was true and
+            // `Pass 162.0` made it false: pdfce now authors a standard-14 `/Font`
+            // resource on demand, so a face this page does not carry is a change
+            // that WORKS for fourteen of them.
+            //
+            // ⇒ A refusal sentence that states a limit the build no longer has
+            // is worse than no sentence: it teaches the operator not to try
+            // something the program can do, and it does so with the program's
+            // own voice. This is the ★★ obligation in the engine's release
+            // note — *"a face outside those fourteen still refuses by name"* —
+            // discharged as a sentence rather than a silence, and it now says
+            // WHICH boundary was crossed and why that boundary exists.
+            //
+            // ★ It names embedding as the reason rather than a deferral code.
+            // `FF-C` means nothing to an operator; *"the font itself would have
+            // to be copied into the file"* is the same fact in terms they can
+            // weigh — and it is the honest account of why fourteen faces work
+            // and a fifteenth does not.
             Self::FaceNotOnPage => {
-                "pdfce can only switch text to a font this page already carries. Pick one of the faces in the list."
+                "pdfce can switch text to a font this page already carries, or to one of the fourteen standard faces it can add itself. Any other face would have to be copied into the file, which pdfce cannot do yet. Pick one of the faces in the list."
             }
             // ★ The refusal an operator would otherwise read as a bug. It says
             // what WOULD have happened, because "it moved my next line" is the

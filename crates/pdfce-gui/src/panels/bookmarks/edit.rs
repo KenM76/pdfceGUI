@@ -77,14 +77,28 @@
 //! "Worded decline" row and belongs to `super::super::super::app::actions::apply`'s
 //! `Err` arm, not to this file.
 //!
-//! ## What is deliberately absent
+//! ## ★ What was deliberately absent, and where it went
 //!
-//! **Reorder and re-parent.** The engine's note lists them as not shipped —
-//! *"Reorder and re-parent do not [ship], and neither has a CLI subcommand
-//! yet"* — so there is no drag handle, no Move up, no Promote. R9: a capability
-//! that does not exist renders **nothing**. Greying them would be a promise,
-//! and greying is reserved for something temporarily unavailable that can
-//! explain itself on hover.
+//! This section read: *"**Reorder and re-parent.** The engine's note lists them
+//! as not shipped … so there is no drag handle, no Move up, no Promote. R9: a
+//! capability that does not exist renders **nothing**."* It was correct for one
+//! day. `pdfce-core` `Pass 161.0` shipped `move_outline_item` and
+//! `set_outline_open`, and [`super::reorder`] is the surface for both.
+//!
+//! It is recorded rather than deleted because it is the rule working: nothing
+//! was greyed, nothing was drawn as a promise, and the day the engine could
+//! honour the gesture the panel grew it.
+//!
+//! ⇒ **And it did not grow it here.** The move is a *drag on the row*, not a
+//! button in this block, which is the conventional gesture every outline panel
+//! uses and the operator's standing tie-breaker — *"make it work the way other
+//! programs do."* A pair of *Move up* / *Promote* buttons would have been the
+//! easy thing to add to this block and would have been a second, worse idiom
+//! beside the one [`crate::panels::pages`] already established for reordering.
+//!
+//! **Still absent:** a verb that deletes the whole outline.
+//! `EditError::OutlineRootIsNotAnItem` refuses the root by name, because that
+//! is *"a different act that gets its own verb when it is wanted"*.
 
 use egui::Ui;
 use pdfce_core::outline::OutlineItem;

@@ -120,6 +120,21 @@ pub mod annotdelete;
 /// canvas selection became a second claimant on it. Its own header carries the
 /// argument for broadening this panel's purpose rather than inventing a ninth.
 mod dimension;
+/// ★★★ The **face chooser**, which is one control drawn on two surfaces — this
+/// panel's [`text`] section and the ribbon's Format ▸ Font group in
+/// [`crate::app::fontband`], which were two copies of one loop until 2026-08-29.
+///
+/// `pub(crate)` reach rather than private, because the ribbon is not under
+/// `crate::panels` and must draw the identical body: *"a face offered in one
+/// surface and not the other"* is a divergence this project has found more than
+/// once, and a disclosure added to one copy and not the other would be worse
+/// than either.
+///
+/// Its header carries the two things this module could not have invented: the
+/// evidence that `EditSession::format_text` performs the standard-14 resource
+/// write itself, and why the fourteen are offered without being
+/// coverage-tested first.
+pub mod face;
 /// ★ The **document's own** title, author, subject and keywords — the half of
 /// this panel `file.properties`' tooltip has commissioned since S3.
 ///

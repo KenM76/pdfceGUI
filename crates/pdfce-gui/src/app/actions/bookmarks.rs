@@ -61,15 +61,35 @@
 //!    read of that sign, and §12.3.3 defines no `/Open` key, so the sign is the
 //!    only carrier there is.
 //!
-//! ## What this module does NOT do, and why the absence is deliberate
+//! ## ★ Reorder and re-parent are here now, and this paragraph used to say
+//! they were not
 //!
-//! **Reorder and re-parent.** The engine's note of 2026-08-28 lists them as
-//! not shipped — *"Reorder and re-parent do not [ship], and neither has a CLI
-//! subcommand yet"* — so there is no variant for either and no drag handle in
-//! the panel. R9: a capability that does not exist renders nothing. A greyed
-//! "Move up" button would be a promise the engine cannot keep, and greying is
-//! reserved for something that is *temporarily* unavailable and can say when
-//! it will not be.
+//! It read: *"**Reorder and re-parent.** The engine's note of 2026-08-28 lists
+//! them as not shipped … so there is no variant for either and no drag handle
+//! in the panel. R9: a capability that does not exist renders nothing."* That
+//! was correct for one day. `pdfce-core` `Pass 161.0` shipped
+//! `move_outline_item` and `set_outline_open`, and [`BookmarkAction::Move`] and
+//! [`BookmarkAction::SetOpen`] are the surface for them.
+//!
+//! The sentence is kept rather than deleted because it is the record of the
+//! rule being applied correctly: nothing was greyed, nothing was drawn as a
+//! promise, and the day the engine could honour the gesture the panel grew it.
+//! That is R9 working, not R9 being overtaken.
+//!
+//! **What is still deliberately absent:** a verb that deletes the whole
+//! outline. `EditError::OutlineRootIsNotAnItem` refuses the root by name,
+//! because deleting it is *"a different act that gets its own verb when it is
+//! wanted"*, and this shell does not want it yet.
+//!
+//! ## ★★ The family's shared property survived the growth, and that is the
+//! test of whether the cut was right
+//!
+//! Both new variants address their operand by `ObjId` — and
+//! [`BookmarkAction::Move`] addresses its **destination** that way too, because
+//! `OutlinePlacement` is built from anchors rather than positions for the
+//! reason its own doc comment gives about this exact surface: *"A shell that
+//! reads a panel, lets the operator drag a row, and then calls with the index
+//! it read has a race with its own undo stack."*
 
 use pdfce_core::object::ObjId;
 
@@ -215,6 +235,133 @@ pub enum BookmarkAction {
         /// The outline item to remove, together with its whole subtree.
         item: ObjId,
     },
+    /// ★★★ **Move a bookmark — reorder it among its siblings, or re-parent it
+    /// under a different one — carrying its whole subtree.**
+    ///
+    /// Raised by `crate::panels::bookmarks::reorder` and by nothing else.
+    /// `pdfce-core` `Pass 161.0`, the half of bookmark editing this shell
+    /// shipped without: `Pass 156.0` gave it rename and delete, and the
+    /// engine's covering note is blunt about what was still missing —
+    ///
+    /// > *"an outline in the wrong **order** could only be fixed by deleting a
+    /// > branch and re-authoring it, which loses every destination, colour and
+    /// > style on it and is not an edit any operator would call a
+    /// > reorganisation."*
+    ///
+    /// # ★★ The subtree travels, and the destination does not move
+    ///
+    /// `move_outline_item`'s own words: *"A chapter dragged under a different
+    /// part takes its sections with it."* That matches
+    /// [`Self::Delete`]'s subtree semantics and Acrobat's model — its
+    /// `PDBookmark` unlink/add-child pair operates on the node, which owns its
+    /// children wherever `/Parent` points, and there is no API path that leaves
+    /// them behind.
+    ///
+    /// ⇒ So this verb, like the delete, has a **blast radius larger than the
+    /// row the operator clicked** — and unlike the delete, the size of it is
+    /// reported by the engine rather than counted by the panel. See [`move_to`]
+    /// for the two numbers and why both are needed.
+    ///
+    /// # ★★★ Why the placement is an anchor and NEVER an index
+    ///
+    /// `OutlinePlacement`'s own doc comment states the rule and names the
+    /// failure this shell would otherwise walk into:
+    ///
+    /// > *"An outline's siblings are a **doubly-linked list** (§12.3.3 Table
+    /// > 153: `/Prev`, `/Next`), not an array — there is no stored index, so an
+    /// > index parameter would have to be *counted* by walking the chain, and
+    /// > every caller holding one would be holding a number that silently goes
+    /// > stale the moment any sibling is added or removed. **A shell that reads
+    /// > a panel, lets the operator drag a row, and then calls with the index
+    /// > it read has a race with its own undo stack.**"*
+    ///
+    /// That is this panel, described from the other side of the API. It is the
+    /// same rule the whole of this module is built on — every variant here
+    /// addresses its operand by `ObjId` — applied to the *destination* as well
+    /// as to the subject.
+    ///
+    /// # Why there is no separate promote or demote verb
+    ///
+    /// Because they are this variant with a different anchor, and the engine
+    /// refuses to spell one operation twice: *"a second spelling of one
+    /// operation is exactly how two implementations of one rule come to
+    /// disagree (`R171`)."* Re-parenting to the top level is
+    /// `FirstChild { parent: None }` or `After` a top-level sibling; nesting is
+    /// `LastChild { parent: Some(..) }`. The panel's three drop bands produce
+    /// all of them.
+    ///
+    /// # ★ The expansion of the destination is NOT folded in here
+    ///
+    /// The engine shipped [`Self::SetOpen`] alongside this verb and said why in
+    /// a sentence that binds this shell:
+    ///
+    /// > *"Expand/collapse ships alongside, as a separate verb, because whether
+    /// > a move should reveal a collapsed destination has two defensible
+    /// > answers and both now exist."*
+    ///
+    /// pdfce takes *"leave it as the operator set it"*, which is
+    /// `move_outline_item`'s own default — a destination parent that already
+    /// has children keeps its `/Count` sign — and discloses the consequence
+    /// instead. A `reveal: bool` on this variant would bury a second state
+    /// change inside an unrelated command and would produce **one** undo entry
+    /// for two acts.
+    Move {
+        /// The bookmark being moved, together with everything filed under it.
+        item: ObjId,
+        /// Where it is going, as an anchor. Never a position.
+        to: pdfce_core::edit::OutlinePlacement,
+    },
+    /// ★★ **Expand or collapse a bookmark** — flip the sign on its `/Count`.
+    ///
+    /// Raised by `crate::panels::bookmarks::reorder`'s disclosure triangle and
+    /// by nothing else. `pdfce-core` `Pass 161.0`.
+    ///
+    /// # ★★★ This is a document edit, and every other program makes it a view
+    /// setting
+    ///
+    /// The single most surprising thing about this verb, and the reason the
+    /// triangle's hover text says it out loud. §12.3.3 Table 153 carries
+    /// open-or-closed as the **sign** on `/Count` and defines no `/Open` key,
+    /// so there is nowhere in the file to record a per-viewer answer. Expanding
+    /// a bookmark therefore:
+    ///
+    /// * writes objects, and marks the document modified;
+    /// * lands on the undo stack as one entry;
+    /// * is **seen by everybody who opens the file afterwards**.
+    ///
+    /// An operator who collapses three chapters to find their place, saves, and
+    /// sends the drawing out has changed what the recipient sees. That is not a
+    /// defect — it is what the format is — and it is why the disclosure is on
+    /// the control rather than in a release note.
+    ///
+    /// # ★★ The magnitude is the engine's problem, and getting it wrong is
+    /// silent
+    ///
+    /// `set_outline_open` propagates the flip up the ancestor chain by the
+    /// `/Count` **magnitude**, not by one, and its doc comment is emphatic:
+    ///
+    /// > *"a closed node contributes 1 (itself); an open one contributes
+    /// > `1 + magnitude`. So expanding a node with magnitude 7 adds **7** to
+    /// > every ancestor up to the first closed one — not 1, and not 8."*
+    ///
+    /// Nothing in this shell computes that, and nothing in this shell may. A
+    /// wrong `/Count` is invisible: the file opens, the outline draws, and the
+    /// only symptom is another reader's panel disagreeing about what is there.
+    ///
+    /// # A leaf is never asked
+    ///
+    /// An item with no descendants carries no `/Count` at all — Table 153 makes
+    /// it *"required if the item has any descendants"* — so there is nothing to
+    /// flip. `set_outline_open` answers `Ok(false)` rather than refusing,
+    /// because *"asking a leaf to expand is what a 'collapse all' sweep does to
+    /// every row it walks"*, and the panel simply draws no triangle on one.
+    /// R83: never offer a control for something that cannot work.
+    SetOpen {
+        /// The bookmark whose `/Count` sign is being flipped.
+        item: ObjId,
+        /// `true` to expand it, `false` to collapse it.
+        open: bool,
+    },
 }
 
 /// Apply one bookmark verb.
@@ -276,6 +423,8 @@ pub(super) fn apply(doc: &mut OpenDoc, action: BookmarkAction) {
         }
         BookmarkAction::Rename { item, title } => rename(doc, item, &title),
         BookmarkAction::Delete { item } => delete(doc, item),
+        BookmarkAction::Move { item, to } => move_to(doc, item, to),
+        BookmarkAction::SetOpen { item, open } => set_open(doc, item, open),
     }
 }
 
@@ -359,6 +508,197 @@ fn delete(doc: &mut OpenDoc, item: ObjId) {
         session
             .delete_outline_item(item)
             .map(|removed| vec![crate::text::panels::bookmark_deleted(removed)])
+    });
+}
+
+/// **Move one bookmark and its whole subtree**, as one undoable command,
+/// disclosing what the operator could not watch.
+///
+/// # ★★★ Three disclosures, from three different sources, and each is needed
+///
+/// | Sentence | Source | Answers |
+/// |---|---|---|
+/// | [`crate::text::panels::bookmarks::bookmark_moved`] | `OutlineMove::visible_items` and `::reparented`, from the **engine** | *how many rows moved, and did it change owner?* |
+/// | [`crate::text::panels::bookmarks::bookmark_move_took_hidden`] | the **tree the panel drew**, read before the call | *how many bookmarks were in the branch that nobody could see?* |
+/// | [`crate::text::panels::bookmarks::bookmark_move_into_collapsed`] | the tree read **after** the call | *why has the bookmark not appeared where I put it?* |
+///
+/// The first two are two different quantities and it is §12.3.3 that makes
+/// them so. `OutlineMove::visible_items` is *"the item plus its **visible**
+/// descendants"*, which for a **collapsed** chapter of forty sections is
+/// **one** — Table 153's sign convention gives a closed node a contribution of
+/// exactly 1 to its ancestors however large it is. The engine's own doc is
+/// explicit that a shell must report that number and must not recompute it:
+///
+/// > *"A shell can say 'moved 1 bookmark (7 nested)' only if the core tells
+/// > it; recomputing it shell-side would be a second implementation of the sign
+/// > convention."*
+///
+/// ⇒ So the engine's number is reported verbatim, and the branch size is a
+/// **separate sentence from a separate source**, offered only when the item was
+/// collapsed — which is exactly when the two disagree. This is the same posture
+/// [`delete`] takes about its own before-and-after counts, with the difference
+/// that there the two numbers answer one question and here they answer two.
+///
+/// # ★★ Why the collapsed-destination check is made AFTER the call
+///
+/// Because it is a fact about the document the move produced, and only the move
+/// knows where the bookmark went. `OutlineMove::to_parent` names it — and it is
+/// carried on the report precisely so a shell does not have to work it out —
+/// but whether that parent is *open* is a `/Count` sign the panel must read
+/// back, because the move itself may have changed it: `move_outline_item`
+/// leaves a parent that already had children exactly as the operator set it,
+/// and **opens one that was a leaf**.
+///
+/// ★ The immediate parent is enough, and a walk to the root would be a walk
+/// nothing could reach. A drop lands on a row, a row is drawn only when every
+/// ancestor above it is open, so a collapsed grandparent implies a destination
+/// that was never on screen to be dropped on.
+///
+/// ★ `to_parent` may be the **outline root**, for a move to the top level.
+/// `read_outline` reports the root's *children* as its top-level items and
+/// never the root itself, so the lookup answers `None` and no sentence is
+/// drawn — which is correct: the top level is always visible.
+///
+/// # What happens on a refusal
+///
+/// A sentence, through `app::status::decline`, recorded from **inside** the
+/// closure — [`crate::app::status::decline::record_resize_not_rebuildable`]'s
+/// placement and its stated reason: whether the engine will refuse is not
+/// knowable before the call. `vector_edit`'s `Err` arm traces and, by its own
+/// recorded decision, says nothing, and **a refusal must be a sentence, never a
+/// silence.**
+///
+/// The panel forecasts and refuses the one case an operator can act on — a drop
+/// into the bookmark's own subtree — before raising this action at all, so what
+/// reaches here is the residue: `/Encrypt`, the certification gate, and an id
+/// that stopped resolving between the frame and the apply. See
+/// [`crate::text::panels::bookmarks::bookmark_move_declined_engine`] for the
+/// table and for why a catch-all is honest when none of the causes has a remedy.
+fn move_to(doc: &mut OpenDoc, item: ObjId, to: pdfce_core::edit::OutlinePlacement) {
+    super::apply::vector_edit(doc, "move-bookmark", 0, 1, |session| {
+        // Read BEFORE the move: after it, the item is somewhere else and its
+        // own `/Count` sign has been carried along with it, which is fine — but
+        // the tree walk that finds it would be walking the arrangement the
+        // operator did not press the button on.
+        let before = pdfce_core::outline::read_outline(&session.view());
+        // `None` unless the bookmark was **closed and not empty**, which is the
+        // only case where the engine's count and the branch size differ. A leaf
+        // and an open branch both need no second sentence: for the leaf there
+        // is nothing hidden, and for the open one `visible_items` already
+        // counted it.
+        let hidden = crate::panels::bookmarks::tree::find(&before.items, item)
+            .filter(|found| !found.open)
+            .map(crate::panels::bookmarks::tree::descendants)
+            .filter(|count| *count > 0);
+
+        let report = match session.move_outline_item(item, to) {
+            Ok(report) => report,
+            Err(error) => {
+                // ★★★ Which sentence, decided here and nowhere else. The panel
+                // raises a drop it has already forecast as impossible —
+                // deliberately, see `panels::bookmarks::reorder::settle` — so
+                // this arm is the one place that tells the operator's own
+                // mistake apart from the document's refusal.
+                crate::app::status::decline::record_bookmark_move_refused(matches!(
+                    error,
+                    pdfce_core::edit::EditError::OutlineMoveIntoOwnSubtree { .. }
+                ));
+                return Err(error);
+            }
+        };
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            //
+            // ★ Every field of the engine's report, plus the shell's own branch
+            // size. A line saying only "a move applied" would be identical for
+            // a build that reordered where it should have re-parented, or that
+            // reported the branch size where it should have reported what moved
+            // on screen — and those are the two things a wrong build gets wrong
+            // here, because they are two numbers that agree on every ordinary
+            // document and part company on exactly the collapsed one.
+            format!(
+                "bookmark-move-report item={} moved={} reparented={} visible={} hidden={}",
+                item.num,
+                u8::from(report.moved),
+                u8::from(report.reparented),
+                report.visible_items,
+                hidden.unwrap_or(0),
+            )
+        });
+        if !report.moved {
+            // The engine wrote nothing and created no undo entry. The panel
+            // dims its caret over a landing it can see is a no-op, so reaching
+            // this means the shell's forecast and the engine's answer
+            // disagreed — which is worth one line rather than a shrug.
+            return Ok(vec![
+                crate::text::panels::bookmarks::bookmark_move_no_change().to_owned(),
+            ]);
+        }
+        let mut notes = vec![crate::text::panels::bookmarks::bookmark_moved(
+            report.visible_items,
+            report.reparented,
+        )];
+        if let Some(count) = hidden {
+            notes.push(crate::text::panels::bookmarks::bookmark_move_took_hidden(
+                count,
+            ));
+        }
+        let after = pdfce_core::outline::read_outline(&session.view());
+        if crate::panels::bookmarks::tree::find(&after.items, report.to_parent)
+            .is_some_and(|parent| !parent.open)
+        {
+            notes.push(crate::text::panels::bookmarks::bookmark_move_into_collapsed().to_owned());
+        }
+        Ok(notes)
+    });
+}
+
+/// **Expand or collapse one bookmark**, as one undoable command, disclosing
+/// nothing.
+///
+/// # ★★ Why the disclosure list is empty, and it is the same ruling as
+/// [`rename`]'s
+///
+/// `vector_edit` surfaces whatever this returns to `app::status`, and that
+/// module's rule is that a disclosure is *"the part they cannot see"*. The
+/// whole effect of this verb is rows appearing or disappearing in the panel the
+/// operator's pointer is in. There is no invisible part, and emitting
+/// *"Bookmark expanded."* would put a sentence in the one slot `app::status`
+/// has for consequences — evicting the previous edit's real disclosure — to
+/// describe something already on screen.
+///
+/// ★ The fact that **is** surprising is disclosed, and it is disclosed
+/// **before** the press, on the triangle's hover text: this writes into the
+/// document. See
+/// [`crate::text::panels::bookmarks::bookmark_expand_tooltip`], which carries
+/// the argument. A consequence an operator can still decide against belongs in
+/// front of the control, not behind it.
+///
+/// # ★ One label for both directions
+///
+/// `vector_edit`'s label is a string literal by construction —
+/// `tools/gates/check-trace-names.py` reads it out of the call site — so the
+/// two directions cannot take two labels without splitting this into two
+/// functions that differ by a boolean. They are one verb with one operand and
+/// one refusal set; which way it went is a **key** on the panel's own trace
+/// line (`bookmark-disclosure open=`), which is where a driven check reads it.
+///
+/// # What it cannot be asked to do
+///
+/// A **leaf** — Table 153 makes `/Count` *"required if the item has any
+/// descendants"*, so an item without them has no open-or-closed state.
+/// `set_outline_open` answers `Ok(false)` rather than refusing, and the panel
+/// draws no triangle on one, so this is unreachable from that surface rather
+/// than routed around.
+///
+/// The **outline root** is refused by name (`OutlineRootIsNotAnItem`) because
+/// its `/Count` is the *other* quantity — it counts visible items at every
+/// level and *"cannot be negative"* — so it has no state to set. As with
+/// [`delete`], no `ObjId` the panel can offer is the root's, since
+/// `read_outline` reports the root's children as its top-level items.
+fn set_open(doc: &mut OpenDoc, item: ObjId, open: bool) {
+    super::apply::vector_edit(doc, "set-bookmark-open", 0, 1, |session| {
+        session.set_outline_open(item, open).map(|_| Vec::new())
     });
 }
 

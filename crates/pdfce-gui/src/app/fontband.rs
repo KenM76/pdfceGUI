@@ -225,12 +225,44 @@ fn resolved(doc: Option<&OpenDoc>, draft: &mut TextStyleDraft) -> Option<(usize,
     Some((selection.page, runs))
 }
 
+/// The trace region the ribbon's face chooser publishes its POPUP under.
+///
+/// ★ Deliberately **not** `egui_shell::ribbon::report::band_item("format.font")`
+/// — that name is the control's rect on the band, published below by [`draw`]
+/// for every custom item alike, and a popup body that reused it would put two
+/// different rectangles under one name in one frame. A driven check reading the
+/// later one would aim at whichever the paint order happened to leave last.
+///
+/// ★★ It is a **prefix**: [`crate::panels::properties::face::popup_body`] hangs
+/// `.addable`, `.disclosure` and `.new` off it, and the Properties panel's copy
+/// hangs the same three off `properties.text.face`. Two namespaces for one body
+/// so a check can say which surface it is looking at — which matters precisely
+/// because the two must otherwise be identical.
+// ui-text-exempt: trace region name, never displayed
+const FACE_POPUP_REGION: &str = "ribbon.font.face";
+
 /// The face chooser.
 ///
 /// ★ **No label beside it.** The group's caption already says *Font*, the
 /// control shows the current face, and Word's own font-name box carries no
 /// label for the same two reasons. A label here would be the third occurrence
 /// of the word within one inch of ribbon.
+///
+/// # ★★★ The popup body is NOT written here, and that is the point
+///
+/// It was, until 2026-08-29: this function and
+/// `panels::properties::text::face_row` held two copies of one `for` loop over
+/// the same list. `Pass 162.0` then gave the chooser a second kind of row — the
+/// standard-14 faces pdfce authors on demand — with a disclosure it owes,
+/// headings to tell the two kinds apart, and a minimum popup width so the
+/// sentence is legible on a band whose control is 78 points wide.
+///
+/// Adding all of that twice is how *"a face offered in one surface and not the
+/// other"* happens, which this project has found more than once. So both
+/// surfaces call [`crate::panels::properties::face::popup_body`], and this
+/// function keeps only what is genuinely the ribbon's: the width, the
+/// placeholder for a greyed control with no value, and parking the result as a
+/// [`StyleChange`] rather than raising an [`crate::app::actions::Action`].
 fn face(
     ui: &mut Ui,
     doc: Option<&OpenDoc>,
@@ -262,41 +294,20 @@ fn face(
             let (Some(_doc), Some(_ready)) = (doc, ready) else {
                 return;
             };
-            // ★★★ The PRE-FLIGHT's list, since 2026-08-27 (`Pass 142.1`), and
-            // the change fixes two defects rather than one.
-            //
-            // This combo used to list every `/BaseFont` on the page, from
-            // `fontinfo`. That list is keyed on the font **dictionary** while
-            // `set_font` matches on `/BaseFont` and then asks whether the face
-            // can encode **this run's characters** — so it offered entries that
-            // could not work (pressed, refused), and on a page carrying two
-            // subsets of one face it reached one of the twins **arbitrarily**,
-            // which is the wrong font applied with no refusal to show for it.
-            // The Fonts panel's own survey puts that second case at 87 % of
-            // embedding files.
-            //
-            // The draft holds the answer behind the same stamp as the style
-            // read-back, so a combo drawn every frame it is open costs nothing.
-            if draft.faces().is_empty() {
-                ui.label(t::text_face_none());
-                return;
-            }
-            for face in draft.faces() {
-                let selected = face.label == crate::panels::properties::text::shorten(&current);
-                // `selectable_label`, not `selectable_value`: nothing is held
-                // between frames, because the **document** is the state. A
-                // press is an edit, not a choice to be committed later.
-                let row = ui.selectable_label(selected, &face.label);
-                let row = if face.ambiguous {
-                    row.on_hover_text(t::text_face_ambiguous())
-                } else {
-                    row
-                };
-                if row.clicked() && !selected {
-                    // ★ `selector`, not the label — see the panel's twin.
-                    *parked = Some(StyleChange::Face(face.selector.clone()));
-                    invoked = true;
-                }
+            if let Some(selector) = crate::panels::properties::face::popup_body(
+                ui,
+                FACE_POPUP_REGION,
+                draft.faces(),
+                crate::panels::properties::text::shorten(&current),
+            ) {
+                // ★★ Parked, not dispatched. `egui-shell`'s contract is *"the
+                // shell reports, the application dispatches"*, and it is also
+                // what keeps the five Font commands honest as one family: the
+                // operand derivation (which page, which runs) is written once,
+                // in `app::dispatch::format`, rather than once there and once
+                // here.
+                *parked = Some(StyleChange::Face(selector));
+                invoked = true;
             }
         });
     invoked

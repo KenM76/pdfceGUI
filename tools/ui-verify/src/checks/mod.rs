@@ -418,6 +418,18 @@ pub mod rotate;
 /// `Scale line weight`, from the checkbox to the engine's `/BS /W`. Three of
 /// the five links in front of the verb are wiring no unit test can see.
 pub mod scale_switch;
+/// ★★★ **The chooser offers a face the document does not contain** —
+/// `pdfce-core` v0.15.0's standard-14 authoring, reached from a font list.
+///
+/// The engine shipped the capability and the shell could not reach it: the
+/// chooser built its list from `preview_font_resources`, which enumerates the
+/// *page's own* `/Font` resources, so the one thing the release note is about
+/// was absent from every surface in the program. Its header carries the six
+/// links and names the fourth as the one worth writing the check for on its own
+/// — pdfce embeds nothing, so the text is drawn with the READER'S copy of the
+/// face, and a disclosure that is catalogued, unit-tested and never painted has
+/// discharged nothing.
+pub mod std14_face;
 
 /// **Text that does not run along the page's x axis** — the operator's
 /// 2026-08-26 report about a vertical stamp in a title block, driven end to
@@ -515,6 +527,16 @@ pub mod bookmark_add;
 /// carries them. Its header carries why the delete oracle asserts the count
 /// EXACTLY rather than "fewer than before".
 pub mod bookmark_edit;
+/// ★★★ **The Bookmarks panel could not REORGANISE** — `Pass 161.0` shipped
+/// `move_outline_item` and `set_outline_open`, and this drives both through the
+/// row list: a bookmark is dragged onto the middle of another and nests, then
+/// the branch is folded away with its triangle.
+///
+/// Its header carries the two oracles no unit test can reach: the moved row's
+/// **level**, which a reorder cannot produce however wrong it is, and the
+/// **disagreement** between the panel's item count and the number of rows it
+/// draws after a collapse — which is the whole of *"the sign is honoured"*.
+pub mod bookmark_move;
 pub mod chords;
 /// ★★★ **The Comments panel stopped being a viewer** — a note can be written
 /// onto a shape that already exists, which needed a verb `pdfce-core` did not
@@ -949,6 +971,11 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(shift_constrains::ShiftConstrainsAResize),
         Box::new(geometry_fields::GeometryFieldsResizeAShape),
         Box::new(restyle_text::RestylingSelectedTextReachesTheDocument),
+        // ★ Directly after `restyle_text`, because it is that check plus a
+        // popup: every link it covers — the sweep, the section, the read-back
+        // stamp — is in front of this one, so a failure there should be read
+        // first.
+        Box::new(std14_face::TheFaceChooserOffersAFaceTheDocumentDoesNotContain),
         Box::new(font_group::TheFormatTabOffersFontControlsForSweptText),
         Box::new(multi_node::MultiNodeMoveMovesEveryPickedAnchor),
         Box::new(bezier_handle::BezierHandleDragChangesACurve),
@@ -986,6 +1013,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(draft_selection::ShiftArrowsSelectText),
         Box::new(bookmark_add::BookmarkCanBeWritten),
         Box::new(bookmark_edit::ABookmarkCanBeRenamedAndRemoved),
+        Box::new(bookmark_move::ABookmarkCanBeDraggedAndABranchCollapsed),
         Box::new(attachments::AFileCanBeAttachedAndTakenBackOut),
         Box::new(comment_note::ANoteCanBeWrittenOntoAShape),
         // Last of the three new ones and the most expensive: it drives Insert

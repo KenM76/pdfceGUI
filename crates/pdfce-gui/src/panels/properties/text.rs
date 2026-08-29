@@ -125,6 +125,42 @@
 //! are **buttons that apply**, not switches that reflect — and the face name
 //! beside them is where an operator reads what the text actually is.
 //!
+//! ## ★★★ AMENDED 2026-08-29 — the face chooser offers faces the document does
+//! NOT contain
+//!
+//! `pdfce-core` v0.15.0 (`Pass 162.0`) closed the last of the four things the
+//! operator named as not fully editable:
+//!
+//! > **FONTS** — text can be restyled to a face the document **DOES NOT
+//! > CONTAIN**, for the fourteen faces every PDF reader is required to have.
+//! > pdfce authors the font resource on demand, with widths, embedding nothing.
+//! > A face outside those fourteen still refuses by name — that needs a real
+//! > font program.
+//!
+//! This section offered only what `preview_font_resources` returned, which by
+//! construction enumerates *the page's own `/Font` resources* — so the new
+//! capability was unreachable from any surface in the program.
+//!
+//! ⇒ The list now has **two groups** and they are two different acts:
+//! rewriting one `Tf` operand, and rewriting it *plus writing a new `/Font`
+//! object into the operator's file*. [`super::face`] owns the list, the
+//! headings, and the disclosure the second group owes; [`face_row`] owns the
+//! row it sits on. Both surfaces — this panel and the ribbon's Format ▸ Font
+//! group — draw the identical body, because *"a face offered in one and not the
+//! other"* is the divergence this project keeps finding.
+//!
+//! ★★ **The shell writes nothing.** `FormatPlan::created_font` puts the
+//! resource write on the caller, and `EditSession::format_text` **is** that
+//! caller: it folds the write into the same undo command on both its page and
+//! form paths. [`super::face`]'s header carries the evidence. Nothing here
+//! allocates an object or knows the shape of a font dictionary.
+//!
+//! ★ The refusal for a fifteenth face is a **sentence**, not a silence —
+//! `crate::text::status::selection::TextStyleRefusal::FaceNotOnPage`, whose old
+//! wording (*"pdfce can only switch text to a font this page already carries"*)
+//! stated a limit this engine no longer has and was corrected in the same
+//! change.
+//!
 //! ## Rule 4: nothing here marks the canvas
 //!
 //! Every disclosure this section causes — a synthetic weight, a colour space
@@ -294,27 +330,18 @@ pub(crate) enum StyleOutlook {
     Synthesized,
 }
 
-/// One row of the face chooser, as the pre-flight answered it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct FaceChoice {
-    /// **The string to pass to `set_font`** to reach this resource.
-    ///
-    /// ★ Not the `/BaseFont`. Normally it is the subset-stripped base font, and
-    /// it is the **resource key** instead when the page carries two dictionaries
-    /// sharing one base font — which the Fonts panel's own survey found in 87 %
-    /// of embedding files. A chooser that sent the name would reach exactly one
-    /// of the twins, arbitrarily, and the operator would get the wrong font with
-    /// no refusal to tell them.
-    pub(crate) selector: String,
-    /// What the row says, which is the human `/BaseFont`.
-    pub(crate) label: String,
-    /// Whether this page carries another resource with the same `/BaseFont`.
-    ///
-    /// Shown, because *"there are two of these and this is the second"* is a
-    /// fact about the operator's document that nothing else surfaces, and
-    /// because it explains why two rows can read identically.
-    pub(crate) ambiguous: bool,
-}
+// ★★★ `FaceChoice` was DEFINED HERE until 2026-08-29 and now lives in
+// [`super::face`], beside the popup body that draws it and the [`FaceOrigin`]
+// tag that says which of two acts a row performs.
+//
+// It moved because the control did. `Pass 162.0` let pdfce restyle text to a
+// face the document does NOT contain, so a row in this list is now either a
+// `Tf` rewrite or a `Tf` rewrite plus a new `/Font` object in the operator's
+// file — and a chooser presenting those as one list would hide a write behind a
+// menu. The two surfaces that draw it (this section and the ribbon's Format ▸
+// Font group) were already two copies of one loop; they are now one.
+
+use super::face::{FaceChoice, FaceOrigin};
 
 impl TextStyleDraft {
     /// Re-read from the document when the stamp has moved; otherwise keep what
@@ -359,26 +386,24 @@ impl TextStyleDraft {
         // costs a second extraction, which is why it is here and not in the
         // chooser: a combo is drawn every frame it is open.
         //
-        // ★ `accepted()` only. A refused entry is deliberately **not** offered
-        // greyed-with-a-reason, though the engine hands us the reason: the
-        // refusals are per-character encoding facts (*"'o' has no code in
-        // Times-Bold's encoding"*), and a list of twelve faces with nine greyed
-        // rows each carrying a sentence about a character is a control an
+        // ★★★ The list is built by [`super::face::choices`] and is **two lists
+        // joined**, since 2026-08-29: the page's own accepted resources, and the
+        // standard-14 faces pdfce would author on demand (`Pass 162.0`). That
+        // function's doc comment carries the whole of why the second half is
+        // filtered on the pre-flight's `entries` rather than on `accepted()`,
+        // and why the fourteen are offered without being coverage-tested first.
+        //
+        // ★ `accepted()` for the page half. A refused entry is deliberately
+        // **not** offered greyed-with-a-reason, though the engine hands us the
+        // reason: the refusals are per-character encoding facts (*"'o' has no
+        // code in Times-Bold's encoding"*), and a list of twelve faces with nine
+        // greyed rows each carrying a sentence about a character is a control an
         // operator cannot read. R9's absent-rather-than-greyed case: for THIS
-        // run those faces are not a capability that is temporarily
-        // unavailable, they are not applicable.
-        self.faces = crate::canvas::textedit::pin::font_preflight(doc, page, &read)
-            .map(|preflight| {
-                preflight
-                    .accepted()
-                    .map(|entry| FaceChoice {
-                        selector: entry.selector.clone(),
-                        label: shorten(&entry.base_font).to_owned(),
-                        ambiguous: entry.base_font_ambiguous,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        // run those faces are not a capability that is temporarily unavailable,
+        // they are not applicable.
+        self.faces = super::face::choices(
+            crate::canvas::textedit::pin::font_preflight(doc, page, &read).as_ref(),
+        );
         // ★★★ **What the two weight buttons would do**, asked here for the
         // reason everything else in this function is asked here: it costs a
         // content-stream read and a plan, and the answer changes only when the
@@ -441,7 +466,28 @@ impl TextStyleDraft {
                 ..
             } => {
                 let label = shorten(&real_font).to_owned();
-                if self.faces.iter().any(|face| face.selector == selector) {
+                // ★★★ **The page's own faces only**, and the filter is not
+                // cosmetic. `gate_synthesis` names a real face it found by
+                // surveying THIS PAGE's resources, so the question this join
+                // asks is *"is the face it named one `set_font` would accept for
+                // this run?"* — and the answer has to be looked for in the same
+                // population the engine looked in.
+                //
+                // Since 2026-08-29 `self.faces` also carries the fourteen
+                // standard faces pdfce would ADD, which are by construction not
+                // on the page. Matching against those would answer
+                // `StyleOutlook::RealFace` — *"this page carries Helvetica-Bold,
+                // so pdfce will use that real typeface"* — about a page that
+                // carries no such thing, and the press would then be refused
+                // exactly as `FaceCannotCover` predicted. A hover made confidently
+                // wrong by a list gaining rows for an unrelated reason is the
+                // shape of defect this project spends its time on.
+                if self
+                    .faces
+                    .iter()
+                    .filter(|face| face.origin == FaceOrigin::OnThisPage)
+                    .any(|face| face.selector == selector)
+                {
                     Some(StyleOutlook::RealFace(label))
                 } else {
                     Some(StyleOutlook::FaceCannotCover(label))
@@ -650,24 +696,35 @@ fn route(ui: &mut Ui, doc: &OpenDoc) -> bool {
     true
 }
 
-/// The face, chosen from the fonts this page already carries.
+/// The face: what this page carries, and what pdfce can add to the document.
 ///
-/// # ★★ Why the list is the page's fonts and not a list of typefaces
+/// # ★★★ The list was the page's fonts and no longer only is
 ///
-/// `set_font` **selects** an existing resource; it does not **create** one.
-/// Offering Helvetica on a page that carries only Arial would produce a
-/// refusal on press — a control whose entries may not work, which is precisely
-/// what this project spends its time removing.
+/// This doc comment used to open *"`set_font` **selects** an existing resource;
+/// it does not **create** one. Offering Helvetica on a page that carries only
+/// Arial would produce a refusal on press."* That was true, it was the reason
+/// the chooser only ever offered what the page already had, and `Pass 162.0`
+/// ended it: pdfce now authors a standard-14 `/Font` resource on demand, so
+/// Helvetica on a page built from Arial is a change that works rather than a
+/// refusal.
 ///
-/// The list is therefore built from `fontinfo::FontInventory`, filtered to the
-/// records that name this page. ★ That filter is a **name join** and it is not
-/// exact: `fontinfo` is keyed on the font *dictionary* and `set_font` matches
-/// on `/BaseFont` with the §9.6.4 subset tag stripped, and one page can carry
-/// two dictionaries sharing a `/BaseFont` — two subsets of one face, which the
-/// survey behind the Fonts panel found in 87 % of embedding files. So this is a
-/// superset that is usually exactly right, and when it is not, the press earns
-/// a named refusal rather than silence. A proper pre-flight is filed with the
-/// engine as `Pass 142.1`.
+/// ★ The old sentence is kept above rather than deleted because the *rule* it
+/// states has not changed — a chooser must not offer entries that cannot work —
+/// only the set of entries that can. `super::face::choices` is where that set is
+/// computed and it carries the argument.
+///
+/// # What is drawn here, and what is not
+///
+/// This function owns the **row**: the label, the combo, the current face and
+/// the region. The **popup body** — two groups, their headings, the disclosure
+/// the standard-14 half owes and every clickable row — is
+/// [`super::face::popup_body`], shared verbatim with the ribbon's Format ▸ Font
+/// chooser in [`crate::app::fontband`].
+///
+/// ★★ Shared rather than copied, and that is the change this project keeps
+/// having to make: the two were two copies of one loop, and *"a face offered in
+/// one surface and not the other"* is the divergence found here more than once.
+/// A disclosure added to one copy and not the other would be worse than either.
 fn face_row(
     ui: &mut Ui,
     doc: &OpenDoc,
@@ -679,47 +736,26 @@ fn face_row(
     let current = draft.face.clone().unwrap_or_default();
     let _ = doc;
     ui.horizontal(|ui| {
-        ui.label(t::text_face_label());
+        ui.label(crate::text::panels::face::text_face_label());
+        let mut chosen = None;
         let combo = egui::ComboBox::from_id_salt("properties-text-face")
             .selected_text(shorten(&current))
             .show_ui(ui, |ui| {
-                // ★★ The pre-flight's list, since 2026-08-27. Every row here is
-                // a face `set_font` has already said it would accept **for this
-                // run**, so a press cannot earn a refusal — which is what the
-                // superset built from `fontinfo` could not promise.
-                if draft.faces().is_empty() {
-                    ui.label(t::text_face_none());
-                    return;
-                }
-                for face in draft.faces() {
-                    let selected = face.label == shorten(&current);
-                    // `selectable_label` rather than `selectable_value`: the
-                    // value is not held anywhere between frames, because the
-                    // document is the state. A press is an edit, not a
-                    // selection to be committed later.
-                    let row = ui.selectable_label(selected, &face.label);
-                    // ★ The twin disclosure. Two rows reading identically is
-                    // otherwise indistinguishable from a bug, and the operator
-                    // has a real choice to make between them.
-                    let row = if face.ambiguous {
-                        row.on_hover_text(t::text_face_ambiguous())
-                    } else {
-                        row
-                    };
-                    if row.clicked() && !selected {
-                        actions.push(Action::TextStyle {
-                            page,
-                            runs: runs.to_vec(),
-                            // ★★★ `selector`, NOT the label. On a page with two
-                            // subsets of one `/BaseFont` the name reaches one of
-                            // them arbitrarily; the selector reaches the one
-                            // this row is about.
-                            change: StyleChange::Face(face.selector.clone()),
-                        });
-                    }
-                }
+                chosen = super::face::popup_body(ui, FACE_REGION, draft.faces(), shorten(&current));
             });
         crate::diag::ui_rect_visible(FACE_REGION, combo.response.rect, ui.clip_rect());
+        // ★ The action is raised HERE, outside the popup closure, because
+        // nothing mutates from a widget — `app::actions`' founding invariant.
+        // The closure reports which row was pressed and this row turns that into
+        // one `Action`, exactly as the ribbon's copy turns it into one parked
+        // `StyleChange`.
+        if let Some(selector) = chosen {
+            actions.push(Action::TextStyle {
+                page,
+                runs: runs.to_vec(),
+                change: StyleChange::Face(selector),
+            });
+        }
     });
 }
 

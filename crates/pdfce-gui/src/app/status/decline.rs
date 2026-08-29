@@ -548,6 +548,78 @@ pub(crate) enum Declined {
     FieldGroupPreviewRefused,
     /// **The field-group deletion refused**, after the operator confirmed it.
     FieldGroupDeleteRefused,
+    /// **A bookmark was dropped on itself, or somewhere inside itself** — the
+    /// shell's own forecast of `EditError::OutlineMoveIntoOwnSubtree`,
+    /// 2026-08-29.
+    ///
+    /// # ★★★ Why a drag needs this more than a button does
+    ///
+    /// A drag that is released and does nothing is **this project's founding
+    /// defect shape** — the sentence [`Self::Rotate`] carries about the ninth
+    /// handle, and the reason the eight resize grips were the shell's longest
+    /// standing complaint. A bookmark drag is worse than a grip, because the
+    /// row genuinely leaves the operator's pointer during the gesture: what a
+    /// silence looks like from their side is *"it went somewhere"*, and this
+    /// very feature can put a bookmark somewhere they cannot see (see
+    /// [`crate::text::panels::bookmarks::bookmark_move_into_collapsed`]).
+    ///
+    /// ⇒ So the two readings a silence invites — *"the drag did not register"*
+    /// and *"it moved and I have lost it"* — are both wrong, and one of them is
+    /// a state the panel can genuinely produce. R83's rule is not *gate the
+    /// control*; it is **a refusal must be a sentence, never a silence.**
+    ///
+    /// ★ The caret is already dimmed over such a landing before the press,
+    /// which is this panel's preferred channel. This is what is owed to the
+    /// operator who released anyway — and they will, because the mark is faint
+    /// by design and a hand that has committed to a drag finishes it.
+    ///
+    /// # ★★ Recorded from the VERB, although the shell saw it coming
+    ///
+    /// The panel forecasts this landing — it is a question about the tree it
+    /// has already drawn — and uses the forecast to draw the faintest of its
+    /// three carets. It does **not** use it to skip the call.
+    ///
+    /// The reason is this module's own boundary. `decline` is `pub(super)`
+    /// inside `crate::app` on a stated argument — *"a decline is written by the
+    /// one dispatcher and read by the one bar"* — and a panel is outside it.
+    /// The two ways round are worse than going through: a `record_note` from
+    /// the panel would render the sentence under `⚑ About your last edit:`,
+    /// which [`crate::text::status`]' own rule forbids for a decline, and
+    /// widening this module would trade a real invariant for one call site.
+    ///
+    /// ⇒ So the move is raised, `EditSession::move_outline_item` refuses it by
+    /// name (`EditError::OutlineMoveIntoOwnSubtree`, *"refused unconditionally
+    /// … a cycle is a defect whatever Acrobat does"*), and
+    /// `crate::app::actions::bookmarks::move_to` records this from inside the
+    /// `vector_edit` closure. The guard runs before the verb plans anything, so
+    /// nothing is written, no epoch moves and no undo entry appears.
+    ///
+    /// ★ It also puts the authority in one place. The forecast decides what the
+    /// **caret** looks like; the engine decides what **happens**. They cannot
+    /// drift into disagreeing about the outcome, because only one of them
+    /// produces it.
+    BookmarkMoveIntoOwnSubtree,
+    /// **The engine refused a bookmark move**, 2026-08-29 — the residue the
+    /// shell's forecast cannot cover.
+    ///
+    /// [`Self::BookmarkMoveIntoOwnSubtree`]'s sibling at the other end of the
+    /// call, and its own variant for exactly the reason the two field-group
+    /// declines are two: *"they are different moments with different remedies"*.
+    /// This one means the shell asked and pdfce said no; the other means the
+    /// shell never asked. An operator who read one after the other would learn
+    /// nothing about which half refused.
+    ///
+    /// What can reach it: `/Encrypt`, the certification gate, and an id that
+    /// stopped resolving between the frame that drew the row and the apply that
+    /// moved it — which is the ordinary state one frame after an undo. None is
+    /// guessable from the screen, which is
+    /// [`crate::text::status::field_delete_declined_structural`]'s argument for
+    /// its own verb.
+    ///
+    /// ★ Recorded from **inside** the `vector_edit` closure —
+    /// [`record_resize_not_rebuildable`]'s placement, and its stated reason:
+    /// whether the engine will refuse is not knowable before the call.
+    BookmarkMoveRefused,
     NothingToUndo,
     /// **`edit.redo` was invoked with an empty redo stack.**
     ///
@@ -676,10 +748,22 @@ impl Declined {
             // was, and there is no state for a later frame to find the sentence
             // stale against. What retires them is the operator's next act,
             // which is what retires every decline.
+            // ★★ The two bookmark declines join the field-group pair on the
+            // *second* argument rather than the first, and it is worth saying
+            // which: **nothing happened.** The move was never made or was
+            // refused, so the epoch did not move, the outline is as it was, and
+            // there is no state for a later frame to find the sentence stale
+            // against. Deliberately NOT re-asked against the tree: a walk of
+            // the outline to decide whether a status line is still true would
+            // pay for a `read_outline` sixty times a second to learn an answer
+            // that cannot change without a command — and a command is what
+            // `retire` catches.
             Self::FlattenCertified
             | Self::FieldDeleteRefused
             | Self::FieldGroupPreviewRefused
-            | Self::FieldGroupDeleteRefused => true,
+            | Self::FieldGroupDeleteRefused
+            | Self::BookmarkMoveIntoOwnSubtree
+            | Self::BookmarkMoveRefused => true,
             // ★ Same ruling, third and fourth cases. A name is not going to
             // stop being taken, and a widget is not going to grow a `/T`,
             // between one frame and the next. Both are corrected by the
@@ -755,6 +839,18 @@ impl Declined {
             }
             Self::FieldGroupDeleteRefused => {
                 crate::text::forms::groups::field_group_delete_declined()
+            }
+            // ★ These two reach across to `text::panels::bookmarks` on the
+            // identical argument the field-group pair above records: a string
+            // lives in `crate::text::…`, and the module that owns this
+            // surface's other sentences owns these. `crate::text::status` is
+            // two dozen lines from R2's ceiling, which is a reason to notice
+            // the seam and not a reason to choose it.
+            Self::BookmarkMoveIntoOwnSubtree => {
+                crate::text::panels::bookmarks::bookmark_move_declined_own_subtree()
+            }
+            Self::BookmarkMoveRefused => {
+                crate::text::panels::bookmarks::bookmark_move_declined_engine()
             }
             Self::TextStyle(why) => why.line(),
             Self::Rotate(why) => why.line(),
@@ -923,6 +1019,40 @@ pub(crate) fn record_field_group_delete_refused() {
 
 pub(crate) fn record_field_delete_refused() {
     LAST.with_borrow_mut(|slot| *slot = Some(Declined::FieldDeleteRefused));
+}
+
+/// Record that a **bookmark move** did not happen, and which of the two
+/// sentences it owes.
+///
+/// ★★★ The whole point of the function, stated for whoever adds the next
+/// refusal to this gesture: **a refusal must be a sentence, never a silence.**
+/// A drag that is released and does nothing is this project's founding defect
+/// shape, and a bookmark drag is the worst instance of it — the row leaves the
+/// operator's pointer during the gesture, so a silence reads as *"it moved and
+/// I cannot find it"*, which is a state this very feature can genuinely
+/// produce.
+///
+/// ★★ Called from **inside** the `vector_edit` closure, one position rather
+/// than [`record_rotate`]'s two, and the difference is worth stating: the
+/// shell-side condition that gesture words from the canvas — *"this landing is
+/// inside the thing you are dragging"* — is one the **engine** also refuses by
+/// name, so there is nothing left for the panel to say and nothing gained by a
+/// second door. The panel's forecast of it drives the caret and stops there.
+/// See [`Declined::BookmarkMoveIntoOwnSubtree`].
+///
+/// `own_subtree` chooses between the two variants. A `bool` rather than the
+/// `EditError` itself, so this module stays free of the engine's error type —
+/// the same shape [`record_resize_not_rebuildable`] takes, and for the same
+/// reason: what reaches the bar is a sentence, and which sentence is the only
+/// fact that has to cross the boundary.
+pub(crate) fn record_bookmark_move_refused(own_subtree: bool) {
+    LAST.with_borrow_mut(|slot| {
+        *slot = Some(if own_subtree {
+            Declined::BookmarkMoveIntoOwnSubtree
+        } else {
+            Declined::BookmarkMoveRefused
+        });
+    });
 }
 
 /// Record that a resize was refused because the artwork cannot be rebuilt.

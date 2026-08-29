@@ -10,6 +10,7 @@
 //! | `mod.rs` (this file) | the three **document-structure** panels — Bookmarks, Layers, Signatures — plus [`byte_size`], which several areas share |
 //! | [`attachments`] | the Attachments panel — the files a document carries inside itself, and the four verbs opposite them |
 //! | [`comments`] | the Comments panel — every annotation on the document, what each one is, and the five disclosures a row can carry |
+//! | [`face`] | the **face chooser**, drawn on two surfaces from one module, and the standard-14 disclosure it owes |
 //! | [`fonts`] | the Fonts panel's inventory report |
 //! | [`objects`] | the Objects panel, and the wording of every [`crate::panels::objects::summary::ObjectSummary`] fact |
 //! | [`properties`] | the Properties panel |
@@ -70,6 +71,19 @@
 /// document, and that the name pdfce writes to disk is not always the name the
 /// document shows.
 pub mod attachments;
+/// ★ The words for **moving** a bookmark and for **expanding or collapsing**
+/// one — `pdfce-core` `Pass 161.0`'s two verbs.
+///
+/// The Bookmarks panel's other strings stay in this file, with Layers and
+/// Signatures; these went to a module of their own under R2 when the two verbs
+/// arrived, and the subject boundary is *the words for the verbs that change a
+/// bookmark's PLACE rather than its name*.
+///
+/// Its header carries the two rules a reader must not have to re-derive: why
+/// **two** numbers describe one move (the engine's `visible_items` counts what
+/// was on screen, and a collapsed branch reports `1` however large it is), and
+/// why neither of its decline sentences names the bookmark it is about.
+pub mod bookmarks;
 pub mod comments;
 /// The ce-dimension properties section — the bottom tier of the style cascade
 /// made reachable, with the tier each value came from named beside it.
@@ -79,6 +93,16 @@ pub mod comments;
 /// printing beside it, and a panel previewing the two by concatenation
 /// disagrees with the bytes in the page.
 pub mod dimension;
+/// ★ The **face chooser**, which is one control drawn on two surfaces — the
+/// Properties panel's *This text* section and the ribbon's Format ▸ Font group.
+///
+/// Its own header carries the obligation that made it a module rather than a
+/// block inside [`properties`]: since `Pass 162.0` the chooser offers faces the
+/// document does **not** contain, pdfce authors those without embedding
+/// anything, and the text is then drawn with the reader's own copy of the face
+/// — an inference the operator cannot see on this screen and can see on
+/// somebody else's, which is exactly the case rule 4 requires a sentence for.
+pub mod face;
 /// The Fonts panel's inventory report.
 pub mod fonts;
 /// The Comments panel — every annotation on the document, listed.

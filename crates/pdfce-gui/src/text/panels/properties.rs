@@ -946,41 +946,21 @@ pub const fn text_object_route() -> &'static str {
     "To change how these words look, press T for the Text tool and sweep across them. Clicking picks the shape they are drawn in, which is not the same thing."
 }
 
-/// Label for the face chooser.
-#[must_use]
-pub const fn text_face_label() -> &'static str {
-    "Font"
-}
-
-/// Shown in the face chooser when no font on this page can show this run.
-///
-/// ★★★ **A real state, and the one `Pass 142.1` made visible.** Before the
-/// pre-flight the chooser listed every `/BaseFont` on the page and an operator
-/// found out which ones could not work by pressing them. Now the list holds
-/// only faces `set_font` has already accepted **for this run** — and on a page
-/// where that set is empty, an empty combo would read as a broken control.
-///
-/// ★ It names the reason at the level an operator can act on: the fonts are
-/// there, and what they cannot do is show *these characters*. That is why a
-/// title-block label in a symbol font offers nothing while the paragraph beside
-/// it offers four.
-#[must_use]
-pub const fn text_face_none() -> &'static str {
-    "No other font on this page can show these characters."
-}
-
-/// Hover for a face whose `/BaseFont` is shared by a second resource.
-///
-/// ★★ Two rows reading identically is otherwise indistinguishable from a bug,
-/// and the survey behind the Fonts panel found **two subsets of one face in
-/// 87 % of embedding files** — so this is the routine case, not the exotic one.
-/// The operator has a real choice between them and pdfce reaches the one the
-/// row is about, by resource key rather than by name.
-#[must_use]
-pub const fn text_face_ambiguous() -> &'static str {
-    "This page carries two fonts with this name — two subsets of one face. Choosing this \
-     row uses this one."
-}
+// ★★★ `text_face_label`, `text_face_none` and `text_face_ambiguous` were HERE
+// until 2026-08-29 and now live in [`super::face`], with the two group headings
+// and the standard-14 disclosure that joined them.
+//
+// They moved because the chooser did. `Pass 162.0` made the face list carry
+// faces the document does NOT contain, which turned one combo box into a
+// two-group control with a disclosure of its own — and the strings for it were
+// then the largest single subject in this file, on a surface that is drawn by
+// `crate::panels::properties::face` and consumed by two separate callers.
+//
+// ★ Moved rather than duplicated, and the doc comments moved with them. This
+// project's salvage rule is that a doc comment is usually the record of a
+// defect the wording was changed to fix — `text_face_ambiguous`'s 87 % survey
+// is exactly that — so a re-typed copy would be a second wording with none of
+// the reasons attached.
 
 /// Label for the size field.
 #[must_use]
