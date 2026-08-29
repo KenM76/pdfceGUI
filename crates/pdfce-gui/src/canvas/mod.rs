@@ -190,6 +190,9 @@ pub mod dimdrag;
 /// under R2; its header carries the argument that a fork whose branches can
 /// all answer "not mine" eats the gesture.
 pub mod dragroute;
+/// ★ **The FORM-FIELD clipboard** (O58) — separate from [`clipboard`] because a
+/// `/Widget` is not an annotation selection here, so nothing there can see one.
+pub mod fieldclip;
 pub mod grid;
 pub mod handledrag;
 pub mod handles;

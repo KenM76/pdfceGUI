@@ -99,14 +99,70 @@ one day.
 
 ---
 
+## ★★★ 2026-08-29 LATE — form fields copy and paste, and the harness caught THREE things a green suite would not
+
+**Nothing packaged.** Ask him whether he wants a build. `OPERATOR_REQUESTS.md`
+**O58** is shipped-and-driven, awaiting his verdict.
+
+`Ctrl+V` pastes a copied form field as a **new** field; `Ctrl+Shift+V` pastes it
+as **another box for the same field**. His ruling, his chords.
+
+### ★★★ The three findings, in the order they will bite a cold session
+
+**1. The DUPLICATE is the faithful paste and the NEW FIELD is the lossy one.**
+The opposite of what the names suggest, and the whole design rests on it.
+`add_text_field` **merges** when the `/T` already names a field
+(`edit.rs:13523`, `merged: true`), so a duplicate never rebuilds the field and
+inherits `/DA`, `/Q`, `/V`, `/DV` and `/AA` exactly. A new-name paste has to
+re-author through `New*Field`, which is geometry-plus-booleans, and drops the
+font, alignment, default value, calculation script and border colour.
+
+⇒ **Fifth stale blocker.** We came to the request channel to ask for a
+widget-clone verb and found half of it shipped. *A backlog row is a record, not
+evidence.*
+
+**2. `Ctrl+V` did nothing, and the RAG entry that predicts it did not help.**
+`egui-winit` raises `Event::Paste` only when the OS clipboard holds non-empty
+text. `canvas::clipboard::copy_content` writes a marker for exactly this reason
+— **one function away in the same file** — and the new field-copy path did not,
+because the workaround lives at each *copy site*. The general form is now in
+`D:/dev/rag/egui/`: **a documented platform trap does not protect a code path
+written after it.** The durable fix is a funnel, not a paragraph.
+
+**3. `Ctrl+Shift+V` is INDISTINGUISHABLE from `Ctrl+V` at the egui layer.**
+`is_paste_command` (`egui-winit-0.35.0/src/lib.rs:1406`) is
+`modifiers.command && keycode == Key::V` — **shift is not excluded** — so both
+chords become `Event::Paste`, the raw key is swallowed, and `Event::Paste`
+carries no modifiers. The shift now comes from `i.modifiers.shift`, read in the
+same `ctx.input` borrow as the events. ★ The plausible opposite assumption would
+have shipped a chord that silently pasted a new field every time he asked for a
+duplicate.
+
+### ★★ And a fourth, in the CHECK rather than the program
+
+Its box oracle summed every frame's census, so it read **1 → 3 → 6** and passed
+while measuring *repaints*. Distinct `(field, centre)` pairs now: **1 → 2 → 3
+boxes, 1 → 2 → 2 names**. Ask what a check SAMPLED before believing it — the
+fourth instance this month.
+
+### Open on his desk
+
+`request_form_fields_cannot_be_pasted_and_half_of_it_already_works.md` asks the
+engine for `copy_field` / `paste_field` carrying a serialisable `FieldClip`,
+which would make `Ctrl+V` lossless and would work between drawings. Nothing is
+blocked on the reply.
+
+---
+
 ## ★★★ Last session: 2026-08-28 LATE — fonts embed and unembed, markup drags, and the sweep's failure count is not a defect count
 
 **Nothing packaged.** Ask him whether he wants a build. `FEATURES.md` is
 re-measured; `OPERATOR_REQUESTS.md` has **three new questions for him (O47, O48,
 O49)** and none of them blocks anything.
 
-**Measured now:** 1,879 GUI + 421 shell + 144 harness tests, 18/18 gates,
-**89 driven checks**. Engine pinned at `e9412f6` (re-measured 2026-08-29 from `Cargo.lock`). Scaffold list **5**.
+**Measured now (2026-08-29, re-run):** **2,655 passing tests across the
+workspace** (2,067 GUI lib + 421 shell + the rest), **19/19 gates**, **111 registered
+driven checks**. Engine pinned at `e9412f6` (re-measured 2026-08-29 from `Cargo.lock`). Scaffold list **5**.
 
 **What shipped:** Tools ▸ Embed fonts and Tools ▸ Remove embedded fonts, both
 driven end to end; dragging an ordinary markup annotation; the Bold retry using

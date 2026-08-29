@@ -751,6 +751,29 @@ pub(super) fn guard_claiming(id: &str) -> Option<&'static str> {
     if crate::app::dispatch::textcopy::handles(id) {
         return Some("handles");
     }
+    // ★★ The guard added 2026-08-29 with `dispatch::clipboard`, when
+    // `edit.paste_duplicate` (O58) took `dispatch.rs` past 1,500 lines for the
+    // FOURTH time. Everything the `pages::handles` paragraph says applies
+    // unchanged.
+    //
+    // ★★★ **And it failed closed for the fifth time, which is the point of
+    // recording each one.** The instant the three clipboard arms moved out of
+    // the parent, this checker reported `edit.cut`, `edit.copy`, `edit.paste`
+    // and `edit.paste_duplicate` as registered controls with no dispatch arm —
+    // four commands the operator presses daily, reported as unreachable, by a
+    // test that had no idea a new module existed.
+    //
+    // ⇒ That is the failure mode this project has named before and keeps
+    // meeting: **a hand-written list inside a completeness test is the gap it
+    // was built to find.** The list is still hand-written, and the mitigation
+    // is that it fails LOUDLY rather than silently — a new `dispatch::*` module
+    // is invisible to this checker until someone adds a line here, and what
+    // makes that survivable is that every command in the moved module goes red
+    // at once. A checker that failed open would have shipped four dead
+    // controls with a green suite.
+    if crate::app::dispatch::clipboard::handles(id) {
+        return Some("handles");
+    }
     // ★ The third membership-test guard, added 2026-08-24 with
     // `dispatch::zoom`, when O29's third fit mode took `dispatch.rs` past
     // 1,500 lines. Everything the `pages::handles` paragraph above says

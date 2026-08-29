@@ -220,6 +220,27 @@ pub enum Clipped {
         /// to.
         count: usize,
     },
+    /// ★★★ **A form field**, as of 2026-08-29 — `OPERATOR_REQUESTS.md` O58.
+    ///
+    /// The third thing this clipboard can hold, and the one that needed a
+    /// module of its own: see [`crate::canvas::fieldclip`] for why a form
+    /// field could not previously be copied at all, and for the two senses
+    /// `Ctrl+V` and `Ctrl+Shift+V` carry.
+    ///
+    /// # Why it is a variant here and not a second clipboard
+    ///
+    /// **One clipboard holds one thing.** Copying a markup after copying a
+    /// field must replace it, because `Ctrl+V` has to mean exactly one act at
+    /// any moment. A second `egui::Memory` key would give the shell two live
+    /// clipboards and `edit.paste` a choice to make between them — and any rule
+    /// it used to choose (most recent? most specific? whatever the selection
+    /// is?) would be a rule the operator cannot see.
+    ///
+    /// Boxed because `ClippedField` carries a whole `Draft` and this enum is
+    /// cloned on every read; the other two variants are a `Box` and a `Vec`
+    /// respectively, so boxing keeps the variants the same order of size and
+    /// stops `clippy::large_enum_variant` from being right.
+    FormField(Box<crate::canvas::fieldclip::ClippedField>),
 }
 
 /// Why a copy or a cut could not happen.
@@ -419,7 +440,7 @@ fn copy_content(ctx: &egui::Context, doc: &OpenDoc) -> Result<Clipped, Refusal> 
         // the wrong typeface, and it is several hundred bytes shorter.
         let bytes = match &clipped {
             Clipped::Content { bytes, .. } => bytes.len(),
-            Clipped::Markup { .. } => 0,
+            Clipped::Markup { .. } | Clipped::FormField(_) => 0,
         };
         format!(
             "clipboard-copy kind=content page={page} objects={} bytes={bytes}",
@@ -536,6 +557,19 @@ pub fn cut(
             }
         }
         (Clipped::Markup { .. }, None) => {}
+        // ★ A form field's cut is `canvas::fieldclip::cut`, which raises
+        // `FieldAction::DeleteWidget` -- a widget is addressed by its FIELD's
+        // name and an index within it, not by the `ObjId` this arm's siblings
+        // use, because one field can draw boxes on three pages. Reaching this
+        // arm means `app::dispatch::clipboard` routed a field copy into the
+        // markup path.
+        (Clipped::FormField(_), _) => {
+            debug_assert!(
+                false,
+                // ui-text-exempt: a debug_assert message for a developer; never rendered.
+                "a form field cut must route to canvas::fieldclip::cut; app::dispatch::clipboard owns that fork"
+            );
+        }
     }
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
@@ -544,6 +578,7 @@ pub fn cut(
             match &clipped {
                 Clipped::Markup { .. } => "markup",
                 Clipped::Content { .. } => "content",
+                Clipped::FormField(_) => "form-field",
             }
         )
     });
@@ -572,6 +607,19 @@ pub fn paste(ctx: &egui::Context, page: usize, actions: &mut Vec<Action>) -> Res
             count,
         }) => {
             return paste_content(page, &bytes, from, count, actions);
+        }
+        // ★★ Same fork as the cut above, and the same tripwire. A field paste
+        // needs `&OpenDoc` -- to find a free name, and to know what the source
+        // field could not carry -- which this function does not take and must
+        // not grow, because every other paste here is a pure function of the
+        // clip. `app::dispatch::clipboard` branches before calling either.
+        Some(Clipped::FormField(_)) => {
+            debug_assert!(
+                false,
+                // ui-text-exempt: a debug_assert message for a developer; never rendered.
+                "a form field paste must route to canvas::fieldclip::paste; app::dispatch::clipboard owns that fork"
+            );
+            return Err(Refusal::NothingCopied);
         }
         None => return Err(Refusal::NothingCopied),
     };

@@ -135,6 +135,11 @@ pub mod embed;
 /// says nothing, so a 1:2 detail arrives at half size **looking plausible**.
 pub mod export_dxf;
 pub mod export_form;
+/// ★ The FORM-FIELD clipboard's sentences — five refusals and the paste's
+/// off-canvas loss note. Separate from [`clipboard`] because the loss note is
+/// not a refusal: the paste worked, and the sentence exists because part of the
+/// field could not travel and the operator cannot see which part.
+pub mod fieldclip;
 /// The copy the open/close/recent surface owns — the file dialog's title and
 /// filter names, and every string the Recent control draws. Consumed by
 /// `crate::app::files` and `crate::app::recent`.

@@ -158,6 +158,21 @@ pub(super) fn tab() -> Tab {
                     icon_only("edit.cut"),
                     icon_only("edit.copy"),
                     icon_only("edit.paste"),
+                    // ★★ Four now, and the fourth is NOT the paste-in-place the
+                    // note above rules out. It is `edit.paste_duplicate`, and it
+                    // earns its place on the one ground that note demanded and
+                    // paste-in-place could not meet: it does something Ctrl+V
+                    // does not. Pasting a form field as another BOX for the same
+                    // field is a different act with a different result, not the
+                    // same act in a different position.
+                    //
+                    // ★ Labelled rather than icon-only would be better on
+                    // discoverability grounds and is not offered, because the
+                    // group is four icons wide and a single labelled member in a
+                    // row of three icons reads as a mistake. The label is in the
+                    // tooltip and in the Edit menu; `RIBBON_SCALING.md`'s rule is
+                    // that a group's members share a presentation.
+                    icon_only("edit.paste_duplicate"),
                 ],
             ),
             // ---------------------------------------------------------------

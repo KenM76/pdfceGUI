@@ -45,6 +45,11 @@
 //! panel.
 
 // The Pages tab's arms, split out under R2. See its header for the seam.
+/// ★★ **Cut, copy and the two pastes** — four ids over three operand kinds.
+/// Split out on 2026-08-29 when `edit.paste_duplicate` pushed this file past
+/// R2's ceiling for the fourth time. Its header carries the three-rung fork
+/// that decides whether a `Ctrl+C` is about text, a form field or an object.
+pub(crate) mod clipboard;
 pub(crate) mod format;
 /// ★ `edit.insert_image`'s four steps — pick, read, import, refuse or open.
 ///
@@ -592,122 +597,13 @@ impl PdfceApp {
             // is to press Select. Toggling a member of a radio group is the
             // behaviour that makes an operator press a button and watch a
             // different one light up.
-            // ★★ **The object clipboard.** Cut and copy read the selection and
-            // write `egui::Memory`; paste raises `Action::PasteMarkup`. Every
-            // refusal is a SENTENCE on the status row rather than a silence,
-            // which is this shell's standing answer since `DEFECTS.md` D4a — a
-            // `Ctrl+C` that does nothing and says nothing is indistinguishable
-            // from a broken keyboard, and that is precisely how the operator
-            // experienced the absence of these three.
-            "edit.copy" | "edit.cut" => {
-                let Status::Open(doc) = &self.status else {
-                    return;
-                };
-                let cutting = id == "edit.cut";
-
-                // ★★ TEXT WINS. Defect O18: both handlers see the same
-                // `Event::Copy` in the same frame, and until 2026-08-21 the
-                // object path ran anyway and wrote its marker over what the
-                // text path had put on the clipboard. The operator swept some
-                // text, pressed Ctrl+C, pasted into Notepad and got "1 object
-                // copied from pdfce".
-                //
-                // The collision is resolved in the BROADER verb because only
-                // this one can see both operands. Cut is included deliberately:
-                // cutting swept page text is not a thing pdfce can do, so the
-                // right answer is nothing rather than quietly cutting the
-                // object underneath it. The full argument — including why a
-                // draft with no selection still counts — is on
-                // `canvas::clipboard::text_owns_the_chord`.
-                if crate::canvas::clipboard::text_owns_the_chord(ctx, doc) {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed.
-                        format!("command-declined id={id} reason=text-owns-the-clipboard")
-                    });
-                    return;
-                }
-                // ★★ The gate follows WHAT IS SELECTED, not the command.
-                //
-                // A cut removes something, so it needs a mode that may remove
-                // that kind of thing — and as of 2026-08-20 there are two
-                // kinds. Cutting an annotation needs `author_markup` (Review
-                // and Edit); cutting page content needs `edit_content` (Edit
-                // alone), which is the same predicate the Delete key is gated
-                // on and must be, because a cut IS a delete with a copy in
-                // front of it.
-                //
-                // Asking `author_markup` for both would have let Review cut a
-                // line off a drawing — a mode whose whole promise is that it
-                // does not change the document's content.
-                let caps = self.capabilities();
-                let content = doc.selection.annot().is_none() && !doc.selection.is_empty();
-                let allowed = if content {
-                    caps.edit_content
-                } else {
-                    caps.author_markup
-                };
-                if cutting && !allowed {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed.
-                        format!(
-                            "command-declined id={id} reason=mode-cannot-remove-{}",
-                            if content { "content" } else { "markup" }
-                        )
-                    });
-                    return;
-                }
-                // ★ Copy is permitted in every mode and cut is not, and the
-                // split is the operator's own *copying is not authoring* ruling
-                // — the same line that put `file.copy_page_text` in Read and
-                // kept `edit.text` out of it. A cut removes an annotation.
-                let outcome = if cutting {
-                    crate::canvas::clipboard::cut(ctx, doc, actions)
-                } else {
-                    crate::canvas::clipboard::copy(ctx, doc)
-                };
-                if let Err(refusal) = outcome {
-                    crate::app::actions::record_note(
-                        doc.edit_epoch,
-                        crate::text::clipboard::refusal(refusal).to_owned(),
-                    );
-                }
-            }
-            "edit.paste" => {
-                let Status::Open(doc) = &self.status else {
-                    return;
-                };
-                // ★ The gate follows WHAT IS ON THE CLIPBOARD, for the same
-                // reason the cut's follows what is selected: pasting page
-                // content is a content edit and Review may not make one.
-                //
-                // It reads the clipboard rather than the selection, which is
-                // the only honest source here — a paste has no operand on the
-                // page to look at.
-                let caps = self.capabilities();
-                let allowed = match crate::canvas::clipboard::read(ctx) {
-                    Some(crate::canvas::clipboard::Clipped::Content { .. }) => caps.edit_content,
-                    // An empty clipboard takes the markup gate, so the refusal
-                    // an operator gets in Read is the mode's rather than
-                    // "nothing has been copied" — which would be true and
-                    // useless, because copying something would not help.
-                    _ => caps.author_markup,
-                };
-                if !allowed {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed.
-                        format!("command-declined id={id} reason=mode-cannot-paste-here")
-                    });
-                    return;
-                }
-                let page = doc.view.page_index;
-                let epoch = doc.edit_epoch;
-                if let Err(refusal) = crate::canvas::clipboard::paste(ctx, page, actions) {
-                    crate::app::actions::record_note(
-                        epoch,
-                        crate::text::clipboard::refusal(refusal).to_owned(),
-                    );
-                }
-            }
+            // ★★ **The clipboard family**, routed rather than inlined: four ids
+            // (`edit.cut`, `edit.copy`, `edit.paste`, `edit.paste_duplicate`),
+            // three operand kinds, and two chords that mean different things to
+            // the same field. Moved out of this file on 2026-08-29 under R2 when
+            // the fourth id arrived; `dispatch::clipboard`'s header carries the
+            // fork that decides which module answers.
+            id if clipboard::handles(id) => clipboard::dispatch(self, ctx, id, actions),
             "view.tool_select" => {
                 crate::canvas::tool::select(ctx, crate::canvas::tool::CanvasTool::Select);
             }

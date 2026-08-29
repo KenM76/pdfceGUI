@@ -256,7 +256,13 @@ mod tests {
         // existed in the engine with no command, no menu item and no route of
         // any kind — so the operator had the edit-in-place default and no
         // choice at all, which is the state `R206` exists to prevent.
-        assert_eq!(registry().len(), 125);
+        // ★ 125 → 126 on 2026-08-29: `edit.paste_duplicate`, the second
+        // sense of a form-field paste (`OPERATOR_REQUESTS.md` O58). It is a
+        // registered COMMAND rather than a modifier read inside `edit.paste`
+        // because a command is the unit this shell can bind, place on a
+        // ribbon, put in a menu and withhold by mode — a modifier read inside
+        // a handler is reachable from the keyboard and from nowhere else.
+        assert_eq!(registry().len(), 126);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -312,7 +318,13 @@ mod tests {
         // XObject, drawn the same, is the convention working rather than an
         // economy; `icons/assets/PROVENANCE.md` is untouched, because nothing
         // was drawn.
-        assert_eq!(named, 105, "commands naming an icon");
+        // ★ 105 → 106 on 2026-08-29: `edit.paste_duplicate` reuses the
+        // `paste` glyph under the header's shared-key convention. A second
+        // paste icon would be a distinction the operator has to learn for no
+        // gain; Word and Acrobat tell their paste variants apart by label and
+        // by chord, not by art, and `icons/assets/PROVENANCE.md` is untouched
+        // because nothing was drawn.
+        assert_eq!(named, 106, "commands naming an icon");
         // ★ 12 → 17 on 2026-08-27: the Format ▸ Font group's five commands
         // all refuse a glyph, and they refuse it for one reason argued once at
         // their registration. Word draws `B` and `I` as glyphs; this build has

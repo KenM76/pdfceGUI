@@ -677,6 +677,12 @@ mod tests {
                 "edit.copy",
                 "edit.cut",
                 "edit.paste",
+                // ★ Added 2026-08-29 with `edit.paste_duplicate` (O58). Read
+                // refuses it for the same structural reason as its three
+                // siblings: the whole Clipboard group lives on the **Edit
+                // tab**, which Read does not show. Nothing special-cases the
+                // new chord — it inherits the gate by being in the group.
+                "edit.paste_duplicate",
                 "edit.text",
                 // ★ The object clipboard, added 2026-08-19 — listed after the
                 // two text verbs because this array is SORTED (the assertion

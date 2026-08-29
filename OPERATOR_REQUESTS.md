@@ -80,7 +80,7 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
-## O58 — ⬜ Copy and paste a form field: `Ctrl+V` pastes a NEW field, `Ctrl+Shift+V` pastes a DUPLICATE
+## O58 — ✅ Copy and paste a form field: `Ctrl+V` pastes a NEW field, `Ctrl+Shift+V` pastes a DUPLICATE
 
 **Ken, 2026-08-29:** *"wire the request. ctrl v for paste as new. ctrl shift v
 for paste as duplicate."*
@@ -135,8 +135,40 @@ is currently **no path at all** from a selected field to `Ctrl+C`. That is
 shell-side plumbing: a third `Clipped` variant fed from `doc.selected_field`, a
 cut path over `delete_widget`, and the two paste chords.
 
-**Status:** ⬜ **OPEN — request filed 2026-08-29, no shell work started.** Not
-driven. Nothing to verify yet.
+### Shipped and driven, 2026-08-29 — same day
+
+Both chords work end to end against the release binary. The driven check is
+**`a_form_field_can_be_copied_and_pasted_both_ways`**, and it went red before it
+went green, twice, for two different reasons — which is the only reason it is
+worth anything:
+
+1. **`Ctrl+V` did nothing.** `egui-winit` raises `Event::Paste` only when the OS
+   clipboard holds non-empty text and swallows the keystroke otherwise. The
+   existing content-copy path writes a marker for exactly this reason; the new
+   field-copy path did not, because that workaround lives at each copy site.
+   *A documented platform trap does not protect a code path written after it* —
+   filed to `D:/dev/rag/egui/`.
+2. **`Ctrl+Shift+V` would have pasted a NEW field.** egui's own
+   `is_paste_command` does **not** exclude Shift, so `Ctrl+Shift+V` becomes the
+   same `Event::Paste` as `Ctrl+V` with the raw key swallowed and no modifier on
+   the event. The plausible assumption — that it arrives as an ordinary key and
+   the generic keymap handles it — is wrong, and shipping on it would have made
+   the chord silently do the other thing.
+
+And one defect in the **check itself**, caught before it was trusted: its box
+count summed every frame's census, so it read 1 → 3 → 6 and passed while
+measuring repaints. It now counts distinct `(field, centre)` pairs and reads
+**1 → 2 → 3 boxes with 1 → 2 → 2 names**, which is the merge observed from
+outside the engine.
+
+**What is NOT proved, said out loud:** that a duplicate *shares a value* with its
+source. That needs typing into one box and reading the other, which this harness
+has no gesture for. The box count proves a second widget arrived; it does not
+prove the two are one field. The engine's own disclosure says they are.
+
+**Status:** ✅ **SHIPPED AND DRIVEN — awaiting your verdict.** The lossless
+route for `Ctrl+V` is still filed and unanswered; until it lands, a new-field
+paste says on the status row exactly what did not come with it.
 
 ---
 

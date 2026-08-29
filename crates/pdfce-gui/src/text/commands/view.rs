@@ -136,7 +136,8 @@ pub const fn view_zoom_region() -> CommandText {
 pub const fn edit_cut() -> CommandText {
     CommandText::new(
         "Cut",
-        "Copy the selected comment or markup and remove it. One Ctrl+Z brings it back.",
+        "Copy what is selected and remove it \u{2014} a comment, a shape on the page, or a \
+         form field. One Ctrl+Z brings it back.",
     )
 }
 
@@ -151,17 +152,49 @@ pub const fn edit_cut() -> CommandText {
 pub const fn edit_copy() -> CommandText {
     CommandText::new(
         "Copy",
-        "Copy the selected comment or markup. Ctrl+C over selected TEXT copies the text instead.",
+        "Copy what is selected \u{2014} a comment, a shape on the page, or a form field. \
+         Ctrl+C over selected TEXT copies the text instead.",
     )
 }
 
 /// `edit.paste` — the object clipboard's paste.
+///
+/// ★ The tooltip was rewritten on 2026-08-29 and the old wording is worth
+/// recording, because it had quietly become false twice: it said *"the copied
+/// comment or markup"* after `Pass 120.0` made page content pasteable and again
+/// after form fields joined the clipboard. A tooltip that names a NARROWER scope
+/// than the command has is the same defect class as one that names a wider one —
+/// the operator never tries the thing that would have worked.
 #[must_use]
 pub const fn edit_paste() -> CommandText {
     CommandText::new(
         "Paste",
-        "Put the copied comment or markup on this page. On the page it came from it lands \
-         slightly offset so you can see it; on any other page it lands where it was.",
+        "Put what you copied on this page. A copied form field arrives as a NEW field \
+         with its own value. On the page it came from it lands slightly offset so you \
+         can see it; on any other page it lands where it was.",
+    )
+}
+
+/// `edit.paste_duplicate` — the second sense of a form-field paste.
+///
+/// **Ken, 2026-08-29:** *"ctrl shift v for paste as duplicate."*
+///
+/// ★★★ The tooltip leads with the CONSEQUENCE — *"typing in one fills both"* —
+/// rather than with the mechanism (*"a second widget of the same field"*), which
+/// is a sentence about PDF structure. The consequence is the thing that will
+/// surprise him at the printer, and it is the ONLY disclosure there is: two
+/// linked boxes and two independent boxes are pixel-identical on the page.
+///
+/// ★ It says what happens over a non-field clipboard too, because the command is
+/// not withheld there — it falls through to an ordinary paste, and a control that
+/// silently means something else is worse than one that says so.
+#[must_use]
+pub const fn edit_paste_duplicate() -> CommandText {
+    CommandText::new(
+        "Paste as duplicate",
+        "Paste a copied form field as ANOTHER BOX FOR THE SAME FIELD \u{2014} typing in one \
+         fills both, and it keeps the original's font, colour and any calculation. For \
+         anything else on the clipboard this is an ordinary paste.",
     )
 }
 

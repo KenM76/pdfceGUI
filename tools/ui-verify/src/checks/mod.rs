@@ -208,6 +208,7 @@ pub mod widget_move;
 /// operator's headline complaint: a click inside a form XObject must select
 /// what is drawn there, and a click on blank paper inside one must select
 /// nothing.
+pub mod field_clipboard;
 pub mod form_selection;
 /// ★ Markup ▸ Style — a ribbon group whose one item the manifest declared at S2
 /// and no renderer ever drew, so it shipped as a caption over an empty band.
@@ -1063,6 +1064,12 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // recognition, which is a second in a release build. Placed after the
         // cheap ones so a run that is going to fail on something structural
         // fails before spending it.
+        // ★★ O58's discharge, 2026-08-29. It runs AFTER the selection checks
+        // deliberately: its first three phases are `field_menu`'s (place,
+        // clear, select), so if those are broken this check should not be the
+        // first thing to say so — it would name the clipboard for a selection
+        // defect. Its own SKIP messages distinguish the two.
+        Box::new(field_clipboard::AFormFieldCanBeCopiedAndPastedBothWays),
         Box::new(form_selection::AClickInsideAFormSelectsWhatIsDrawnThere),
         // ★ Immediately after it, and the order is a dependency rather than a
         // preference: this check's second step is `form_selection`'s first

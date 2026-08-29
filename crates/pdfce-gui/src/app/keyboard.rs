@@ -377,11 +377,52 @@ pub fn collect(ctx: &Context, page_count: Option<usize>) -> Vec<Action> {
 /// the call site is case-insensitive so a hand-edited keymap saying `"ctrl+c"`
 /// is not silently dead — which is the failure mode this whole function is a
 /// fix for, one layer up.
-fn clipboard_chord(ev: &egui::Event) -> Option<&'static str> {
+///
+/// # ★★★ `shift` is a parameter because egui CANNOT tell the two pastes apart
+///
+/// `OPERATOR_REQUESTS.md` **O58** binds `Ctrl+Shift+V` to `edit.paste_duplicate`,
+/// and `egui-winit-0.35.0`'s own predicate is:
+///
+/// ```rust
+/// fn is_paste_command(modifiers: egui::Modifiers, keycode: egui::Key) -> bool {
+///     keycode == egui::Key::Paste
+///         || (modifiers.command && keycode == egui::Key::V)          // <-- shift NOT excluded
+///         || (cfg!(target_os = "windows") && modifiers.shift && keycode == egui::Key::Insert)
+/// }
+/// ```
+///
+/// **`Ctrl+Shift+V` therefore becomes `Event::Paste` exactly like `Ctrl+V`**,
+/// the raw key event is swallowed by the same `return` documented at the call
+/// site, and `Event::Paste` carries no modifier field. So the shift is
+/// unrecoverable from the event and must come from the input state.
+///
+/// ★ Measured against the source on 2026-08-29 rather than assumed. The
+/// alternative reading — that egui excludes shift, so `Ctrl+Shift+V` arrives as
+/// an ordinary `Event::Key` and the generic path below handles it with no work
+/// at all — was the hypothesis, and it was **wrong**. It would have shipped a
+/// chord that did nothing, or worse, one that pasted a NEW field every time the
+/// operator asked for a duplicate.
+///
+/// # ★★ Why the frame's modifiers, when this file's own rule says per-event
+///
+/// Because there is no per-event answer to have. `Event::Paste` is a *semantic*
+/// event synthesised by the platform layer; the keystroke that produced it was
+/// discarded along with its modifier state. The frame's state is the only
+/// source that exists, and the caller reads it in the **same `ctx.input`
+/// borrow** as the event list so the two cannot describe different frames.
+///
+/// The hazard the per-event rule guards against is therefore still live here in
+/// a narrow form: an operator who releases Shift within the same long frame as
+/// the keypress gets an ordinary paste. That is a real limitation, it is
+/// unfixable at this layer, and it is written down rather than left to be
+/// rediscovered — `tools/ui-verify`'s `a_form_field_can_be_copied_and_pasted_both_ways`
+/// is the check that would catch it becoming common.
+fn clipboard_chord(ev: &egui::Event, shift: bool) -> Option<&'static str> {
     match ev {
         // ui-text-exempt: keymap chord spellings, never displayed.
         egui::Event::Copy => Some("Ctrl+C"),
         egui::Event::Cut => Some("Ctrl+X"),
+        egui::Event::Paste(_) if shift => Some("Ctrl+Shift+V"),
         egui::Event::Paste(_) => Some("Ctrl+V"),
         _ => None,
     }
@@ -445,7 +486,10 @@ pub fn commands(ctx: &Context, keymap: Option<&Keymap>) -> Vec<String> {
     // Matching per event also removes the two-pass shape below it: each event
     // knows its own key and its own modifiers, so there is nothing to carry
     // between the `input` borrow and the filter.
-    let events = ctx.input(|i| i.events.clone());
+    // ★ The events AND the modifier state in ONE borrow — see
+    // [`clipboard_chord`] for why the second is needed and why it cannot be a
+    // per-event fact. Two separate `ctx.input` calls could straddle a frame.
+    let (events, shift_held) = ctx.input(|i| (i.events.clone(), i.modifiers.shift));
 
     let mut out = Vec::new();
     for ev in events {
@@ -484,7 +528,7 @@ pub fn commands(ctx: &Context, keymap: Option<&Keymap>) -> Vec<String> {
         // honoured, and a manifest that binds these chords to something else
         // entirely still works — which is R8's whole posture: the registry
         // decides, not this file.
-        if let Some(chord) = clipboard_chord(&ev) {
+        if let Some(chord) = clipboard_chord(&ev, shift_held) {
             for (bound, id) in keymap.iter() {
                 if bound.eq_ignore_ascii_case(chord) {
                     crate::diag::trace(|| {

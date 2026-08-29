@@ -411,6 +411,47 @@ pub enum FieldAction {
         /// Everything the operator chose, including which kind it is.
         draft: Box<crate::canvas::formfield::Draft>,
     },
+    /// ★★★ **Author the form control that came off the clipboard.**
+    ///
+    /// Raised by [`crate::canvas::fieldclip::paste`] and by nothing else.
+    /// `OPERATOR_REQUESTS.md` **O58**, 2026-08-29.
+    ///
+    /// # Why this is not [`Self::Commit`], which it otherwise duplicates
+    ///
+    /// One line in `super::apply`: `Commit` calls `self.form_defaults.remember`
+    /// on the way past, and a paste must not.
+    ///
+    /// `remember` exists for the operator's *"remember last settings"* — it
+    /// seeds the **placement dialog** with whatever was last accepted there,
+    /// which is right, because accepting a dialog is a statement about how the
+    /// operator wants fields made. A paste is not that statement. Routing a
+    /// paste through `Commit` would mean that copying one password field
+    /// silently made the *next hand-drawn field* a password field, discovered
+    /// three fields later, with nothing on screen having said so.
+    ///
+    /// ⇒ The two variants carry identical data and differ in one side effect,
+    /// which is exactly when two variants are correct rather than one with a
+    /// flag: the flag would be read at the only place that can act on it and
+    /// would be invisible everywhere else, including here.
+    ///
+    /// # What is NOT decided here
+    ///
+    /// Whether this is a new field or a second widget of an existing one. That
+    /// is settled entirely by [`crate::canvas::formfield::Draft::name`] before
+    /// the action is raised — a name that matches an existing field **merges**
+    /// (`edit.rs:13523`, `merged: true`), a fresh one does not. So the two
+    /// chords produce the same variant carrying different names, and
+    /// `super::author`'s existing disclosure pass reports `merged` without
+    /// needing to know which chord was pressed.
+    Paste {
+        /// The 0-based page it lands on.
+        page: usize,
+        /// Where, in PDF user space — already offset or already in place, per
+        /// [`crate::canvas::fieldclip::paste`]'s same-page/cross-page rule.
+        rect: pdfce_core::page_tree::Rect,
+        /// The clipped draft, renamed if this is a paste-as-new.
+        draft: Box<crate::canvas::formfield::Draft>,
+    },
     /// ★ **Register a form control the document draws but no field claims.**
     ///
     /// Raised by `crate::panels::forms::tab_order` and by nothing else — the
@@ -471,6 +512,14 @@ pub(super) fn apply(doc: &mut OpenDoc, action: FieldAction) {
         // ★ Selection is VIEW STATE. It changes no document, bumps no epoch and
         // invalidates no page — which is why it does not go near the funnel.
         FieldAction::Select(selected) => doc.selected_field = selected,
+        // ★ The paste, through the SAME authoring funnel a dialog commit uses.
+        //
+        // One line, and that is the point: `author` already holds the tooltip
+        // rule, the comb gate, the five-way narrowing to the engine's specs,
+        // the disclosure pass and the select-what-was-just-placed behaviour.
+        // A paste that re-implemented any of those would be a second authoring
+        // path that drifts from the first the next time either is corrected.
+        FieldAction::Paste { page, rect, draft } => author(doc, page, rect, &draft),
         FieldAction::EditProperties {
             field,
             edit,

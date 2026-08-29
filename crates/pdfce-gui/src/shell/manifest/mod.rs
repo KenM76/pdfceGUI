@@ -328,6 +328,11 @@ pub fn built_in() -> Shell {
         .with_binding("Ctrl+X", "edit.cut")
         .with_binding("Ctrl+C", "edit.copy")
         .with_binding("Ctrl+V", "edit.paste")
+        // ★ Ctrl+Shift+V, the operator's own choice, 2026-08-29. Unbound
+        // before this and unclaimed by egui, so there is no collision to
+        // resolve. The convention it follows is the one Word, Excel and every
+        // browser use for "paste, but differently": the same key with Shift.
+        .with_binding("Ctrl+Shift+V", "edit.paste_duplicate")
         .with_binding("V", "view.tool_select")
         .with_binding("A", "view.tool_node")
         .with_binding("T", "view.tool_text")
@@ -772,10 +777,13 @@ mod tests {
         assert_eq!(shell.modes().len(), 3, "three modes");
         assert_eq!(
             shell.keymap.as_ref().expect("a keymap").len(),
-            33,
-            "thirty-three key bindings — the four pointer tools took V, A, T and H on 
+            34,
+            "thirty-four key bindings — the four pointer tools took V, A, T and H on 
              2026-08-19, and the document tabs took Ctrl+Tab, Ctrl+Shift+Tab and 
-             Ctrl+W the same day. Both are the layout every program in this class uses"
+             Ctrl+W the same day. Both are the layout every program in this class uses. 
+             ★ 33 → 34 on 2026-08-29: Ctrl+Shift+V for `edit.paste_duplicate`, the 
+             operator's own choice, following the Word/Excel/browser convention that 
+             'paste, but differently' is the same key with Shift"
         );
     }
 

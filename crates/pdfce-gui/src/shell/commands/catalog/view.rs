@@ -204,6 +204,20 @@ pub(super) fn band() -> Vec<Command> {
         command("edit.paste", t::edit_paste(), 405)
             .with_icon("paste")
             .enabled_when("doc.pages"),
+        // ★★ `edit.paste_duplicate` — Ken, 2026-08-29, O58. Registered as its
+        // own command rather than read as a modifier inside `edit.paste`,
+        // because a command is the unit this shell can bind, place, menu and
+        // withhold; a modifier read inside a handler is reachable only from the
+        // keyboard. `app::dispatch::clipboard`'s header carries the argument.
+        //
+        // ★ Same `doc.pages` gate and same icon as its sibling. A second paste
+        // glyph would be a distinction the operator has to learn for no gain —
+        // the two are told apart by their labels and by the chord in the
+        // tooltip, which is how Word and Acrobat tell their paste variants
+        // apart too.
+        command("edit.paste_duplicate", t::edit_paste_duplicate(), 407)
+            .with_icon("paste")
+            .enabled_when("doc.pages"),
         command("view.tool_select", t::view_tool_select(), 252)
             .with_icon("cursor")
             .enabled_when("doc.pages"),
