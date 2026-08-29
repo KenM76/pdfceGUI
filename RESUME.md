@@ -162,7 +162,7 @@ O49)** and none of them blocks anything.
 
 **Measured now (2026-08-29, re-run):** **2,657 passing tests across the
 workspace** (2,069 GUI lib + 421 shell + the rest), **19/19 gates**, **111 registered
-driven checks**. Engine pinned at `e9412f6` (re-measured 2026-08-29 from `Cargo.lock`). Scaffold list **5**.
+driven checks**. Engine pinned at `3ac9dd7` (re-measured 2026-08-29 from `Cargo.lock`). Scaffold list **5**.
 
 **What shipped:** Tools ▸ Embed fonts and Tools ▸ Remove embedded fonts, both
 driven end to end; dragging an ordinary markup annotation; the Bold retry using
@@ -315,7 +315,7 @@ here so you know roughly where you are, not so you can quote it.
 | **★ Two controls have no home but the status bar** | The **selection filter** and the **zoom stepper** are reachable nowhere else — no command, no menu, no chord. `status::fitting` refuses to shed either, and its reachability test is what discovered it. If either gains a ribbon home, add it to `SHED_ORDER` |
 | **Panels** | **12.** Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · Dimension groups · Tool |
 | **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `4c32afe` (**v0.14.0**) — one commit past the revision that shipped `hit_test_point_deep`, `PageObjects::leaves` and the deep `pick_line_in_page`. **Read `Cargo.lock`, not this row** |
-| **Latest build** | `OneDrive\pdfceGUI2`, published 2026-08-29 13:0x from shell `9c0bcf7` on engine `e9412f6` — form-field copy and paste with the Acrobat naming convention (O58), driven. `pdfceGUI1` holds the 12:56 build as the fallback. Open **About** and read the Build block rather than trusting this row |
+| **Latest build** | `OneDrive\pdfceGUI1`, published 2026-08-29 from shell `a408ab1` on engine `3ac9dd7` — form-field copy and paste, LOSSLESS via `formclip`, unsigned signature fields included. `pdfceGUI2` holds the earlier lossy build as the fallback. Open **About** and read the Build block rather than trusting this row |
 
 ### ★★★ THE FORM-XOBJECT SELECTION IS SHIPPED — AND HAS NOT BEEN DRIVEN
 
