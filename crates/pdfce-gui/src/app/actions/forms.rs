@@ -107,6 +107,10 @@
 /// in a panel, and where the armed preview is kept.
 pub mod delete;
 pub mod groups;
+/// ★ **Putting a copied form field back** — `EditSession::paste_field`, split out
+/// on 2026-08-29 under R2 when it took this file to 1,501 lines. Its header
+/// carries why the shell does almost nothing in it any more.
+mod paste;
 
 use pdfce_core::object::ObjId;
 
@@ -448,9 +452,25 @@ pub enum FieldAction {
         page: usize,
         /// Where, in PDF user space — already offset or already in place, per
         /// [`crate::canvas::fieldclip::paste`]'s same-page/cross-page rule.
+        ///
+        /// ★ On a **radio group** the engine uses only the lower-left corner
+        /// and discloses that the size was ignored: a group's geometry is part
+        /// of its meaning, so it translates rather than rescaling.
         rect: pdfce_core::page_tree::Rect,
-        /// The clipped draft, renamed if this is a paste-as-new.
-        draft: Box<crate::canvas::formfield::Draft>,
+        /// `FieldClip::to_bytes` — the clip itself, verbatim off the clipboard.
+        ///
+        /// ★★ Bytes rather than a live `FieldClip` because that is what the
+        /// clipboard holds and because an `Action` is `Clone + PartialEq`. The
+        /// engine's format is total and byte-exact — it tests that a clip
+        /// through bytes and one that stayed in memory produce identical
+        /// documents — so nothing is lost by carrying it this way.
+        clip: Vec<u8>,
+        /// New independent field, or another widget of the existing one.
+        ///
+        /// ★ Boxed: `FieldPastePolicy::NewField` carries a `String` name and a
+        /// `PasteTooltip` that may carry another, and this enum has thirty-odd
+        /// variants that would all grow to match.
+        policy: Box<pdfce_core::formclip::FieldPastePolicy>,
     },
     /// ★ **Register a form control the document draws but no field claims.**
     ///
@@ -512,14 +532,12 @@ pub(super) fn apply(doc: &mut OpenDoc, action: FieldAction) {
         // ★ Selection is VIEW STATE. It changes no document, bumps no epoch and
         // invalidates no page — which is why it does not go near the funnel.
         FieldAction::Select(selected) => doc.selected_field = selected,
-        // ★ The paste, through the SAME authoring funnel a dialog commit uses.
-        //
-        // One line, and that is the point: `author` already holds the tooltip
-        // rule, the comb gate, the five-way narrowing to the engine's specs,
-        // the disclosure pass and the select-what-was-just-placed behaviour.
-        // A paste that re-implemented any of those would be a second authoring
-        // path that drifts from the first the next time either is corrected.
-        FieldAction::Paste { page, rect, draft } => author(doc, page, rect, &draft),
+        FieldAction::Paste {
+            page,
+            rect,
+            clip,
+            policy,
+        } => paste::paste(doc, page, rect, &clip, &policy),
         FieldAction::EditProperties {
             field,
             edit,

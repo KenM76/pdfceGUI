@@ -22,96 +22,104 @@
 //! `DEFECTS.md` D4a's shape exactly: a refusal whose sentence describes a
 //! different world than the one the operator is looking at.
 //!
-//! ## ★★★ The two pastes, and why the DUPLICATE is the faithful one
+//! ## The two pastes
 //!
 //! Copying a field has two legitimate meanings and `pdfce-core` refuses to
-//! guess between them, by name, in `paste_clip_annotations`:
+//! guess between them. The operator made the decision, and made **both**
+//! answers reachable on two chords:
 //!
-//! > *"a `/Widget` annotation was NOT pasted. A widget carries an `/AcroForm`
-//! > field registration and a field name, and a renamed field is a DIFFERENT
-//! > field … That is a decision about your form, not a copy."*
-//!
-//! The operator made the decision, and made **both** answers reachable:
-//!
-//! | chord | [`PasteAs`] | what lands | the value |
+//! | chord | [`PasteAs`] | engine policy | the value |
 //! |---|---|---|---|
-//! | `Ctrl+V` | [`PasteAs::NewField`] | a new, independent field with a fresh name | its own |
-//! | `Ctrl+Shift+V` | [`PasteAs::Duplicate`] | **another widget of the same field** | shared — type in one, both fill |
+//! | `Ctrl+V` | [`PasteAs::NewField`] | `FieldPastePolicy::NewField` | its own |
+//! | `Ctrl+Shift+V` | [`PasteAs::Duplicate`] | `FieldPastePolicy::AdditionalWidget` | shared — type in one, both fill |
 //!
-//! ★★★ **The counter-intuitive part, and the single most important thing in
-//! this file:** the *duplicate* is the high-fidelity paste and the *new field*
-//! is the lossy one. That is the opposite of what the names suggest.
+//! Each engine policy **refuses the other's situation by name**: a `NewField`
+//! onto a taken name is `FieldNameTaken` and never a silent merge, and an
+//! `AdditionalWidget` naming a field the document does not have is
+//! `FieldNotFound` and never a silent creation. That matters because *the
+//! difference between an independent field and a linked one is invisible on the
+//! page* — it shows up only when somebody types in one and the other does not
+//! follow.
 //!
-//! `EditSession::add_text_field` and its four siblings **merge** when the `/T`
-//! already names a field (`edit.rs:13523`, returning `merged: true`): the field
-//! object is not rebuilt, it gains a second widget. So a duplicate inherits
-//! `/DA` (font, size, colour), `/Q` (alignment), `/V`, `/DV` and `/AA` (the
-//! calculation script) **exactly**, because it *is* the same field.
+//! ## ★★★ This module was rewritten the day it was written, and the rewrite is
+//! the interesting part
 //!
-//! A new-name paste has to re-author through `NewTextField` and friends, and
-//! those specs are geometry-plus-booleans. Everything in [`Lost`] is readable
-//! on `forms::Field` and writable **nowhere** in the engine as pinned. Filed as
-//! `request_form_fields_cannot_be_pasted_and_half_of_it_already_works.md`.
+//! The first version **re-authored**: it read the source field into a
+//! `canvas::formfield::Draft` and pushed that back through `add_text_field` and
+//! its four siblings. That worked, and it was lossy in eight measurable ways —
+//! `/DA` (font, size, colour), `/Q`, `/DV`, `/AA`, `/MK` colours, `/BS` styles,
+//! the flags no `New*Field` spec can express, and the baked `/AP`. Each was
+//! *readable* on `forms::Field` and *writable* nowhere, so the shell carried a
+//! hand-written table of what survived and disclosed it on the status row.
 //!
-//! ## ★★ Rule 4 — the loss is DISCLOSED, off-canvas, and never drawn
+//! `Pass 167.0` shipped `pdfce_core::formclip` in answer to this project's own
+//! request, **within the hour**, and every row of that table now travels. So:
 //!
-//! A pasted field renders exactly as a saved-and-reopened one would. There is
-//! no badge, no tint, no "this copy is incomplete" marker anywhere on the page,
-//! because provisional styling is a second rendering path for the same content
-//! and two paths drift.
+//! - The `Lost` enum is **deleted**, not deprecated. The engine's own words:
+//!   *"delete the fidelity table — you should not be maintaining a hand-written
+//!   map of which properties survive, because it rots silently every time we
+//!   add an authoring key. The clip does not express properties, it carries
+//!   them."*
+//! - Two things travel that this shell **did not know to ask for**: the actual
+//!   font its `/DA` names (installed into the destination's `/AcroForm /DR`,
+//!   renamed if that name is taken there, with the `/DA` rewritten to match),
+//!   and `/Ff` as an integer, which brings `DoNotSpellCheck`, `DoNotScroll`,
+//!   `FileSelect`, `RichText` and `CommitOnSelChange` for free.
+//! - **Signature fields are no longer refused.** An *unsigned* one copies and
+//!   pastes normally, which — as the engine points out — hands this shell
+//!   signature-field *authoring* it never had, because there is still no
+//!   `add_signature_field`. A **signed** one is refused at the **copy**, by the
+//!   engine, so the operator learns before spending a placement gesture.
 //!
-//! ★ But the half of rule 4 that survives is the half that binds here: the
-//! operator **cannot see** that a copied field lost its calculation script — a
-//! screenshot of the page is identical either way — so it is reported on the
-//! status row. [`Lost`] is that report, computed at **copy** time from the
-//! source field and carried on the clip, so the sentence describes the field
-//! that was actually read rather than being re-derived later against a document
-//! that may have moved on.
+//! ⇒ The general lesson, and it has cost this project three days across three
+//! separate capabilities: **a reply arriving is not a capability landing.** The
+//! engine session works in parallel and answers within the hour; the failure
+//! mode is a shell that files a request, ships a workaround, and never comes
+//! back. This module came back the same afternoon and recovered eight
+//! properties' worth of fidelity by doing so.
 //!
-//! ## Why the clip is a [`Draft`] and not a `forms::Field`
+//! ## ★★ Rule 4 — disclosure is the ENGINE's now, and that is a simplification
 //!
-//! Because [`crate::app::actions::forms::author`] already takes a `Draft` and
-//! already knows how to turn one into whichever of the five engine specs it
-//! needs, with the tooltip rule, the comb gate and the disclosure pass all in
-//! one place. A second authoring path here would be the fifth hand-written copy
-//! of a sequence that exists precisely once on purpose.
+//! A pasted field renders exactly as a saved-and-reopened one would. No badge,
+//! no tint, no "this copy is incomplete" marker anywhere on the page, because
+//! provisional styling is a second rendering path for the same content and two
+//! paths drift.
 //!
-//! `Draft` is also `Clone + PartialEq + Send + Sync + 'static`, which is what
-//! `egui::Memory` asks of anything parked in it, and it is the type the
-//! placement dialog produces — so a pasted field and a drawn one are the same
-//! act with the same code behind them.
+//! The half of rule 4 that binds is the off-canvas report, and
+//! `FieldPasteOutcome::disclosures` is where it now lands — a `Vec<String>` the
+//! engine builds, covering a dropped value, dropped actions, a carried
+//! calculation and its `/CO` entry, a **renamed font resource**, an ignored
+//! rectangle size, the tab-order position, a dropped structure-tree link and a
+//! reused accessibility name. This shell surfaces it verbatim rather than
+//! re-deriving any of it, which is the same *one fact, one wording* rule that
+//! removed this module's own merge sentence a few hours earlier.
 //!
-//! ## What is refused, and why each
+//! ## ★ Radio groups travel whole, and that changes what the rectangle means
 //!
-//! | case | [`Refusal`] | why |
-//! |---|---|---|
-//! | nothing selected | `NothingSelected` | — |
-//! | the field is not in the document any more | `Vanished` | the selection outlived an undo |
-//! | a **signature** field | `KindCannotBeAuthored` | `pdfce-core` has five `add_*_field` verbs and none of them makes one. R9: refuse honestly rather than paste something that is not a signature field |
-//! | the widget has no `/Rect` | `NoGeometry` | there is no box to reproduce |
-//! | duplicate-paste of a **radio** button | `RadioNeedsItsOwnExportValue` | see below |
+//! `copy_field` on a radio field carries **every** widget in `/Kids` order with
+//! its own rectangle and export value. On a `NewField` paste the group is
+//! **translated** so widget 0's lower-left lands on the target point; every
+//! widget keeps its size and its offset from widget 0, and **the target
+//! rectangle's size is ignored**. The engine discloses that, and this module
+//! does not try to be cleverer: a best-fit rescale of a radio group into a
+//! rectangle is a guess that looks deliberate, and which button sits above
+//! which is part of the group's meaning.
 //!
-//! ★ The radio refusal is the engine's own reasoning, taken rather than
-//! re-derived. On-states live per *widget*, so two members of one radio group
-//! must carry different export values — `FormAuthorError::RadioExportValueTaken`
-//! is the engine refusing a collision. A duplicate paste would have to *invent*
-//! the second export value, and the engine's `field_defaults` doc rules on
-//! exactly that: a copied export value "would either collide … or be arbitrary".
-//! An invented one is a name nobody chose. Paste-as-**new** on a radio is fine
-//! and is offered, because it makes a new group.
+//! On `AdditionalWidget` exactly **one** widget is placed even from a
+//! multi-widget clip, because adding all N would give one field several views
+//! with duplicate export values — radio buttons that select together.
 
+use pdfce_core::formclip::{FieldClip, FieldPastePolicy, PasteTooltip};
 use pdfce_core::page_tree::Rect;
 
 use crate::app::actions::Action;
 use crate::app::state::OpenDoc;
-use crate::canvas::formfield::{Draft, FormFieldKind};
 
 /// Which of the two pastes the operator asked for.
 ///
-/// A two-variant enum rather than a `bool`, because `paste(ctx, doc, true)`
-/// at the call site says nothing about which is which, and the two differ in
-/// what they do to the operator's *form* rather than merely in where a copy
-/// lands.
+/// A two-variant enum rather than a `bool`, because `paste(ctx, doc, true)` at
+/// the call site says nothing about which is which, and the two differ in what
+/// they do to the operator's *form* rather than merely in where a copy lands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PasteAs {
     /// `Ctrl+V` — a new, independent field carrying a fresh name.
@@ -120,67 +128,37 @@ pub enum PasteAs {
     Duplicate,
 }
 
-/// A property the source field carries that a **new-field** paste cannot.
-///
-/// Each variant is one row of the engine request's §3 table, and each is
-/// *readable* on `forms::Field` and *writable* nowhere. They are computed once,
-/// at copy time, and rendered by [`crate::text::fieldclip`].
-///
-/// # Why an enum and not a `Vec<String>`
-///
-/// `tools/gates/check-ui-strings.sh`: every user-visible string lives in
-/// `ui_text`. A clip that carried prose would put a sentence in
-/// `egui::Memory`, where no gate can see it and no translation can reach it.
-/// This carries the *fact*; the sentence is built at the moment of display.
-///
-/// ★ None of these applies to [`PasteAs::Duplicate`], which is the whole point
-/// of the distinction — see the module header.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Lost {
-    /// `/DA` — the font, its size and its colour.
-    ///
-    /// The most visible of the five, and the one an operator reports as *"the
-    /// copy looks wrong"* rather than as a missing feature.
-    Appearance,
-    /// `/Q` — left, centred or right.
-    Alignment,
-    /// `/DV` — what Reset restores.
-    DefaultValue,
-    /// `/AA` — the format, calculate and validate actions.
-    ///
-    /// ★★ The one that is **invisible**. A field in a calculation chain pastes
-    /// inert and nothing on the page differs, which is why this variant matters
-    /// more than its position in the list suggests.
-    Actions,
-    /// `/MK` `/BC` and `/BG` — the border and background **colours**.
-    ///
-    /// Reported unconditionally on a new-field paste, because the authoring
-    /// path hard-writes a black `/MK /BC` (`edit.rs:13504`) and `BorderSpec`
-    /// carries only a style and a width. Unlike the four above we cannot read
-    /// the source's colours to compare, so this is the one row that says *"this
-    /// is re-authored"* rather than *"this was present and is gone"*.
-    BorderColour,
-}
-
 /// Why a field could not be copied, cut or pasted.
 ///
 /// A sentence on the status row, never a silence — the same posture
 /// [`crate::canvas::clipboard::Refusal`] takes, for the same D4a reason.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// ★ Two variants went when `formclip` landed: `KindCannotBeAuthored` (a
+/// signature field, now copyable) and `RadioNeedsItsOwnExportValue` (the engine
+/// refuses the collision itself, with a better message).
+/// [`EngineRefused`](Self::EngineRefused) carries both now, in the engine's
+/// wording — which is the wording that is right, because it reports what the
+/// operation *did* rather than what this shell *intended*.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Refusal {
     /// No form field is selected.
     NothingSelected,
     /// The selection names a field the document no longer has.
     Vanished,
-    /// The widget has no `/Rect`, so there is no box to reproduce.
+    /// The widget has no `/Rect`, so there is no box to land the paste against.
     NoGeometry,
-    /// A signature field. `pdfce-core` has no verb that authors one.
-    KindCannotBeAuthored,
-    /// A duplicate paste of a radio button would need an export value nobody
-    /// chose. See the module header.
-    RadioNeedsItsOwnExportValue,
     /// The clipboard holds no form field.
     NothingCopied,
+    /// ★★ **The engine declined, in its own words.**
+    ///
+    /// A `String` rather than a mirror of `EditError`'s taxonomy, for the
+    /// reason `canvas::clipboard::Refusal::EngineRefused`'s doc gives about the
+    /// same choice: a shell that modelled the engine's internals a second time
+    /// is decision 058's failure mode. The cases that actually arrive here —
+    /// `SignedFieldNotCopyable`, `FieldNameTaken`, `FieldNotFound`,
+    /// `RadioExportValueTaken`, and the encryption and certification guards —
+    /// each already carry a sentence written by the party that knows why.
+    EngineRefused(String),
 }
 
 /// What the clipboard is holding when a form field was copied.
@@ -189,13 +167,31 @@ pub enum Refusal {
 /// of its own, so that **one clipboard holds one thing**: copying a markup
 /// after copying a field replaces it, which is what every program in the class
 /// does and what makes `Ctrl+V` mean one thing at a time.
+///
+/// # ★ Why the BYTES and not the live `FieldClip`
+///
+/// The same three reasons `Clipped::Content` carries bytes, and here the third
+/// is decisive rather than merely convenient:
+///
+/// 1. `egui::Memory` wants `Clone + Send + Sync + 'static`; bytes are all four
+///    without asking anything of the engine's type.
+/// 2. `Clipped` derives `PartialEq`, which bytes give for free.
+/// 3. **`FieldClip::to_bytes` is total.** Unlike `ObjectClip`, whose `to_bytes`
+///    drops its annotations because they are modelled as rich Rust enums, a
+///    field clip is dictionaries and streams — the engine tests that a clip
+///    through bytes and a clip that stayed in memory produce **byte-identical
+///    documents**. So this representation loses nothing, and it is the same one
+///    a private OS clipboard format will take.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClippedField {
-    /// Everything [`crate::app::actions::forms::author`] needs, with the source
-    /// field's own name still in it. A new-field paste renames a clone of this;
-    /// a duplicate paste uses it verbatim, which is what makes the two widgets
-    /// one field.
-    pub draft: Draft,
+    /// `FieldClip::to_bytes` — magic `PDFCEFLD…`, versioned, count-guarded.
+    pub bytes: Vec<u8>,
+    /// The source field's fully-qualified name.
+    ///
+    /// Carried rather than re-read from the clip on every glance: it seeds the
+    /// candidate name for a new-field paste, addresses the field for a
+    /// duplicate, and names the field in the OS-clipboard marker.
+    pub name: String,
     /// The 0-based page it came from.
     ///
     /// Carried for [`crate::canvas::clipboard::PASTE_OFFSET_PT`]'s rule: a
@@ -203,19 +199,33 @@ pub struct ClippedField {
     /// different one lands in place because *where it was on sheet 1* is the
     /// whole point of copying it to sheet 12.
     pub page: usize,
-    /// Its `/Rect`, in PDF user space.
+    /// The source widget's `/Rect`, in PDF user space — where the paste is
+    /// measured from.
     pub rect: Rect,
-    /// What a [`PasteAs::NewField`] paste will not carry. Sorted and
-    /// deduplicated at copy time so the sentence is stable.
-    pub lost: Vec<Lost>,
+    /// How many widgets the clip carries.
+    ///
+    /// ★ `> 1` means a radio group, and it changes what a paste rectangle
+    /// *means* — see the module header. Carried so a caller can ask without
+    /// deserialising.
+    pub widgets: usize,
+    /// Whether the field brings a calculation or format script with it.
+    ///
+    /// ★★ The one thing worth knowing **before** the press, and the operator
+    /// cannot see it: a field in a calculation chain looks identical to one
+    /// that is not. The engine can say a script is coming and deliberately does
+    /// **not** resolve the field names inside it — Acrobat is documented
+    /// silently dropping a copied script that references a field the target
+    /// lacks, discovered only on reopen, and naming the uncertainty beats
+    /// half-analysing it.
+    pub carries_actions: bool,
 }
 
 /// **Copy the selected form field**, writing it to the shared clipboard.
 ///
 /// # Errors
 ///
-/// Every [`Refusal`] except [`Refusal::NothingCopied`] and
-/// [`Refusal::RadioNeedsItsOwnExportValue`], both of which only a paste raises.
+/// Every [`Refusal`] except [`Refusal::NothingCopied`], which only a paste
+/// raises.
 pub fn copy(ctx: &egui::Context, doc: &OpenDoc) -> Result<ClippedField, Refusal> {
     let clipped = read_selected(doc)?;
     crate::canvas::clipboard::store(
@@ -232,15 +242,16 @@ pub fn copy(ctx: &egui::Context, doc: &OpenDoc) -> Result<ClippedField, Refusal>
     // ⇒ Found by driving on the day this module was written, with the trap
     // already documented in the RAG and already handled one function away in
     // `clipboard::copy_content`. See `text::fieldclip::os_marker`.
-    ctx.copy_text(crate::text::fieldclip::os_marker(&clipped.draft.name));
+    ctx.copy_text(crate::text::fieldclip::os_marker(&clipped.name));
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
         format!(
-            "fieldclip-copy name={} page={} kind={:?} lost={}",
-            clipped.draft.name,
+            "fieldclip-copy name={} page={} widgets={} actions={} bytes={}",
+            clipped.name,
             clipped.page,
-            clipped.draft.kind,
-            clipped.lost.len()
+            clipped.widgets,
+            clipped.carries_actions,
+            clipped.bytes.len()
         )
     });
     Ok(clipped)
@@ -264,9 +275,6 @@ pub fn cut(
     actions: &mut Vec<Action>,
 ) -> Result<ClippedField, Refusal> {
     let clipped = copy(ctx, doc)?;
-    // Safe to unwrap conceptually — `copy` returned Ok, so there was a
-    // selection — but expressed as a match so a future change to `copy` cannot
-    // turn this into a panic.
     if let Some(selected) = doc.selected_field.as_ref() {
         actions.push(Action::Field(
             crate::app::actions::forms::FieldAction::DeleteWidget {
@@ -277,7 +285,7 @@ pub fn cut(
     }
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
-        format!("fieldclip-cut name={}", clipped.draft.name)
+        format!("fieldclip-cut name={}", clipped.name)
     });
     Ok(clipped)
 }
@@ -288,21 +296,19 @@ pub fn cut(
 ///
 /// [`crate::canvas::clipboard::PASTE_OFFSET_PT`] down and to the right on the
 /// **same** page, in place on a different one. The same rule the markup
-/// clipboard uses and for the same two reasons, which are worth restating
-/// because they pull in opposite directions and both are right: a same-page
-/// paste that landed exactly on the original is invisible, and a cross-page
-/// paste that offset would move the copy away from the position that was the
-/// reason for copying it.
+/// clipboard uses and for the same two reasons, which pull in opposite
+/// directions and are both right: a same-page paste that landed exactly on the
+/// original is invisible, and a cross-page paste that offset would move the
+/// copy away from the position that was the reason for copying it.
 ///
-/// ★ A [`PasteAs::Duplicate`] onto the same page offsets too. Two widgets of
-/// one field stacked exactly on each other is a form the operator cannot
-/// separate, and the fact that they share a value does not make them one box.
+/// ★ A [`PasteAs::Duplicate`] onto the same page offsets too. Two widgets of one
+/// field stacked exactly on each other is a form the operator cannot separate,
+/// and the fact that they share a value does not make them one box.
 ///
 /// # Errors
 ///
-/// [`Refusal::NothingCopied`] when the clipboard holds no field, and
-/// [`Refusal::RadioNeedsItsOwnExportValue`] on a duplicate paste of a radio
-/// button.
+/// [`Refusal::NothingCopied`] when the clipboard holds no field. The engine's
+/// own refusals arrive when the action drains, not here.
 pub fn paste(
     ctx: &egui::Context,
     doc: &OpenDoc,
@@ -315,71 +321,80 @@ pub fn paste(
     else {
         return Err(Refusal::NothingCopied);
     };
-    if mode == PasteAs::Duplicate && clipped.draft.kind == FormFieldKind::Radio {
-        return Err(Refusal::RadioNeedsItsOwnExportValue);
-    }
 
     let rect = placed_rect(clipped.rect, clipped.page, page);
-    let mut draft = clipped.draft.clone();
-    if mode == PasteAs::NewField {
-        draft.name = unique_name(doc, &clipped.draft.name);
-        // ★★ A new field starts EMPTY, and this is the one place this module
-        // deviates from "reproduce what was copied".
-        //
-        // A value is content, not a property — the engine's `field_defaults`
-        // doc rules on the same question the same way, and it is the reason
-        // `--defaults-from` excludes `/V`. Copying the box in a title block
-        // called `Drawn By` to make one called `Checked By` and having the
-        // second arrive pre-filled with the first person's name is a form that
-        // is wrong on paper the moment it is printed.
-        //
-        // ★ The DUPLICATE keeps it, necessarily and correctly: it is the same
-        // field, so it has the same value by definition. There is no choice to
-        // make there, which is why this branch is inside the `NewField` arm.
-        draft.value.clear();
-        draft.checked = false;
-    }
+    let policy = match mode {
+        PasteAs::NewField => FieldPastePolicy::NewField {
+            name: unique_name(doc, &clipped.name),
+            // ★★ `Carry` — reuse the source's `/TU`, which R105 accepts as an
+            // explicit decision because it is the operator's own field rather
+            // than an invented name. The engine refuses `Undecided` outright
+            // and discloses the reuse, because two fields announcing themselves
+            // identically to a screen reader is invisible to a sighted
+            // operator.
+            //
+            // The alternative — opening a dialog on every Ctrl+V to ask — is
+            // the interruption this whole gesture exists to avoid. Four boxes
+            // down a column should be four keystrokes.
+            tooltip: PasteTooltip::Carry,
+            // ★★★ A new field starts EMPTY, and this is the one place the shell
+            // overrides "reproduce what was copied".
+            //
+            // A value is content, not a property. Copying the title-block box
+            // called `Drawn By` to make one called `Checked By`, and having the
+            // second arrive pre-filled with the first person's name, is a form
+            // that is wrong on paper the moment it is printed. The engine's own
+            // `field_defaults` excludes `/V` for the same reason.
+            //
+            // ★ `/DV` travels **regardless** — the engine carries it whether or
+            // not this is set, and it is right to: a default is the *reset
+            // target*, not content, and dropping it makes Reset restore the
+            // wrong thing silently.
+            copy_value: false,
+            // ★ Actions DO travel. A copied field in a calculation chain that
+            // arrives inert is a defect nothing on the page reveals, which is
+            // the worst kind. `carries_actions` is disclosed before the press
+            // and the engine discloses the `/CO` registration after it.
+            copy_actions: true,
+        },
+        // ★ Addressed by the SOURCE's name, which is what makes the two widgets
+        // one field. The engine refuses with `FieldNotFound` when that name is
+        // not in this document — a duplicate paste across documents is
+        // meaningless and must not fall back to creating a field, because the
+        // operator pressed a different key on purpose.
+        PasteAs::Duplicate => FieldPastePolicy::AdditionalWidget {
+            existing: clipped.name.clone(),
+        },
+    };
 
     actions.push(Action::Field(
         crate::app::actions::forms::FieldAction::Paste {
             page,
             rect,
-            draft: Box::new(draft),
+            clip: clipped.bytes.clone(),
+            policy: Box::new(policy),
         },
     ));
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
         format!(
-            "fieldclip-paste mode={mode:?} page={page} from_page={} lost={}",
-            clipped.page,
-            if mode == PasteAs::NewField {
-                clipped.lost.len()
-            } else {
-                0
-            }
+            "fieldclip-paste mode={mode:?} page={page} from_page={} widgets={}",
+            clipped.page, clipped.widgets
         )
     });
     Ok(())
 }
 
-/// What a paste of the clipboard's field would lose, or `None` when the
-/// clipboard holds no field.
+/// Whether the clipboard's field brings a script, for the pre-press sentence.
 ///
-/// Split out so the *status sentence* can be written by whoever raises the
-/// paste without that caller having to know the clip's shape. Returns an empty
-/// slice for a duplicate, which is the fidelity claim this module makes and is
-/// worth being able to assert on.
+/// `None` when the clipboard holds no field. Split out so a status surface can
+/// ask without knowing the clip's shape.
 #[must_use]
-pub fn losses(ctx: &egui::Context, mode: PasteAs) -> Option<Vec<Lost>> {
-    let crate::canvas::clipboard::Clipped::FormField(clipped) =
-        crate::canvas::clipboard::read(ctx)?
-    else {
-        return None;
-    };
-    Some(match mode {
-        PasteAs::NewField => clipped.lost.clone(),
-        PasteAs::Duplicate => Vec::new(),
-    })
+pub fn carries_actions(ctx: &egui::Context) -> Option<bool> {
+    match crate::canvas::clipboard::read(ctx)? {
+        crate::canvas::clipboard::Clipped::FormField(c) => Some(c.carries_actions),
+        _ => None,
+    }
 }
 
 /// Where the pasted box goes. See [`paste`]'s header for the two rules.
@@ -399,9 +414,9 @@ fn placed_rect(source: Rect, from_page: usize, to_page: usize) -> Rect {
 /// A field name this document does not use, derived from `base`.
 ///
 /// `Text1` → `Text2` → `Text3`, and `Drawn By` → `Drawn By2`. The spelling is
-/// [`crate::text::fieldclip::candidate_name`]'s — a field name is operator-facing
-/// text — and the *numbering* is [`split_trailing_number`]'s, which is logic and
-/// belongs here.
+/// [`crate::text::fieldclip::candidate_name`]'s — a field name is
+/// operator-facing text — and the *numbering* is [`split_trailing_number`]'s,
+/// which is logic and belongs here.
 ///
 /// ★★ The convention is Acrobat's, sourced rather than invented: its bulk
 /// duplication auto-names copies `Date1`, `Date2`, `Date3`, and the separator is
@@ -409,17 +424,15 @@ fn placed_rect(source: Rect, from_page: usize, to_page: usize) -> Rect {
 /// scripting rationale and the reason a **dot** is refused even though one
 /// Acrobat account uses it.
 ///
-/// ★ Nothing here is a *guess at what the operator wants it called*. The name
-/// is a placeholder they are expected to change, and the Properties panel's
-/// rename control is the route — which is why this generates the first free
-/// name rather than opening a dialog. A dialog on every `Ctrl+V` would make the
-/// common case (paste four boxes down a column, name them afterwards) four
-/// interruptions long.
+/// ★ The name is generated here rather than by the engine, at the engine's own
+/// insistence: *"an engine-invented name is a name nobody chose."* `paste_field`
+/// refuses a taken name with `FieldNameTaken` and never auto-suffixes, so this
+/// is the only place a candidate comes from.
 ///
-/// Falls back to the base itself past 999 tries, which then hits the engine's
-/// own `FieldNameTaken` and surfaces as a refusal. That is unreachable in
-/// practice and is written as a bounded loop rather than an unbounded one
-/// because an unbounded loop over a document is a hang.
+/// Falls back to the base itself past a thousand tries, which then hits
+/// `FieldNameTaken` and surfaces as a refusal. Unreachable in practice, and
+/// written as a bounded loop because an unbounded loop over a document is a
+/// hang.
 fn unique_name(doc: &OpenDoc, base: &str) -> String {
     let view = doc.session.view();
     let Some(form) = pdfce_core::forms::parse_acroform(&view) else {
@@ -431,9 +444,8 @@ fn unique_name(doc: &OpenDoc, base: &str) -> String {
     }
     let (stem, start) = split_trailing_number(base);
     // Bounded, not unbounded. `start` can be large if the operator numbered a
-    // field `Rev2000`, so the ceiling is relative rather than absolute — an
-    // unbounded loop over a document is a hang, and a fixed `2..1000` would
-    // give up immediately on a high-numbered base.
+    // field `Rev2000`, so the ceiling is relative rather than absolute — a fixed
+    // `2..1000` would give up immediately on a high-numbered base.
     for n in start..start.saturating_add(1000) {
         let candidate = crate::text::fieldclip::candidate_name(stem, n);
         if !taken(&candidate) {
@@ -460,8 +472,8 @@ fn unique_name(doc: &OpenDoc, base: &str) -> String {
 ///
 /// The digits are parsed as `u32` and a name whose trailing run does not fit —
 /// `Rev99999999999` — falls back to treating the whole thing as the stem. That
-/// is a name nobody has, and it is written as a branch rather than an `unwrap`
-/// because a panic here would be on the operator's paste.
+/// is a name nobody has, and it is a branch rather than an `unwrap` because a
+/// panic here would land on the operator's paste.
 fn split_trailing_number(base: &str) -> (&str, u32) {
     let digits_start = base
         .char_indices()
@@ -471,9 +483,9 @@ fn split_trailing_number(base: &str) -> (&str, u32) {
         .last();
     match digits_start {
         // ★ `Some(0)` means the name is ALL digits — a field called `12`. The
-        // stem would be empty and the paste would be named `13`, which is a
-        // legal field name and a terrible one, but it is also exactly what the
-        // operator's own scheme implies. Left alone deliberately.
+        // stem is empty and the paste is named `13`, which is a legal field name
+        // and a terrible one, but it is exactly what the operator's own scheme
+        // implies. Left alone deliberately.
         Some(i) => match base[i..].parse::<u32>() {
             Ok(n) => (&base[..i], n.saturating_add(1)),
             Err(_) => (base, 2),
@@ -484,129 +496,47 @@ fn split_trailing_number(base: &str) -> (&str, u32) {
 
 /// Read `doc.selected_field` into a clip, without touching the clipboard.
 ///
-/// Separated from [`copy`] so the whole read is testable without an
-/// `egui::Context`, which is what lets the fidelity table in [`Lost`] be
-/// asserted against a real document rather than trusted.
+/// ★ Almost all of what this used to do is now one `copy_field` call. The
+/// previous version read a `forms::Field`, mapped its type to a
+/// `FormFieldKind`, decoded four text strings, translated eleven flags and
+/// assembled a `Draft` — about eighty lines, every one of them a chance to
+/// disagree with the engine about what a field is. What remains is the two
+/// facts the *shell* owns: which widget the operator clicked, and where it is.
 fn read_selected(doc: &OpenDoc) -> Result<ClippedField, Refusal> {
-    use pdfce_core::forms::{ButtonKind, FieldType};
-
     let selected = doc
         .selected_field
         .as_ref()
         .ok_or(Refusal::NothingSelected)?;
+
+    // The rect comes from the widget the operator actually clicked, which the
+    // clip does not know: a radio group's clip carries every widget, and the
+    // paste is measured from where the pointer was.
     let view = doc.session.view();
     let form = pdfce_core::forms::parse_acroform(&view).ok_or(Refusal::Vanished)?;
     let field = form
         .fields_named(&selected.field)
         .next()
         .ok_or(Refusal::Vanished)?;
-    let widget = field
+    let rect = field
         .widgets
         .get(selected.widget)
-        .ok_or(Refusal::Vanished)?;
-    let rect = widget.rect.ok_or(Refusal::NoGeometry)?;
+        .ok_or(Refusal::Vanished)?
+        .rect
+        .ok_or(Refusal::NoGeometry)?;
 
-    let kind = match (field.field_type, field.button_kind) {
-        (Some(FieldType::Text), _) => FormFieldKind::Text,
-        (Some(FieldType::Choice), _) => FormFieldKind::Choice,
-        (Some(FieldType::Button), Some(ButtonKind::Check)) => FormFieldKind::CheckBox,
-        (Some(FieldType::Button), Some(ButtonKind::Radio)) => FormFieldKind::Radio,
-        (Some(FieldType::Button), _) => FormFieldKind::PushButton,
-        // ★ A signature field, or a field whose `/FT` the file omits. Neither
-        // has an `add_*_field` verb, and R9's rule is that an unavailable
-        // capability is absent rather than approximated: pasting "a text field
-        // that looks like the signature box" would be a different thing wearing
-        // the same rectangle.
-        _ => return Err(Refusal::KindCannotBeAuthored),
-    };
-
-    let draft = Draft {
-        kind,
-        name: selected.field.clone(),
-        tooltip: text_of(field.alternate_name.as_deref()),
-        required: field.flags.required(),
-        read_only: field.flags.read_only(),
-        border_width: widget.border.map_or(1.0, |b| b.width),
-        value: value_text(&field.value),
-        multiline: field.flags.has(pdfce_core::forms::FieldFlags::MULTILINE),
-        password: field.flags.has(pdfce_core::forms::FieldFlags::PASSWORD),
-        comb: field.flags.has(pdfce_core::forms::FieldFlags::COMB),
-        max_len: field.max_len,
-        export_value: text_of(widget.on_states.first().map(Vec::as_slice)),
-        checked: widget
-            .appearance_state
-            .as_deref()
-            .is_some_and(|s| s != b"Off"),
-        options: field
-            .options
-            .iter()
-            .map(|o| pdfce_core::edit::decode_text_string(&o.display).text)
-            .collect::<Vec<_>>()
-            .join("\n"),
-        combo: field.flags.has(pdfce_core::forms::FieldFlags::COMBO),
-        editable: field.flags.has(pdfce_core::forms::FieldFlags::EDIT),
-        multi_select: field.flags.has(pdfce_core::forms::FieldFlags::MULTI_SELECT),
-        sort: field.flags.has(pdfce_core::forms::FieldFlags::SORT),
-        caption: text_of(widget.caption.as_deref()),
-    };
+    let clip: FieldClip = doc
+        .session
+        .copy_field(&selected.field)
+        .map_err(|e| Refusal::EngineRefused(e.to_string()))?;
 
     Ok(ClippedField {
-        draft,
+        bytes: clip.to_bytes(),
+        name: clip.source_name().to_owned(),
         page: selected.page,
         rect,
-        lost: losses_of(field),
+        widgets: clip.widget_count(),
+        carries_actions: clip.carries_actions(),
     })
-}
-
-/// The [`Lost`] set for one field, measured rather than assumed.
-///
-/// Only reports what the source **actually has**. A field with no `/DA` loses
-/// no appearance, and saying otherwise would train the operator to ignore the
-/// sentence — which is the failure mode of every warning that fires when
-/// nothing is wrong.
-///
-/// [`Lost::BorderColour`] is the one unconditional member, and its own doc
-/// comment says why: it is a statement about the *authoring path*, not about
-/// the source, and we cannot read the source's `/MK` colours to compare.
-fn losses_of(field: &pdfce_core::forms::Field) -> Vec<Lost> {
-    use pdfce_core::vartext::Quadding;
-
-    let mut lost = vec![Lost::BorderColour];
-    if field.default_appearance.is_some() {
-        lost.push(Lost::Appearance);
-    }
-    if field.quadding != Quadding::Left {
-        lost.push(Lost::Alignment);
-    }
-    if !matches!(field.default_value, pdfce_core::forms::FieldValue::Absent) {
-        lost.push(Lost::DefaultValue);
-    }
-    if field.has_additional_actions {
-        lost.push(Lost::Actions);
-    }
-    lost.sort_unstable();
-    lost
-}
-
-/// A PDF text string as something to show, or the empty string when absent.
-fn text_of(bytes: Option<&[u8]>) -> String {
-    bytes.map_or_else(String::new, |b| {
-        pdfce_core::edit::decode_text_string(b).text
-    })
-}
-
-/// A field's `/V` as the text a [`Draft`] carries.
-///
-/// Only the text-shaped values map: a `Choice` value is a selection rather than
-/// a typed string, and a `Name` is a button state that travels as
-/// `export_value` instead. Both come back empty rather than stringified,
-/// because a draft's `value` feeds `NewTextField::value` and putting a button
-/// state there would author a text field's contents from a checkbox.
-fn value_text(value: &pdfce_core::forms::FieldValue) -> String {
-    match value {
-        pdfce_core::forms::FieldValue::Text(b) => pdfce_core::edit::decode_text_string(b).text,
-        _ => String::new(),
-    }
 }
 
 #[cfg(test)]
@@ -623,7 +553,7 @@ mod tests {
         assert_eq!(
             split_trailing_number("Text1"),
             ("Text", 2),
-            "★ this shell's own placement dialog names a new text field `Text1`, so a numbered base is the ORDINARY case. Appending instead of continuing gives `Text12`, which reads as field twelve"
+            "★ the placement dialog names a new text field `Text1`, so a numbered base is the ORDINARY case; appending gives `Text12`, which reads as field twelve"
         );
         assert_eq!(split_trailing_number("Text9"), ("Text", 10));
         assert_eq!(
@@ -645,11 +575,11 @@ mod tests {
         assert_eq!(name, "Text2");
         assert!(
             !name.contains('.'),
-            "★★★ `.` is the fully-qualified-name separator (12.7.3.2), so `Text.2` would be a CHILD field named `2` under a parent named `Text` — a hierarchy nobody asked for, not a cosmetic suffix. One Acrobat account uses dot notation and this is the one place its convention must be refused"
+            "★★★ `.` is the fully-qualified-name separator (12.7.3.2), so `Text.2` would be a CHILD field named `2` under a parent named `Text` — a hierarchy nobody asked for"
         );
         assert!(
             !name.contains(' '),
-            "a space breaks the sourced scripting rationale: the suffix exists so a script can loop over fields sharing `the non-number part of the field name`, and the non-number part of `Text 2` has a trailing space"
+            "a space breaks the sourced scripting rationale: the suffix exists so a script can loop over fields sharing the non-number part of the name"
         );
     }
 
@@ -674,50 +604,7 @@ mod tests {
         let cross = placed_rect(src, 3, 11);
         assert_eq!(
             cross, src,
-            "a cross-page paste must land at the ORIGINAL coordinates -- that is the \
-             whole reason for copying a title-block field to another sheet"
-        );
-    }
-
-    /// ★ The fidelity claim, falsified: a duplicate loses nothing.
-    ///
-    /// This is the assertion the module header's central claim rests on, and it
-    /// is written as a test rather than a sentence because the claim is about
-    /// behaviour that no screenshot can show.
-    #[test]
-    fn a_duplicate_reports_no_loss_and_a_new_field_reports_the_border_colour_at_minimum() {
-        // `losses` needs a context; the pure half is `losses_of`, exercised
-        // through the mode split here without one.
-        let full = vec![Lost::Appearance, Lost::BorderColour];
-        let for_new = full.clone();
-        let for_dup: Vec<Lost> = Vec::new();
-        assert!(
-            !for_new.is_empty(),
-            "a new-field paste re-authors and must disclose it"
-        );
-        assert!(
-            for_dup.is_empty(),
-            "★ a DUPLICATE paste attaches a widget to the existing field, so the field's \
-             own /DA, /Q, /V, /DV and /AA are untouched by construction. If this ever \
-             fails, the merge branch in `add_*_field` has changed and the module header's \
-             central claim is false."
-        );
-    }
-
-    /// `BorderColour` is unconditional and the other four are measured.
-    ///
-    /// Asserted as a property of the LIST rather than by building a `Field`,
-    /// which is `#[non_exhaustive]`-adjacent and would pin this test to the
-    /// engine's struct layout rather than to the behaviour.
-    #[test]
-    fn the_loss_list_is_sorted_and_deduplicated() {
-        let mut l = vec![Lost::Actions, Lost::BorderColour, Lost::Appearance];
-        l.sort_unstable();
-        assert_eq!(
-            l,
-            vec![Lost::Appearance, Lost::Actions, Lost::BorderColour],
-            "the sentence must be stable across copies of the same field, so the order \
-             is the enum's rather than discovery order"
+            "a cross-page paste must land at the ORIGINAL coordinates -- that is the whole reason for copying a title-block field to another sheet"
         );
     }
 }

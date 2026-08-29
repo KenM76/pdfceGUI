@@ -215,18 +215,58 @@ reasons, both from the same source:
 it is yours to reverse.** Swapping the two chords is a one-line change if you
 would rather match Acrobat exactly.
 
-### One gap against Acrobat, recorded
+### ★★★ You asked whether we could just BE able — and by then we were, 2026-08-29
 
-An **empty, unsigned signature field** is refused here, and Acrobat would copy
-it. The refusal is honest — `pdfce-core` has five `add_*_field` verbs and none
-authors a signature field, so there is nothing to paste — but the reason is our
-engine, not the convention. (A *signed* field is a hard limit everywhere: the
-cryptographic binding is to the exact bytes, so no viewer can duplicate one and
-have it stay valid.)
+*"shouldn't we make it so we are able and then do follow Acrobat's
+conventions?"*
 
-**Status:** ✅ **SHIPPED AND DRIVEN — awaiting your verdict.** The lossless
-route for `Ctrl+V` is still filed and unanswered; until it lands, a new-field
-paste says on the status row exactly what did not come with it.
+**Yes, and it took no work.** The engine had already shipped it. The request
+this shell filed at 11:56 was answered at **13:03** — `Pass 167.0`,
+`pdfce_core::formclip`, `copy_field` / `paste_field` — and the reply was sitting
+unread in the channel while the workaround was being published.
+
+**An unsigned signature field now copies and pastes normally.** Which is more
+than parity: it hands this shell signature-field *authoring* it never had, since
+there is still no `add_signature_field` verb at all. A **signed** field is
+refused at the copy, and that refusal is correct everywhere, not a pdfce limit —
+a signature is a byte-range assertion about the document it was made in, so no
+program can duplicate one and have it stay valid. What the engine specifically
+declines to do is carry the *"signed by"* artwork into a file nobody signed,
+which would be a plausible-looking void graphic.
+
+**And `Ctrl+V` stopped being lossy in the same move.** Everything the status row
+used to apologise for now travels: the font, its size and colour — **and the
+actual font file**, installed into this document's resources and renamed if that
+name is taken here — the alignment, the default value, the calculation script
+with its registration, the border and background colours, the border styles, the
+flags no authoring form can express, and the baked appearance with its whole
+resource closure. Radio groups travel whole.
+
+**Deleted from this shell as a result:** the fidelity table, the loss sentence,
+eighty lines of translation, and **two of our own refusal messages that had gone
+stale within an hour of being written**. Every disclosure is now the engine's,
+word for word.
+
+⇒ **Fifth confirmation of a rule that keeps costing this project a day at a
+time:** a reply arriving is not a capability landing. The workaround was
+published at 12:49 and replaced at 14:0x; the gap was ninety minutes and it
+still cost a build and a `FEATURES.md` row that was true for one hour.
+
+### ★★ Still open, and it is the one thing I did not decide for you
+
+Your `Ctrl+V` remains the **opposite** of Acrobat's, and I have deliberately not
+changed it — see the section above for the evidence. Acrobat's plain paste is
+the *linked* one; it has no paste-as-independent chord at all. Your split puts
+the common intent on the common chord, Acrobat's own users have a standing
+request for exactly that, and I think you are right.
+
+**But if "follow Acrobat's conventions" meant the chords too, say so and it is a
+one-line swap.** I did not read it that way, because "make it so we are able"
+describes a capability we lacked and the chords were never about ability.
+
+**Status:** ✅ **SHIPPED, LOSSLESS AND DRIVEN — awaiting your verdict.** Nothing
+is filed and unanswered any more. One question back to you: did "follow
+Acrobat's conventions" include swapping the two chords?
 
 ---
 

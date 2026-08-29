@@ -110,6 +110,13 @@ const COPY_LINE: &str = "fieldclip-copy";
 /// The paste's own line, carrying `mode=NewField` or `mode=Duplicate`.
 const PASTE_LINE: &str = "fieldclip-paste";
 
+/// The ENGINE-side line, which is the one that proves the document changed.
+///
+/// ★★ `fieldclip-paste` says the shell RAISED a paste; this says `paste_field`
+/// returned `Ok`. They were one line apart on 2026-08-29 and the gap between
+/// them is exactly where a missing action arm hides.
+const APPLIED_LINE: &str = "paste-field-applied";
+
 /// Where the first field is placed, as page fractions.
 ///
 /// Well inside the sheet on both axes, because two pastes each displace the
@@ -390,6 +397,20 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             session.trace_path().display()
         )));
     }
+    // ★★ AND THE ENGINE ANSWERED. `fieldclip-paste` says the shell RAISED a
+    // paste; this says `EditSession::paste_field` returned `Ok`. The two are one
+    // action-queue drain apart, and that gap is exactly where a missing arm
+    // hides — a build whose `FieldAction::Paste` was never applied emits the
+    // first line and not the second.
+    if after_new.events(APPLIED_LINE).next().is_none() {
+        return Ok(Some(format!(
+            "the shell raised a NewField paste and the engine never applied one: no \
+             `{APPLIED_LINE}` line. So the action was queued and dropped, or `paste_field` \
+             refused and the refusal is on the status row rather than here. Read the trace \
+             for `paste-field-refused`. Trace: {}",
+            session.trace_path().display()
+        )));
+    }
     let names_after_new = field_names(&after_new);
     if names_after_new.len() <= names_before.len() {
         return Ok(Some(format!(
@@ -458,6 +479,18 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
              modifier state from key EVENTS, and a synthesised `VK_SHIFT` — the 'either shift' \
              virtual key a real keyboard never sends — is not always recognised. `sys::vk::LSHIFT` \
              exists for exactly this and is the first thing to try. Trace: {}",
+            session.trace_path().display()
+        )));
+    }
+    // ★★★ TWO applied lines now, not one. Counting them rather than asking
+    // "is there one" is what separates "the duplicate was applied" from "the
+    // first paste's line is still in the trace" — the same class of mistake the
+    // box oracle made earlier today when it counted repaints.
+    let applied = after_dup.events(APPLIED_LINE).count();
+    if applied < 2 {
+        return Ok(Some(format!(
+            "the shell raised a Duplicate paste and the engine applied {applied} paste(s) in \
+             total, so the second one did not reach `paste_field`. Trace: {}",
             session.trace_path().display()
         )));
     }

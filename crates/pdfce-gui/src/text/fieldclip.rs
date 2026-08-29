@@ -1,133 +1,121 @@
-//! # `text::fieldclip` — the sentences the FORM-FIELD clipboard can say
+//! # `text::fieldclip` - the sentences the FORM-FIELD clipboard can say
 //!
-//! Two families, and they are different kinds of statement:
+//! ## ★★★ This file lost half its job on 2026-08-29, and that was the win
 //!
-//! 1. **[`refusal`] — why nothing happened.** Same posture as
-//!    `text::clipboard`: a keystroke that does nothing and says nothing is
-//!    indistinguishable from a broken keyboard.
-//! 2. **[`loss_note`] — what happened, and what did not come along.** This one
-//!    is not a refusal. The paste *worked*; the sentence exists because part of
-//!    the source field could not travel and **the operator cannot see which
-//!    part**.
+//! It used to carry two families: the refusals, and a **loss note** listing
+//! which properties a paste could not carry - the font, the alignment, the
+//! default value, the calculation, the border colours. That list existed
+//! because the paste **re-authored** through `New*Field`, a spec that can only
+//! express geometry and a dozen booleans.
 //!
-//! ## ★★★ Why the loss note is a sentence and not a mark on the canvas
+//! `Pass 167.0` shipped `pdfce_core::formclip` and every one of those
+//! properties now travels. The loss note is **deleted**, not softened, on the
+//! engine's own instruction: *"you should not be maintaining a hand-written map
+//! of which properties survive, because it rots silently every time we add an
+//! authoring key."*
 //!
-//! Rule 4, both halves, and they pull in opposite directions here.
+//! What replaced it is `FieldPasteOutcome::disclosures` - a `Vec<String>` the
+//! **engine** writes, covering a dropped value, a carried calculation and its
+//! `/CO` registration, a renamed font resource, an ignored rectangle size, the
+//! tab-order position, a dropped structure-tree link and a reused accessibility
+//! name. It reaches the status row through `vector_edit` like every other verb's
+//! disclosures, and **not one word of it is written here**.
 //!
-//! The pasted field **renders exactly as a saved-and-reopened one would**. No
-//! badge, no tint, no dashed outline, no "incomplete copy" layer. The
-//! operator's own ruling: *"the nagging and red flagging in the original GUI
-//! made for a lot of extra bugs in the visibility when editing."* Provisional
-//! styling is a second rendering path for the same content and two paths drift.
+//! ⇒ The rule that decided it is this shell's own and it has now removed two
+//! sentences from this file in one day: **one fact, one wording.** The engine's
+//! version is authoritative - it reports what the operation *did*, not what the
+//! shell *intended* - and a second phrasing is a divergence waiting to happen.
 //!
-//! And the half that survives is precisely this case: a field that lost its
-//! **calculation script** looks identical to one that kept it. A screenshot
-//! cannot show the difference; the file behaves differently. So it is reported
-//! — off-canvas, on the status row, not blocking, not positioned relative to
-//! the document.
+//! ## What remains
 //!
-//! ⇒ *Render normally; report separately.* **Both.**
+//! [`refusal`] - why nothing happened. Same posture as `text::clipboard`: a
+//! keystroke that does nothing and says nothing is indistinguishable from a
+//! broken keyboard.
 //!
-//! ## Why the sentence names the property and not the PDF key
+//! [`os_marker`] - the sentence a copy leaves on the *operating system's*
+//! clipboard, which is not a courtesy but a **requirement**; see its own header.
 //!
-//! *"the font and colour"*, not *"`/DA`"*. The operator is a draughtsman, not a
-//! spec reader, and a sentence he has to look up is a sentence he skips. The
-//! keys live in the doc comments on [`crate::canvas::fieldclip::Lost`], where a
-//! future engineer needs them and he does not.
+//! [`candidate_name`] - the spelling of a pasted field's name.
+//!
+//! ## ★★ Rule 4, in one line, because it still governs
+//!
+//! A pasted field renders exactly as a saved-and-reopened one would - no badge,
+//! no tint, nothing drawn on the page. The disclosure lives off-canvas, on the
+//! status row. *Render normally; report separately.* **Both.**
 
-use crate::canvas::fieldclip::{Lost, Refusal};
+use crate::canvas::fieldclip::Refusal;
 
 /// The sentence for a refusal.
+///
+/// Returns an owned `String` rather than a `&'static str` because
+/// [`Refusal::EngineRefused`] carries the engine's own wording, which is not
+/// static and must not be paraphrased. The four shell-owned variants are still
+/// literals here, so `check-ui-strings` still sees them.
 #[must_use]
-pub const fn refusal(reason: Refusal) -> &'static str {
+pub fn refusal(reason: &Refusal) -> String {
     match reason {
-        Refusal::NothingSelected => "No form field is selected. Click a field on the page first.",
+        Refusal::NothingSelected => {
+            "No form field is selected. Click a field on the page first.".to_owned()
+        }
         // ★ Not "an error occurred". The document changed underneath the
         // selection — an undo, a deletion from the Forms panel — and the
         // operator's next act is to click the field again, so the sentence
         // says that rather than describing the internal state.
         Refusal::Vanished => {
-            "That field is no longer in the document. Click a field on the page again."
+            "That field is no longer in the document. Click a field on the page again.".to_owned()
         }
-        Refusal::NoGeometry => {
-            "That field has no box on the page, so there is nothing to copy. \
-             Fields like this are reached from the Forms panel."
+        Refusal::NoGeometry => "That field has no box on the page, so there is nothing to copy. Fields like this are reached from the Forms panel.".to_owned(),
+        // ★★★ THE ENGINE'S OWN WORDS, and this variant replaced two of this
+        // shell's.
+        //
+        // It used to say *"signature fields cannot be copied"* and *"a radio
+        // button needs its own export value"*. Both were true when written and
+        // one stopped being true within the hour: `formclip` copies an UNSIGNED
+        // signature field normally - which hands this shell signature-field
+        // authoring it never had, since there is still no `add_signature_field`
+        // - and refuses a SIGNED one at the copy, because what would travel is
+        // the baked "signed by" artwork into a file nobody signed. The engine
+        // declines to make that object rather than making it and warning about
+        // it, which is the posture redaction takes.
+        //
+        // ⇒ Passing the engine's sentence through is not laziness. Its refusals
+        // are written by the party that knows why, kept current by the party
+        // that changes the rule, and a shell that paraphrased them would be
+        // maintaining a second copy of a taxonomy that moves.
+        Refusal::EngineRefused(why) => why.clone(),
+        Refusal::NothingCopied => {
+            "Nothing has been copied. Select a field and press Ctrl+C.".to_owned()
         }
-        // ★★ A dated citation, in the operator's terms, in the shape
-        // `NO_SURFACE.md` §1c asks for: it says what pdfce cannot do rather
-        // than that something went wrong, so he stops trying instead of
-        // trying four more signature fields.
-        Refusal::KindCannotBeAuthored => {
-            "Signature fields cannot be copied. pdfce can create text boxes, \
-             check boxes, radio buttons, drop-downs and buttons, and a signature \
-             field is not one of them."
-        }
-        // ★★★ The engine's own reasoning, in his terms. Two radio buttons in
-        // one group must have different export values -- that is what makes
-        // them alternatives rather than the same answer twice -- and pdfce will
-        // not invent the second one. Ctrl+V is offered in the same breath
-        // because it works and is almost certainly what was wanted.
-        Refusal::RadioNeedsItsOwnExportValue => {
-            "A radio button needs its own export value, so it cannot share a \
-             field with the one you copied. Press Ctrl+V to paste it as a new \
-             group instead."
-        }
-        Refusal::NothingCopied => "Nothing has been copied. Select a field and press Ctrl+C.",
     }
 }
 
-/// **What a paste did NOT carry** — the status-row sentence, or `None`.
+/// **The paste is bringing a script with it** — said BEFORE the press.
 ///
-/// # ★★★ Why this does not mention the merge, and used to
+/// ★★★ The one pre-press disclosure this shell owes, and it exists because the
+/// fact is **invisible**: a form field carrying a calculation, a format script
+/// or a validation looks exactly like one that does not, on the page and in
+/// every screenshot of it. Everything else about a paste is reported afterwards
+/// by the engine, which knows what actually happened; this has to come first,
+/// because after the press the operator has already committed the gesture.
 ///
-/// The first version took a `merged: bool` and opened with *"Pasted as another
-/// box for the same field — typing in either one fills both."* A driven run on
-/// 2026-08-29 showed the engine saying the same thing one line later, in its own
-/// `FieldAuthorOutcome` disclosure, which `actions::forms::author` already puts
-/// on the status row:
+/// # Why it does not say WHICH script, or what it references
 ///
-/// > *"That name already existed, so this control shows the same value as the
-/// > other one — typing in either changes both. Give it a different name if you
-/// > wanted two separate fields."*
+/// Because the engine deliberately does not resolve the field names inside it,
+/// and that restraint is right. Acrobat is documented silently dropping a copied
+/// JavaScript reference to a field the target document lacks — discovered only
+/// on reopen, with nothing said at the time. Naming the uncertainty beats
+/// half-analysing it and reporting a confident half-answer.
 ///
-/// Two sentences for one fact, in two wordings, from two files that will drift.
-/// This shell's standing rule is the opposite — *one fact, one wording* — and
-/// the engine's version is the better one anyway: it is authoritative (it
-/// reports what the merge **did**, not what the shell **intended**) and it ends
-/// with the remedy.
+/// # Why it is not a warning, and does not block
 ///
-/// ⇒ So this function says only what the engine **cannot**: which properties the
-/// re-authoring left behind. It returns `None` when there is nothing to add,
-/// which is the duplicate paste's case — and the silence is correct, because the
-/// engine's own line has already spoken.
-///
-/// ★ A `NewField` paste always has something to say, because
-/// [`Lost::BorderColour`] is unconditional. That is not an accident of this
-/// function; it is the authoring path hard-writing a black `/MK /BC`.
+/// It is usually what the operator wants. A title-block field that computes a
+/// sheet count *should* bring its calculation to the next drawing — that is the
+/// reason for copying it. The sentence exists so the outcome is not a surprise,
+/// not to discourage the act.
 #[must_use]
-pub fn loss_note(lost: &[Lost]) -> Option<String> {
-    if lost.is_empty() {
-        return None;
-    }
-    let parts: Vec<&str> = lost.iter().map(|l| property(*l)).collect();
-    Some(format!(
-        "Pasted as a new field. Not carried over: {}.",
-        join_and(&parts)
-    ))
-}
-
-/// One property, named the way an operator would name it.
-#[must_use]
-const fn property(lost: Lost) -> &'static str {
-    match lost {
-        Lost::Appearance => "the font, its size and its colour",
-        Lost::Alignment => "the text alignment",
-        Lost::DefaultValue => "the default value",
-        // ★ Spelled out rather than called "actions", because "actions" is a
-        // PDF word and "calculation" is what a person put in the field.
-        Lost::Actions => "any calculation or formatting script",
-        Lost::BorderColour => "the border and background colours",
-    }
+pub const fn brings_a_script() -> &'static str {
+    "This field carries a calculation or format script, and the paste brings it along. \
+     If it refers to other fields by name, those fields need to exist here too."
 }
 
 /// **What a field copy leaves on the OPERATING SYSTEM's clipboard.**
@@ -210,71 +198,51 @@ pub fn candidate_name(stem: &str, n: u32) -> String {
     format!("{stem}{n}")
 }
 
-/// `a`, `a and b`, `a, b and c` — the serial comma omitted, matching the rest
-/// of this shell's prose.
-///
-/// Written here rather than reached for from a crate because it is four lines
-/// and because the alternative bends the sentence to fit a generic joiner.
-fn join_and(parts: &[&str]) -> String {
-    match parts {
-        [] => String::new(),
-        [one] => (*one).to_owned(),
-        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// ★★★ A duplicate says NOTHING here, and the silence is the assertion.
+    /// ★ Every shell-owned refusal says what to do next.
+    #[test]
+    fn every_shell_refusal_names_the_operators_next_move() {
+        for r in [
+            Refusal::NothingSelected,
+            Refusal::Vanished,
+            Refusal::NoGeometry,
+            Refusal::NothingCopied,
+        ] {
+            let s = refusal(&r);
+            assert!(
+                s.contains("Click") || s.contains("Select") || s.contains("Forms panel"),
+                "a refusal that does not say what to do next is a dead end. {r:?} -> {s}"
+            );
+        }
+    }
+
+    /// ★★ The engine's wording passes through UNCHANGED.
     ///
-    /// It is not that a duplicate has no news — it has the most surprising news
-    /// of the two chords. It is that the ENGINE reports it, in its own words,
-    /// through `FieldAuthorOutcome`, and a second sentence from this file would
-    /// be the same fact in two wordings that drift. Falsified by driving on
-    /// 2026-08-29, where both sentences reached the status row.
+    /// No prefix, no suffix, no rewording. A shell that decorated the engine's
+    /// refusal would be maintaining a second copy of a taxonomy that moves - and
+    /// this variant exists because two of this file's own hand-written refusals
+    /// went stale within an hour of being written.
     #[test]
-    fn a_duplicate_adds_no_sentence_because_the_engine_already_spoke() {
+    fn an_engine_refusal_is_passed_through_verbatim() {
+        let engine = "a signed signature field cannot be copied";
         assert_eq!(
-            loss_note(&[]),
-            None,
-            "an empty loss list must add nothing to the status row: the engine's merge disclosure is authoritative and this file must not restate it"
+            refusal(&Refusal::EngineRefused(engine.to_owned())),
+            engine,
+            "verbatim, not decorated"
         );
     }
 
-    /// A list of three reads as prose, not as a debug dump.
+    /// The OS marker names the field and both chords.
     #[test]
-    fn several_losses_join_into_a_sentence() {
-        let s = loss_note(&[Lost::Appearance, Lost::Actions, Lost::BorderColour])
-            .expect("a new-field paste always has at least the border colour to report");
-        // Three separate substrings rather than one long one: a single literal
-        // spanning source lines is at rustfmt's mercy, and the first version of
-        // this test failed because the formatter reflowed the EXPECTATION rather
-        // than the program. The three claims are the ones that matter — the
-        // Oxford-comma-free join, and that each property is present.
-        assert!(s.contains("the font, its size and its colour,"), "got: {s}");
+    fn the_os_marker_teaches_both_chords() {
+        let m = os_marker("Revision");
+        assert!(m.contains("Revision"), "a form has many fields; say which");
         assert!(
-            s.contains("any calculation or formatting script and"),
-            "the last two must join with `and` and no serial comma. Got: {s}"
-        );
-        assert!(
-            s.ends_with("the border and background colours."),
-            "got: {s}"
-        );
-        assert!(
-            !s.contains("/DA") && !s.contains("Lost::"),
-            "no PDF keys and no Rust identifiers in operator-facing prose. Got: {s}"
-        );
-    }
-
-    /// One loss takes no joiner.
-    #[test]
-    fn a_single_loss_does_not_grow_a_stray_and() {
-        let s = loss_note(&[Lost::Alignment]).expect("one loss is still a sentence");
-        assert!(
-            s.ends_with("Not carried over: the text alignment."),
-            "got: {s}"
+            m.contains("Ctrl+V") && m.contains("Ctrl+Shift+V"),
+            "the second chord is the whole feature, and somebody reading this in an email has just been taught it. Got: {m}"
         );
     }
 }

@@ -138,7 +138,7 @@ fn copy_or_cut(app: &mut PdfceApp, ctx: &egui::Context, id: &str, actions: &mut 
         if let Err(refusal) = outcome {
             crate::app::actions::record_note(
                 doc.edit_epoch,
-                crate::text::fieldclip::refusal(refusal).to_owned(),
+                crate::text::fieldclip::refusal(&refusal),
             );
         }
         return;
@@ -229,35 +229,28 @@ fn paste(
         clipped,
         Some(crate::canvas::clipboard::Clipped::FormField(_))
     ) {
-        // ★★ The loss note is computed BEFORE the paste is raised, from the
-        // clip rather than from the result, and that ordering is deliberate.
+        // ★★★ THE ONE THING WORTH SAYING *BEFORE* THE PRESS, and it is the only
+        // pre-press disclosure this shell owes on a paste.
         //
-        // The action drains at the end of the frame; by then the clip is still
-        // there but the *source field* may not be, and re-deriving what was
-        // lost from a document that has moved on would describe a different
-        // field. `fieldclip` measured the loss at COPY time against the field
-        // it actually read, and this is where that measurement is spent.
-        let lost = crate::canvas::fieldclip::losses(ctx, mode).unwrap_or_default();
-        match crate::canvas::fieldclip::paste(ctx, doc, page, mode, actions) {
-            Ok(()) => {
-                // ★ The merge is NOT reported here, and that is deliberate:
-                // `actions::forms::author` already puts the engine's own
-                // `FieldAuthorOutcome` disclosure on the status row, and it says
-                // the merge better than this file could. See
-                // `text::fieldclip::loss_note` for the driven run that found the
-                // two sentences arriving together.
-                //
-                // `None` on a duplicate, therefore, and the silence is right.
-                if let Some(note) = crate::text::fieldclip::loss_note(&lost) {
-                    crate::app::actions::record_note(epoch, note);
-                }
-            }
-            Err(refusal) => {
-                crate::app::actions::record_note(
-                    epoch,
-                    crate::text::fieldclip::refusal(refusal).to_owned(),
-                );
-            }
+        // Everything else a paste carries or drops is reported AFTER, by the
+        // engine, through `FieldPasteOutcome::disclosures` — which is
+        // authoritative because it reports what the operation did rather than
+        // what the shell intended. This one cannot wait, because a field in a
+        // calculation chain looks identical on the page to one that is not: the
+        // operator has no way to know a script is coming until it has come.
+        //
+        // ★ The engine deliberately does NOT resolve the field names inside the
+        // script, and says so. Acrobat is documented silently dropping a copied
+        // JavaScript reference to a field the target lacks — discovered only on
+        // reopen — and naming the uncertainty beats half-analysing it.
+        if crate::canvas::fieldclip::carries_actions(ctx) == Some(true) {
+            crate::app::actions::record_note(
+                epoch,
+                crate::text::fieldclip::brings_a_script().to_owned(),
+            );
+        }
+        if let Err(refusal) = crate::canvas::fieldclip::paste(ctx, doc, page, mode, actions) {
+            crate::app::actions::record_note(epoch, crate::text::fieldclip::refusal(&refusal));
         }
         return;
     }
