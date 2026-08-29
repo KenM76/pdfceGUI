@@ -314,6 +314,219 @@ pub fn note_removed(previous: &str) -> Option<String> {
     ))
 }
 
+// ---------------------------------------------------------------------------
+// BEFORE the click: why Delete is not offered, and what it would take with it
+// ---------------------------------------------------------------------------
+
+/// ★★★ **Why the Delete control is absent for the selected annotation** —
+/// `EditSession::annotation_deletion_refusal` answered `Some` (R83).
+///
+/// # The defect this closes, stated as it was found
+///
+/// `annotation_deletion_refusal` is a **pure query**. Its own doc comment names
+/// this call site in as many words — *"safe to call every frame from a UI (R83:
+/// ask before offering the control)"* — and until this landed **nothing in this
+/// shell called it**. On a certified drawing the Format tab's Delete, the
+/// canvas right-click's Delete and the Delete key were all live, and every one
+/// of them ended in `crate::app::actions::apply::vector_edit`'s `Err` arm,
+/// which writes one line to the trace and **says nothing at all to the
+/// operator**. That is the identical shape the forms panel's `deletion_refusal`
+/// audit found the day before (`crate::panels::properties::formfield`), one
+/// annotation kind along, and it was found the same way: by asking what the
+/// engine offers rather than by re-reading this shell.
+///
+/// # ★★ Why an enum rather than one sentence
+///
+/// Because the two reachable causes are **different facts about the operator's
+/// file** and only one of them is about a signature. An encrypted drawing and a
+/// certified one look identical on the canvas; telling an operator that a
+/// signature forbids the delete when in fact the file is encrypted sends them
+/// hunting for a signature that is not there. The mapping is
+/// [`crate::panels::properties::annotdelete::refusal_for`], a total match
+/// written in the engine's own guard order — exactly the shape
+/// `crate::app::actions::xobject::refusal_for` has for `unshare_form`, and for
+/// the same reason: a `_ =>` that silently swallows a mistyped variant name
+/// turns an instruction back into a dead end and the compiler stays happy.
+///
+/// # ★★★ What none of these sentences does is offer a remedy it cannot back
+///
+/// The forms twin ends *"the values in it can still be filled in and changed"*,
+/// which is true and checkable: `fill_refusal` allows at `/P 2` where
+/// `deletion_refusal` refuses, so there is a second verb to point at. **There is
+/// no such second verb here.** §12.8.2.2 Table 254 puts annotation *creation,
+/// deletion and modification* on one line, so at `/P 2` an operator cannot add a
+/// comment either, and a sentence suggesting they could would be an invented
+/// remedy of exactly the kind this project's copy rule forbids.
+///
+/// ⇒ Each of these therefore explains **why** instead. That is what keeps a
+/// refusal from reading as a dead end without claiming something the engine
+/// would refuse the moment the operator tried it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnnotDeleteRefusal {
+    /// The document carries `/Encrypt` (§7.6) — `EditError::DocumentEncrypted`,
+    /// the engine's first guard.
+    ///
+    /// ★ Reachable on an entirely ordinary file: plenty of drawing sets ship
+    /// with an owner password set for printing, and nothing on the canvas says
+    /// so.
+    Encrypted,
+    /// An enforced certification signature whose `/P` is below 3 (§12.8.2.2
+    /// Table 254) — `EditError::CertificationForbidsChange`.
+    ///
+    /// ★ Table 254 makes `/P` **Optional with default 2**, so a certified
+    /// document that states no permission at all lands here — absence is
+    /// permissive relative to `P = 1` and not relative to `P = 3`. The
+    /// permission number is deliberately **not** carried into the wording:
+    /// `1` and `2` refuse for the same reason and leave the operator nothing to
+    /// do differently, so printing it would be jargon in place of a fact.
+    ///
+    /// ★★ `P = 3` is the row this query exists for and it does **not** land
+    /// here: that is the comment-review certification, where a document was
+    /// signed precisely so reviewers could annotate it, and the annotation gate
+    /// allows it where the general structural gate would not.
+    Certified,
+    /// Anything else the query can return.
+    ///
+    /// Named rather than reached by a `_ =>` carrying a guess, for the reason
+    /// `crate::text::unshare::UnshareRefusal::Other` is: an unnamed cause has
+    /// exactly one honest operator-facing content — *nothing has changed* — and
+    /// inventing a diagnosis is worse than admitting there is none.
+    Other,
+}
+
+impl AnnotDeleteRefusal {
+    /// The sentence this refusal earns.
+    #[must_use]
+    pub const fn line(self) -> &'static str {
+        match self {
+            Self::Encrypted => {
+                "This document is encrypted, so pdfce cannot change anything inside it. \
+                 Its comments and markup can be read here but not deleted."
+            }
+            Self::Certified => {
+                "A certification signature on this document does not allow its comments and \
+                 markup to be deleted. Deleting one would invalidate that signature, so pdfce \
+                 leaves it in place rather than breaking the signature quietly."
+            }
+            Self::Other => {
+                "pdfce cannot delete comments or markup from this document. \
+                 Nothing has been changed."
+            }
+        }
+    }
+}
+
+/// **Why the Delete control is absent for THIS annotation** — §12.5.3 Table 165
+/// bit 8, the `Locked` flag.
+///
+/// # ★★ Why this is a free function and not a fourth [`AnnotDeleteRefusal`]
+/// variant
+///
+/// Because it comes from a different place and has a different scope. Every
+/// member of that enum is derived from an `EditError` and describes the **whole
+/// document**; this is a bit in the selected annotation's own flags word, and
+/// two annotations on one page can disagree about it. Folding it in would make
+/// `crate::panels::properties::annotdelete::refusal_for` — a total match over
+/// `EditError` — answerable for a variant no `EditError` produces.
+///
+/// # ★★★ It is the more actionable of the two facts, and that is why it wins
+///
+/// A certified document and a locked annotation can both be true at once, and
+/// the gate checks this one **first**. An operator told *"this comment is marked
+/// as one that should not be changed"* has somewhere to go: they can look at
+/// that comment, ask whoever placed it, or select a different one. An operator
+/// told *"the document is certified"* can do nothing about one annotation. When
+/// both are true, the sentence that leaves the operator with a next step is the
+/// one worth saying.
+///
+/// ★ It says *"the file marks"*, not *"pdfce will not"*. §12.5.3's `Locked` is a
+/// statement the **producer** wrote into the annotation, and this shell honours
+/// it rather than imposing it. Wording it as pdfce's decision would send an
+/// operator looking for a pdfce setting to turn it off.
+#[must_use]
+pub const fn annot_delete_locked() -> &'static str {
+    "The file marks this comment as one that should not be changed, so pdfce does not \
+     offer to delete it. Other comments on this page may still be deleted."
+}
+
+/// ★★★ **What deleting the selected annotation would take with it**, said
+/// *before* the click — `EditSession::annotation_deletion_preview`.
+///
+/// # The future-tense twin of [`deleted_collateral`], and why they live together
+///
+/// They are one vocabulary in two tenses and they must not drift. A preview that
+/// says *"1 reply will be left without the comment it replied to"* followed by a
+/// disclosure that says *"1 grouped annotation is now on its own"* has described
+/// two different acts, and the operator has no way to tell which of the two
+/// lied. Keeping them adjacent in one file is the cheapest guard available — a
+/// reader editing either one sees the other — and the counts they render come
+/// from **one engine body**: `plan_annotation_deletion` is shared between
+/// `annotation_deletion_preview` and `delete_annotation` precisely so that
+/// *"the warning cannot disagree with the act."*
+///
+/// # ★★ Why this is worth showing at all, in the engine's own words
+///
+/// > Two of the counts describe consequences on **other** annotations — replies
+/// > that stop being replies, and group subordinates whose previously-suppressed
+/// > text becomes visible (§12.5.6.2). Those are exactly the facts rule 4 says an
+/// > operator must be able to see *before* they act.
+///
+/// A reply three rows down a scrolled Comments list is not visible, and this
+/// shell's delete carries no confirmation dialog by deliberate decision
+/// (decision 024 §4.4's no-confirm carve-out, which is **conditioned on the
+/// result being visible**). So the only moment this fact can reach the operator
+/// is while the annotation is selected and before the key goes down, which is
+/// where the panel puts it.
+///
+/// # ★ It returns `None` far more often than not, and that is the design
+///
+/// The overwhelmingly common annotation has no pop-up, no replies and no group,
+/// and there is nothing whatever to say about deleting it. A sentence that
+/// appeared on every selection would be read the first three times and skipped
+/// for ever after — which is the failure mode that makes the *interesting* case
+/// invisible. R9: nothing to say renders nothing.
+///
+/// ★★ **It does not say "removed" and it does not mention the file.** Deleting
+/// an annotation takes an entry out of `/Annots`; it does not touch page
+/// content, and an incremental save leaves the previous revision in the file.
+/// `docs/core-api/03-capabilities.md` §3.4 — *"delete is not redaction"* — and
+/// [`deleted_collateral`] observes the same rule in its own wording, which is
+/// the other half of why these two functions sit together.
+#[must_use]
+pub fn deletion_would_take(
+    popup_removed: bool,
+    parent_popup_cleared: bool,
+    replies_orphaned: usize,
+    group_members_promoted: usize,
+) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if popup_removed {
+        parts.push(
+            "its pop-up note will go with it, which the PDF specification requires".to_owned(),
+        );
+    }
+    if parent_popup_cleared {
+        parts.push("the annotation it belongs to will stop referring to it".to_owned());
+    }
+    if replies_orphaned == 1 {
+        parts.push("1 reply will be left without the comment it replied to".to_owned());
+    } else if replies_orphaned > 1 {
+        parts.push(format!(
+            "{replies_orphaned} replies will be left without the comment they replied to"
+        ));
+    }
+    if group_members_promoted == 1 {
+        parts.push("1 grouped annotation will be on its own".to_owned());
+    } else if group_members_promoted > 1 {
+        parts.push(format!(
+            "{group_members_promoted} grouped annotations will be on their own"
+        ));
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    Some(format!("If you delete this — {}.", parts.join("; ")))
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -351,6 +564,92 @@ mod tests {
     fn the_two_swatches_are_told_apart_by_their_words() {
         assert_ne!(pen_colour_tooltip(), highlighter_colour_tooltip());
         assert!(highlighter_colour_tooltip().contains("highlight"));
+    }
+
+    /// ★★★ **Nothing to say says nothing.**
+    ///
+    /// The overwhelmingly common annotation has no pop-up, no replies and no
+    /// group. A sentence that appeared on every selection would be read the
+    /// first three times and skipped for ever after, which is exactly what makes
+    /// the interesting case invisible when it finally arrives.
+    #[test]
+    fn a_delete_with_no_collateral_produces_no_sentence() {
+        assert_eq!(deletion_would_take(false, false, 0, 0), None);
+    }
+
+    /// ★★ **The preview and the disclosure describe the SAME act in two
+    /// tenses**, and they must not drift into describing two.
+    ///
+    /// Pinned by counting: for one set of counts each function names every
+    /// consequence the other names. What is deliberately NOT asserted is that
+    /// the strings are equal or mechanically derived — they are not, because
+    /// *"1 reply is left"* and *"1 reply will be left"* are different English —
+    /// and a test that demanded a shared template would forbid the difference
+    /// that makes both of them readable.
+    #[test]
+    fn the_two_tenses_name_the_same_four_consequences() {
+        let before = deletion_would_take(true, true, 2, 3).expect("collateral");
+        let after = deleted_collateral(true, true, 2, 3).expect("collateral");
+        for fragment in ["pop-up", "no longer refers to it", "2 replies", "3 grouped"] {
+            let in_after = after.contains(fragment);
+            let in_before = before.contains(match fragment {
+                "no longer refers to it" => "will stop referring to it",
+                other => other,
+            });
+            assert!(
+                in_after && in_before,
+                "`{fragment}` must appear in both tenses: a preview that names a \
+                 consequence the disclosure does not, or the reverse, has \
+                 described a different act"
+            );
+        }
+    }
+
+    /// ★ Singular and plural are separate sentences, in both tenses.
+    ///
+    /// *"1 replies"* is the kind of thing that gets noticed and remembered as
+    /// evidence that nobody read the output.
+    #[test]
+    fn one_is_not_pluralised() {
+        let one = deletion_would_take(false, false, 1, 1).expect("collateral");
+        assert!(one.contains("1 reply will be"), "{one}");
+        assert!(one.contains("1 grouped annotation will be"), "{one}");
+        let two = deletion_would_take(false, false, 2, 2).expect("collateral");
+        assert!(two.contains("2 replies will be"), "{two}");
+        assert!(two.contains("2 grouped annotations will be"), "{two}");
+    }
+
+    /// ★★★ **Neither tense says "removed", and neither mentions the file.**
+    ///
+    /// Deleting an annotation takes an entry out of `/Annots`; it does not touch
+    /// page content, and an incremental save leaves the previous revision in the
+    /// file. `docs/core-api/03-capabilities.md` §3.4 — *"delete is not
+    /// redaction"* — and a preview that promised removal would be the exact
+    /// wording `crate::text::redact`'s header forbids, stated one gesture
+    /// earlier than the disclosure that already observes the rule.
+    #[test]
+    fn neither_tense_promises_redaction() {
+        for line in [
+            deletion_would_take(true, true, 1, 1).expect("collateral"),
+            deleted_collateral(true, true, 1, 1).expect("collateral"),
+        ] {
+            let lower = line.to_lowercase();
+            assert!(!lower.contains("removed from"), "{line}");
+            assert!(!lower.contains("erased"), "{line}");
+            assert!(!lower.contains("from the file"), "{line}");
+        }
+    }
+
+    /// ★ The locked sentence blames the FILE, not pdfce.
+    ///
+    /// §12.5.3's `Locked` is a statement the producer wrote into the annotation.
+    /// Wording it as pdfce's own decision would send an operator looking for a
+    /// pdfce setting to turn off, and there is not one.
+    #[test]
+    fn the_locked_sentence_names_the_file_as_the_author_of_the_rule() {
+        let line = annot_delete_locked();
+        assert!(line.contains("The file marks"), "{line}");
+        assert!(!line.to_lowercase().contains("pdfce will not"), "{line}");
     }
 
     /// The width suffix names a unit and is not empty.

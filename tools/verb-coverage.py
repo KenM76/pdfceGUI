@@ -45,6 +45,24 @@ from a tool reads as authoritative:
     register at `EDITABLE_SURFACES.md` carries a hand-written reason per miss;
     this tool produces the list that register must account for.
 
+★★★ IT MEASURES THE LOCKED REVISION, NOT THE ENGINE'S WORKING TREE
+==================================================================
+
+The first cut read `D:/Dev/pdfce/crates/pdfce-core/src/edit.rs` off disk, and on
+2026-08-29 it reported `move_outline_item` and `set_outline_open` as gaps. They
+are not gaps. They were **uncommitted work in the engine session's worktree** —
+that project runs in parallel and edits its own tree continuously — and the
+revision this shell links is whatever `Cargo.lock` pins.
+
+⇒ **A verb in the worktree and not in the lock is not callable**, and a register
+that listed it would send the next session to write a call that does not
+compile. Worse, it would look like a capability we were behind on.
+
+So the scan reads `git show <locked-rev>:crates/pdfce-core/src/edit.rs`, and it
+reports the difference rather than hiding it: verbs the worktree has and the
+lock does not are printed under COMING, so the two facts stay separate —
+*"nothing here calls it"* and *"we could not call it if we wanted to."*
+
 USAGE
 =====
 
@@ -62,10 +80,50 @@ from __future__ import annotations
 import argparse
 import pathlib
 import re
+import subprocess
 import sys
 
-ENGINE = pathlib.Path("D:/Dev/pdfce/crates/pdfce-core/src/edit.rs")
+ENGINE_REPO = pathlib.Path("D:/Dev/pdfce")
+ENGINE_FILE = "crates/pdfce-core/src/edit.rs"
+LOCK = pathlib.Path("Cargo.lock")
 GUI = pathlib.Path("crates/pdfce-gui/src")
+
+
+def locked_revision() -> str | None:
+    """The `pdfce-core` commit this workspace's `Cargo.lock` pins.
+
+    The lock names it in the source URL's fragment:
+
+        source = "git+file:///D:/Dev/pdfce?branch=main#97d445f85f…"
+
+    Read from the lock rather than from `cargo metadata`, which is a process
+    spawn and a JSON parse for one hex string that is right there.
+    """
+    if not LOCK.exists():
+        return None
+    for line in LOCK.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith('source = "git+file:') and "#" in line:
+            return line.rsplit("#", 1)[1].rstrip('"')
+    return None
+
+
+def engine_source(rev: str | None) -> tuple[str, str]:
+    """`edit.rs` as of `rev`, and a one-word description of where it came from.
+
+    Falls back to the working tree when there is no revision or git will not
+    answer — and says so, because the fallback is the thing this function exists
+    to avoid silently doing.
+    """
+    if rev:
+        try:
+            out = subprocess.run(
+                ["git", "-C", str(ENGINE_REPO), "show", f"{rev}:{ENGINE_FILE}"],
+                capture_output=True, check=True,
+            )
+            return out.stdout.decode("utf-8", errors="replace"), f"lock {rev[:7]}"
+        except (OSError, subprocess.CalledProcessError):
+            pass
+    return (ENGINE_REPO / ENGINE_FILE).read_text(encoding="utf-8", errors="replace"), "WORKTREE"
 
 IMPL = re.compile(r"^impl(?:<[^>]*>)?\s+([A-Za-z0-9_]+)")
 # Four-space indent only: a `pub fn` nested deeper is inside a nested item or a
@@ -73,7 +131,7 @@ IMPL = re.compile(r"^impl(?:<[^>]*>)?\s+([A-Za-z0-9_]+)")
 METHOD = re.compile(r"^    pub (?:const )?(?:unsafe )?fn ([a-z0-9_]+)")
 
 
-def engine_verbs(path: pathlib.Path) -> list[str]:
+def engine_verbs_from(text: str) -> list[str]:
     """Every `pub fn` declared at one indent inside an `impl EditSession`.
 
     The scan is a state machine over `impl` headers rather than a parse: the
@@ -84,7 +142,7 @@ def engine_verbs(path: pathlib.Path) -> list[str]:
     """
     current = None
     out: list[str] = []
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+    for line in text.splitlines():
         m = IMPL.match(line)
         if m:
             current = m.group(1)
@@ -122,12 +180,24 @@ def main() -> int:
     ap.add_argument("--markdown", action="store_true", help="a table for the register")
     args = ap.parse_args()
 
-    if not ENGINE.exists():
-        print(f"engine not found at {ENGINE}", file=sys.stderr)
+    if not (ENGINE_REPO / ENGINE_FILE).exists():
+        print(f"engine not found at {ENGINE_REPO / ENGINE_FILE}", file=sys.stderr)
         return 0
-    verbs = engine_verbs(ENGINE)
+    rev = locked_revision()
+    text, origin = engine_source(rev)
+    verbs = engine_verbs_from(text)
     counts = gui_hits(verbs, GUI)
     missing = [v for v in verbs if counts[v] == 0]
+
+    # ★ What the engine's worktree has that the lock does not. Reported
+    # separately and never mixed into the miss list: those verbs cannot be
+    # called from this workspace at all until `cargo update` moves the pin.
+    coming: list[str] = []
+    if origin != "WORKTREE":
+        live = set(engine_verbs_from(
+            (ENGINE_REPO / ENGINE_FILE).read_text(encoding="utf-8", errors="replace")
+        ))
+        coming = sorted(live - set(verbs))
 
     if args.markdown:
         print(f"| verb | occurrences in `crates/pdfce-gui/src` |")
@@ -141,8 +211,22 @@ def main() -> int:
         for v in missing:
             print(v)
 
+    if coming:
+        print(
+            f"\nCOMING ({len(coming)}): in the engine's WORKING TREE and not in the "
+            f"locked revision, so not callable from here yet — "
+            + ", ".join(coming),
+            file=sys.stderr,
+        )
+    if origin == "WORKTREE":
+        print(
+            "\n⚠ read the engine's WORKING TREE, not the locked revision. The engine "
+            "session edits that tree continuously, so this list may name verbs this "
+            "workspace cannot call.",
+            file=sys.stderr,
+        )
     print(
-        f"\n{len(verbs)} EditSession verbs, {len(verbs) - len(missing)} named "
+        f"\n{len(verbs)} EditSession verbs ({origin}), {len(verbs) - len(missing)} named "
         f"somewhere in the shell, {len(missing)} named nowhere.",
         file=sys.stderr,
     )

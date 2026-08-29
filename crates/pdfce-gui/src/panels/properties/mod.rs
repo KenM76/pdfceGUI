@@ -100,6 +100,18 @@
 //! unlike most inferences this one is invisible: a confidently wrong "Yes"
 //! looks exactly like a right one.
 
+/// ★★★ **Whether the selected annotation can be deleted, and what would go with
+/// it** — `EditSession::annotation_deletion_refusal` and
+/// `annotation_deletion_preview`, both of which were named nowhere in this
+/// shell until 2026-08-29.
+///
+/// `pub` rather than private, unlike [`dimension`] and [`markup`], for two
+/// reasons that are both about a single derivation being reachable from
+/// elsewhere: `crate::panels::PanelsState` holds its `(id, epoch)`-stamped
+/// memo, and `crate::app::conditions` calls its `gate` to publish
+/// `selection.delete_permitted` — the condition that decides whether
+/// `format.delete` is drawn at all. One question, two consumers; see its header.
+pub mod annotdelete;
 /// ★ The **selected ce dimension's** own properties — a contextual section
 /// drawn above this panel's object form.
 ///
@@ -287,6 +299,22 @@ fn body_sections(
     // because it is the one that WRITES: the other two describe.
     let drew_markup = markup::section(ui, doc, actions);
     let drew_dimension = dimension::section(ui, doc, actions);
+    // ★★★ Directly under the two sections that restyle the selected annotation,
+    // and above everything that describes a *content* object — because this is
+    // about the same subject those two are about, and the panel's reading order
+    // is "what you can change about this thing", then "what is true of it".
+    //
+    // It is the one section here whose subject is a control that lives
+    // **somewhere else**: the Delete it explains is on the Format tab, on both
+    // canvas menus and on the Delete key, and none of those can hold a sentence.
+    // R9 sends a permanently-refused capability's explanation to the surface
+    // that describes what is selected, and this is that surface.
+    //
+    // ★ It draws for an annotation of ANY kind — a markup, a ce dimension, a
+    // stamp — where `markup` and `dimension` each draw for one. Deletion is the
+    // one verb they share, and `annotation_deletion_refusal` is a document-wide
+    // question that does not care which `/Subtype` is selected.
+    let drew_annot_delete = annotdelete::section(ui, doc, state.annot_delete_mut());
     // ★ The geometry fields sit between the sections that WRITE and the
     // section that describes, because that is what they are: the only editable
     // thing about a selected *content* object, where the two above it are the
@@ -309,7 +337,12 @@ fn body_sections(
     object_section(
         ui,
         doc,
-        drew_dimension || drew_markup || drew_geometry || drew_form_field || drew_text,
+        drew_dimension
+            || drew_markup
+            || drew_annot_delete
+            || drew_geometry
+            || drew_form_field
+            || drew_text,
     );
     ui.separator();
     info::section(ui, doc, state.properties_mut(), actions);

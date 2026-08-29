@@ -528,6 +528,31 @@ pub fn comment_row_note_no_handle() -> &'static str {
     "This annotation is written into the page rather than as its own object, so pdfce cannot address it."
 }
 
+/// **The heading of the row whose annotation is selected on the canvas.**
+///
+/// # ★★★ A word, not a colour
+///
+/// `DEFECTS.md` **D2** is this project's record of a theme making text
+/// invisible against its own background — near-white on light grey, shipped,
+/// with two theme tests sitting next to it that measured no
+/// foreground/background pair. Every list in this shell that marks a row marks
+/// it with a **shape or a word**: the Pages panel changes a tile's outline
+/// *and* writes a count, and the Objects tree indents.
+///
+/// A reviewer scanning forty rows for the cloud they just drew needs that mark
+/// to survive a theme nobody has measured yet.
+///
+/// # Why it wraps the heading rather than sitting on its own line
+///
+/// Because the row is already between two and seven lines tall and a separate
+/// line would put the mark a variable distance from the thing it marks. The
+/// arrow leads, so a column of headings scanned down the left edge shows it
+/// without reading a word.
+#[must_use]
+pub fn comment_row_selected_heading(heading: &str) -> String {
+    format!("> {heading} — selected on the page")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

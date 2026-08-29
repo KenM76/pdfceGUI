@@ -52,10 +52,31 @@ stale blocker in a project that has already found six.
 
 ---
 
-## The state at the end of 2026-08-29
+## The state at the end of 2026-08-29 (re-measured after the preview work)
 
-**157 `EditSession` verbs. 144 named somewhere in the shell. 13 named nowhere.**
+**157 `EditSession` verbs. 147 named somewhere in the shell. 10 named nowhere.**
 At the start of the audit it was 135 / 22.
+
+★★★ **Measured against the LOCKED revision, not the engine's working tree**, and
+the distinction earned itself within a day. The first cut of the tool read
+`edit.rs` off disk and reported `move_outline_item` and `set_outline_open` as
+gaps — bookmark reorder, re-parent and open state, which the engine's own note
+had said did *not* ship. They were **uncommitted work in the engine session's
+worktree**, which that project edits continuously while this one runs. (It also
+reported 159 verbs and 12 misses for the same reason; the numbers above are the
+lock's.)
+
+⇒ A verb in the worktree and not in the lock **is not callable from here**, and
+a register listing it would send the next session to write a call that does not
+compile while looking like a capability we were behind on. The tool prints those
+under `COMING` and keeps the two facts apart: *"nothing here calls it"* and
+*"we could not call it if we wanted to."* Both are worth knowing; they are not
+the same thing.
+
+★ `move_outline_item` and `set_outline_open` are the two to pick up the moment
+the engine commits them — they are bookmark **reorder, re-parent and open
+state**, which is the half the Bookmarks panel is still missing and which that
+panel's own doc comment currently records as unbuilt on the engine's side.
 
 The twelve gaps this audit found, and what happened to each:
 
@@ -132,27 +153,148 @@ operator's machine.
 | `mark_redactions_by_pattern` | `mark_redactions_by_pattern_styled`, for the same reason. |
 | `copy_annotations` | ⚠ **This one is a real fidelity gap and is listed again below.** The shell calls `copy_objects`, which does not carry annotations, and round-trips a copied markup through `MarkupSpec` instead. |
 
-### ★★ Not gaps — the preview and refusal queries, and why their absence is a real cost
+### ★★ The preview and refusal queries — six closed 2026-08-29, one declined
 
-These four are `&self`, side-effect-free, and share one body with the verb they
-describe, so `preview(..).is_ok()` **is** the predicate rather than a second
+These are `&self`, side-effect-free, and **share one body with the verb they
+describe**, so `preview(..).is_ok()` *is* the predicate rather than a second
 implementation that agrees until somebody changes one.
 
-| Verb | What it would buy |
+| Verb | Status |
 |---|---|
-| `annotation_deletion_refusal` | R83 — *ask before offering the control*. The Format tab's Delete is enabled on a certified document and then refuses. |
-| `rename_refusal` | The same for a form-field rename. |
-| `annotation_deletion_preview` | The collateral of a delete **before** the click: the pop-up that goes with it, the replies orphaned, the group members promoted. The old shell had a hover-computed version of exactly this. |
-| `field_group_deletion_preview` | *"how many fields is this and what are they called"*, before a grouping-node delete. |
-| `paste_preview` | Whether a paste will work, before the drop, in the requesting shell's own words: *"a greyed-out menu item needs the answer BEFORE the gesture."* |
-| `preview_style_resolution` | What a synthetic bold/italic would do to a run, before applying it. |
-| `signature_impact_of_save` / `changes_structure` | ★★★ **What saving would do to the document's signatures.** A signed drawing saved through the wrong path is invalidated, and pdfce reports the invalidation rather than preventing it. This shell says nothing before the save. |
+| `rename_refusal` / `deletion_refusal` | ✅ **Wired 2026-08-28** — the Forms properties pane withholds Rename and both Deletes and puts a sentence in their place |
+| `field_group_deletion_preview` | ✅ Wired — Forms ▸ Field groups, previewed before the press |
+| `signature_impact_of_save` / `changes_structure` | ✅ Wired — a window before an invalidating save |
+| `annotation_deletion_refusal` | ✅ **Wired 2026-08-29** — `format.delete` is *not drawn* on a certified or encrypted document, and the Properties panel says why |
+| `annotation_deletion_preview` | ✅ **Wired 2026-08-29** — the collateral of a delete, stated before the press, memoised on `(id, epoch)` |
+| `preview_style_resolution` | ✅ **Wired 2026-08-29** — Bold and Italic say which face they will use, or that the press will be refused |
+| `paste_preview` | ⛔ **Declined, with the argument below.** Not "not built" |
 
 ⇒ Each is R9 and R83 quality work rather than a missing capability: the verb
 runs either way, and the difference is whether the operator learns the answer
-from a greyed control with a hover explanation, or from a refusal after the
-gesture. **`signature_impact_of_save` is the one with a consequence that
-survives the session** and is the first of these to build.
+before the gesture or from a refusal after it.
+
+#### ★★★ `annotation_deletion_refusal` — the forms defect, one `/Subtype` along
+
+The 2026-08-28 audit found that **`deletion_refusal` (the forms one) was
+consulted by nothing**: it appeared in this crate only inside three comments in
+`panels::forms`, arguing correctly about which query *Flatten* should ask, while
+Rename, Delete field and Delete this box asked none.
+
+**The annotation half was the same defect and was still open.** On a certified
+or encrypted drawing this shell drew *three* live Delete controls — the Format
+tab's, the canvas object menu's, and the Delete key — and every press reached
+`delete_annotation`, was refused, and landed in `actions::apply::vector_edit`'s
+`Err` arm, **which writes one line to the trace and says nothing to the
+operator**.
+
+⇒ ★★★ **And it was worse than a silence.** `actions::annots::delete` clears the
+selection *after* the funnel rather than on success, so the press removed the
+Properties panel's own description of the annotation — the surface where the
+explanation lives. A refused gesture that destroys its own explanation is the
+worst shape this class can take, and no unit test in the crate could have found
+it, because every one of its halves is separately correct.
+
+**The fix**, following the forms pattern rather than inventing a second one:
+
+* `selection.delete_permitted`, published by `app::conditions`, carries
+  `format.delete`'s **`visible_when`** on the Format tab and on the canvas
+  object menu — *absence*, not greying, because a certification signature is
+  neither temporary nor arguable (R9);
+* `panels::properties::annotdelete` draws the **sentence** that replaces it,
+  from `annotdelete::gate` — the *one* derivation the condition also asks, so a
+  control cannot be withheld for one reason while a panel explains another;
+* `canvas::keys` and `dispatch::format` consult the same gate before raising
+  the action, so the selection survives the press and the sentence stays on
+  screen.
+
+★★ **The sentence is in a panel and deliberately not in `status::decline`.** A
+decline reports *a gesture just failed* and must be repeatable; this is a
+**standing property of the open document**, true from the moment it was opened
+and whether or not anything was pressed. Delivering it only after a press is the
+one moment R83 exists to get ahead of.
+
+#### ★ `annotation_deletion_preview` — and what was done about its cost
+
+The query walks the page's whole `/Annots` looking for `/IRT` referrers —
+O(annotations) per call. **The old shell gated it on hover, one row at a time**,
+because its Comments panel would otherwise have paid O(rows × walk) per frame.
+
+This shell does better, and the reason it can is structural rather than clever:
+**it is not a list.** There is one selected annotation, so the worst case is one
+call per frame — and even that is not paid, because the answer is memoised on
+`(annotation id, edit epoch)`. In steady state the cost is one `Option`
+comparison per frame and no engine call at all. A hover gate would have been
+cheaper only in the frames where the answer is not wanted, and it would have hidden
+the fact behind a gesture the operator has no reason to make.
+
+#### ★★ `preview_style_resolution` — and a claim of this project's that it retires
+
+Bold and Italic are *"buttons that apply, not switches that reflect"* and
+**still do not grey**; the engine's instruction is unchanged. What changed is
+the hover, which used to hand the operator a conditional (*"if this page carries
+a real bold face…"*) and now evaluates it: which face will be used, or that the
+letters will be thickened, or — the interesting one — that **the press will be
+refused**.
+
+That third answer is `app::actions::textstyle`'s own retracted claim, previewed.
+`gate_synthesis` prefers a face by *family* and gates synthesis off; the face it
+names may map none of the run's characters, and `set_font` then refuses it too.
+Neither verb reaches bold. The shell can now predict it by comparing
+`preview_style_resolution`'s `selector` against `preview_font_resources`'
+accepted list — **two engine-issued selectors, compared for equality**, not the
+coverage test re-implemented.
+
+⇒ ★★ That retires this project's own note that *"greying would mean predicting a
+refusal that depends on a per-run glyph-coverage test this shell cannot run"*.
+It can. The buttons still do not grey, and the reason has changed from *we
+cannot know* to *knowing is not a reason to withhold*: the engine has a queued
+fix that turns this case into ordinary synthesis, and **a control withheld on
+the strength of a defect that is about to be fixed is a control that stays
+withheld for months after it starts working**. A stale sentence is corrected in
+one line.
+
+#### ⛔ `paste_preview` — declined, and this is the argument rather than a gap
+
+Not "not built". Three reasons, and the first is decisive on its own.
+
+1. **There is a recorded decision against it**, on `edit.paste`'s registration:
+   *"`enabled_when("doc.pages")` rather than a selection condition: what is
+   selected changes every click, and a control that greys and un-greys under the
+   pointer is harder to aim at than one that answers in a sentence when
+   pressed."* The engine's case for the verb is quoted from **the requesting
+   shell**, which wanted to grey a menu item; this shell decided not to have one.
+2. **The cost is per frame and real.** The clip lives in `egui::Memory` as a
+   `Vec<u8>`, and `read()` clones it out. A condition backed by `paste_preview`
+   would clone that vector *and* run `ObjectClip::from_bytes` — magic check,
+   version, a length-prefixed COS parse — on every frame the ribbon draws, to
+   produce an answer the recorded decision says must arrive as a sentence on
+   press. That is precisely the shape the decision declined.
+3. **The answer is already delivered**, on the path that has it: `paste_objects`
+   returns the same `PasteOutcome` and its disclosures reach the status bar.
+
+⇒ ★★ What *is* worth doing here is a different job with a different name: the
+funnel's `Err` arm is silent for **every** verb, which is what made the
+annotation delete a silence. Wording it is `FEATURES.md`'s "Worded decline" row
+and a decision about placement, not a consumer for this query.
+
+#### The fixtures this work had to author, and why none existed
+
+`tools/gen-certified-fixture.py` builds two files that differ in **exactly one
+dictionary** — the catalog's `/Perms`:
+
+* `fixtures/certified-comments.pdf` — an enforced certification at `/P 2`;
+* `fixtures/threaded-comments.pdf` — the same document without it.
+
+Both carry a `/Square` markup with a `/Popup` companion and one `/IRT` reply, so
+the collateral has two clauses rather than one. Nothing in `fixtures/` could
+drive either branch: `signed-two-pages.pdf` is *deliberately* an approval
+signature — no `/Reference`, no `/Perms` — so the gate is open on it, and no
+fixture carried a markup annotation at all.
+
+★ The pair is one document on purpose. A check comparing "withheld here" against
+"offered there" across two *different* documents varies two things at once and
+cannot say which caused the difference. `tools/ui-verify`'s `annot_delete_gate`
+drives both and asserts the difference is the dictionary.
 
 ### ⬜ / ⛔ What is left, and why
 
@@ -161,12 +303,6 @@ survives the session** and is the first of these to build.
 | `copy_annotations` | ⬜ **Open, and narrowed.** The object clipboard copied a markup by reading it into a `MarkupSpec` and authoring a new one, so everything a spec cannot express was lost — and on 2026-08-28 that came to include the note, the author, the date and the opacity, all of which this shell had just learned to author. `carried_options` closes those four. The general fix (`copy_annotations` → `ObjectClip` → `paste_objects`) is **asked of the engine rather than assumed**, because it is not known whether a `/Popup`, an `/IRT` reply chain or an `/RC` rich-text body survive that path either, and a paste that silently orphans a reply is worse than the loss it replaces. ⇒ The general form: **a copy implemented as a re-author loses ground every time the authoring side gains a key**, silently, in a direction no screenshot can see. |
 | `add_named_destination` | ⛔ **Not a gap — a deliberate absence, and the engine agrees.** Nothing in this shell constructs a `Destination`: the one authoring call passes `Destination::Page { view: DestView::Fit }` and cannot pass anything else, because there is no destination chooser. The engine's own note says why that is right: *"a destination chooser offering fits pdfce cannot write would be a control whose options are mostly refusals."* The **reading** side already resolves named destinations, so the Bookmarks panel navigates them in CAD and Word exports today. |
 | `field_defaults` | ⛔ **Not a gap.** *"Make another field like this one"* is already how this shell behaves — `FormDefaults::next` carries the previous field's settings forward, with the **name** the one thing that deliberately does not carry. What the verb adds is copying from *any named* field rather than the last one placed, which is a chooser. An operator call, not a hole. |
-
----|---|
-| `unshare_form` | ★★★ **Give this page its own private copy of a shared form XObject.** A CAD title block is one form invoked from thirty-six sheets — §8.10.1 names that as the feature's purpose — and this shell can edit text inside a form, so an operator fixing a typo on sheet 12 changes all thirty-six. The engine discloses that after the fact (*"SHARED CONTENT: …"*), and this is the remedy the disclosure should point at. `pdfce-core` withdrew its own "do not offer this" note by name: *"Please un-suppress it rather than leaving the suppression in place — a control withheld on the strength of a note that has since been withdrawn is exactly the kind of thing that stays withheld for months."* |
-| `copy_annotations` | The object clipboard copies a markup by reading it into a `MarkupSpec` and authoring a new one, so **everything `MarkupSpec` cannot express is lost**: the note, the author, the date, the opacity, the reply threading. Two of those became losses *today* — the note editor and the opacity control both write keys the clipboard cannot carry, which is a fidelity gap that widens every time the authoring side gains a key. `copy_annotations` returns an `ObjectClip` that owns the annotation and its whole resource closure by value. ⚠ Asked of the engine before rewriting: whether a `/Popup`, an `/IRT` reply chain and a `/RC` rich-text body survive that path, or are the same loss in a different place. |
-| `delete_field_group` | Deleting a grouping node and every field beneath it as one undoable command. The Forms panel can delete a terminal field and not a group. |
-| `field_defaults` | ⚠ **Re-derived 2026-08-28 and it is NOT a gap — the row is kept because the correction is the useful part.** *"Make another field like this one"* is already how this shell behaves: `FormDefaults::next(kind, &existing)` carries the previous field's settings to the next one, deliberately, with the **name** the one thing that does not carry (two widgets sharing a fully-qualified name are one field). What the engine verb adds is copying from *any named* field rather than from the last one placed, which is a chooser listing every field in the document. That is a real difference and a small one, and it is an operator call rather than a hole. |
 
 ---
 

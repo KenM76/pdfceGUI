@@ -1080,6 +1080,169 @@ pub const fn text_colour_not_plain() -> &'static str {
     "Set in CMYK or a spot colour — pdfce will not offer to change it here, because doing so would convert the ink to screen colour permanently."
 }
 
+// ---------------------------------------------------------------------------
+// ★★★ What Bold and Italic would ACTUALLY do to this run —
+// `EditSession::preview_style_resolution`, consumed 2026-08-29
+// ---------------------------------------------------------------------------
+//
+// # What these six replace, and why the sentence they replace was not wrong
+//
+// `text_bold_hint` and `text_italic_hint` are still here and still used. They
+// say:
+//
+// > If this page already carries a real bold face, pdfce uses it; if it does
+// > not, pdfce thickens the letters and tells you it did.
+//
+// That is an accurate statement of the **mechanism** and a poor answer to the
+// operator's actual question, which is *what is going to happen to my drawing
+// when I press this?* It hands them a conditional and leaves them to evaluate
+// it against a fact they cannot see — which font resources this page carries,
+// and whether any of them covers the characters they swept.
+//
+// `preview_style_resolution` evaluates that conditional. It is `&self`,
+// side-effect-free, and derives every field by calling `gate_synthesis` itself
+// — the same function the commit path calls — so the answer here and the
+// outcome there cannot disagree. The engine's own account of why it exists:
+//
+// > A caller could only learn the answer *after* acting — the wrong side of
+// > rule 4 for a change that alters how the operator's document renders. R90's
+// > own word for synthesis is "declinable", and declining sensibly means
+// > knowing what is on offer before the click, not after it.
+//
+// # ★★★ NONE of these greys the button, and the engine's ruling is why
+//
+// `pdfce-core`, verbatim and unchanged: *"Do not grey out a bold button. Offer
+// it, and surface the disclosure when synthesis fires."*
+//
+// `crate::panels::properties::text`'s header carries the fuller argument and it
+// survives this work intact. What changes is only **which sentence the hover
+// carries**, and that is exactly the right size of change: R83 asks that the
+// operator be able to know before the gesture, not that every foreseeable
+// refusal become an absent control.
+//
+// ⇒ The one case where greying would now be defensible is
+// [`text_bold_hint_face_cannot_cover`] — the shell can, for the first time,
+// predict that refusal, because `preview_font_resources` runs the per-run
+// glyph-coverage test the old argument said it could not. It is still a
+// sentence, deliberately: the engine has a **queued fix** that will turn that
+// case into ordinary synthesis, and a control withheld on the strength of a
+// defect that is about to be fixed is a control that stays withheld for
+// months. A sentence degrades to a stale sentence; a greyed button degrades to
+// a missing feature.
+
+/// The bold button's hover text when **a real bold face resolves and will be
+/// used**.
+///
+/// `StyleOutcome::RealFaceResolves`, whose `selector` the run's own font
+/// pre-flight also accepts. One press takes two verbs: `set_synthetic` is
+/// refused *because* a real face is available, and
+/// `crate::app::actions::textstyle` retries with the face the refusal names —
+/// so the operator gets a genuine typeface rather than thickened letters.
+///
+/// ★ It names the face. That is the whole value over the conditional it
+/// replaces: *"pdfce will use Arial-Bold"* is checkable by the operator against
+/// what they see afterwards, where *"if this page carries a bold face"* is not.
+#[must_use]
+pub fn text_bold_hint_real_face(face: &str) -> String {
+    format!(
+        "Set this text in bold. This page carries {face}, so pdfce will use that real \
+         typeface rather than thickening the letters."
+    )
+}
+
+/// The italic button's twin of [`text_bold_hint_real_face`].
+///
+/// ★ *"Slant"*, not *"thicken"* — the two synthetic operations are different
+/// and an operator who has read one sentence should not have to guess that the
+/// other means something else. `crate::app::actions::textstyle`'s own table
+/// keeps them distinct for the same reason.
+#[must_use]
+pub fn text_italic_hint_real_face(face: &str) -> String {
+    format!(
+        "Set this text in italic. This page carries {face}, so pdfce will use that real \
+         typeface rather than slanting the letters."
+    )
+}
+
+/// The bold button's hover text when **no real bold face covers this text**, so
+/// the letters will be thickened.
+///
+/// `StyleOutcome::WouldSynthesize`. A synthetic weight is the regular face
+/// stroked, and R90 makes it declinable rather than a preference — which is why
+/// the sentence says what will happen rather than merely offering to do it.
+///
+/// ★ It says *"for this text"*, not *"on this page"*, and the distinction is
+/// the engine's: acceptance is **per run**, because a face that covers `Hello`
+/// may not cover `Hellö`. A sentence claiming the page has no bold face at all
+/// would be a stronger claim than was tested.
+#[must_use]
+pub const fn text_bold_hint_synthetic() -> &'static str {
+    "Set this text in bold. No real bold face on this page covers this text, so pdfce will \
+     thicken the letters and tell you it did."
+}
+
+/// The italic button's twin of [`text_bold_hint_synthetic`].
+#[must_use]
+pub const fn text_italic_hint_synthetic() -> &'static str {
+    "Set this text in italic. No real italic face on this page covers this text, so pdfce will \
+     slant the letters and tell you it did."
+}
+
+/// ★★★ The bold button's hover text for the case in which **the press will be
+/// refused**, said before the press.
+///
+/// # This is a shipped engine defect, previewed rather than hidden
+///
+/// `crate::app::actions::textstyle`'s header carries the retraction in full.
+/// The short form: `gate_synthesis` prefers a real face by **family**, so for a
+/// run set in `Times` it names `Times-Bold` and gates synthesis off — and if
+/// `Times-Bold` does not map every character in that run, `set_font` then
+/// refuses it too. Neither verb reaches bold. It is reproduced on pdfce's own
+/// `textedit/format_family.pdf`, confirmed by the engine, and a fix is queued.
+///
+/// Until then the operator's experience was: press Bold, nothing happens to the
+/// text, and a refusal naming a font appears in the status bar. This says it
+/// first.
+///
+/// # ★★ How the shell knows, without re-deriving a single engine rule
+///
+/// Two engine answers, joined by a string the engine itself issues:
+///
+/// * `preview_style_resolution` returns `RealFaceResolves { selector, .. }` —
+///   *"the string to hand to `set_font` to reach that face"*;
+/// * `preview_font_resources` returns, for **this run's characters**, every
+///   resource `set_font` would accept, each with the same kind of `selector`.
+///
+/// If the first selector is not among the second's, the retry cannot succeed.
+/// That is a comparison of two engine-issued selectors, not a second
+/// implementation of the family heuristic or of the coverage test — which is
+/// the line `StyleResolution`'s own invariant draws: *"No matching rule is
+/// re-derived here or — critically — in `pdfce-gui`."*
+///
+/// ★ It does **not** tell the operator to pick a different font, though the
+/// face chooser is two rows up and would work. Naming a remedy that depends on
+/// which faces this particular page carries would be this shell guessing at
+/// pdfce's font selection — decision 058's exact case. Saying what will happen
+/// is the honest half; choosing the way round is the operator's.
+#[must_use]
+pub fn text_bold_hint_face_cannot_cover(face: &str) -> String {
+    format!(
+        "Bold is not available for this text. pdfce would use {face}, but that face has no \
+         shape for every character here, so the change would be refused. This is a known \
+         limit and a fix is on the way."
+    )
+}
+
+/// The italic button's twin of [`text_bold_hint_face_cannot_cover`].
+#[must_use]
+pub fn text_italic_hint_face_cannot_cover(face: &str) -> String {
+    format!(
+        "Italic is not available for this text. pdfce would use {face}, but that face has no \
+         shape for every character here, so the change would be refused. This is a known \
+         limit and a fix is on the way."
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -458,6 +458,42 @@ pub const SELECTION_ANY: &str = "selection.any"; // ui-text-exempt: a condition 
 /// selected.
 pub const SELECTION_ACTIONABLE: &str = "selection.actionable"; // ui-text-exempt: a condition name, never displayed
 
+/// **The engine would not refuse a delete of what is selected** — the
+/// condition under which `format.delete` is DRAWN AT ALL.
+///
+/// # ★★★ Why it lives here rather than in [`format`], and the precedent is one
+/// screen up
+///
+/// [`SELECTION_ANY`] carries the account of what an alias cost: while it read
+/// `= format::VISIBLE_WHEN`, changing the Format tab's own condition would have
+/// silently retargeted the **canvas context menu**, whose Delete would then have
+/// been lit by a text sweep. This constant has exactly the two readers that one
+/// has — `manifest::format`'s Selection group and `menus`' `CANVAS_OBJECT` — so
+/// it is spelled out in the one place both can see, and neither owns it.
+///
+/// # ★★★ It is a `visible_when`, and [`SELECTION_ACTIONABLE`] is still the
+/// `enabled_when`. Two predicates on one control
+///
+/// | predicate | asks | when false |
+/// |---|---|---|
+/// | [`SELECTION_ACTIONABLE`] | *is there anything to delete?* | **greyed** — a selection is one click away, which is exactly the temporary, operator-fixable condition R9 reserves greying for |
+/// | this | *would the engine refuse?* | **absent**, with a sentence in the Properties panel — a certification signature is neither temporary nor arguable |
+///
+/// Collapsing them either way is a defect. Greying on this one would promise an
+/// operator that selecting differently might help; hiding on the other would
+/// make Delete flicker in and out of the ribbon on every click.
+///
+/// # What clears it, and what deliberately does not
+///
+/// Cleared **only** for a selected annotation that `annotation_deletion_refusal`
+/// or §12.5.3 Table 165's `Locked` bit forbids — so its default is *true*, and
+/// it stays true with nothing selected, with a content object selected, and with
+/// a form field selected. `app::conditions` argues at length why that direction
+/// is the safe one: a control drawn where it refuses is the defect being fixed,
+/// and a control withheld where it would have worked is a worse one, because the
+/// operator has no gesture left that reports it.
+pub const DELETE_PERMITTED: &str = "selection.delete_permitted"; // ui-text-exempt: a condition name, never displayed
+
 /// **The `Item::Custom` kinds of the Format ▸ Font controls.**
 ///
 /// Three, and each is a control a **button cannot be** -- which is

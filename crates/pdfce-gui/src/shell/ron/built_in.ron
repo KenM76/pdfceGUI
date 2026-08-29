@@ -430,7 +430,7 @@
                         Command(id: "format.properties"),
                         Command(id: "format.select_form"),
                         Command(id: "format.unshare_form"),
-                        Command(id: "format.delete"),
+                        Command(id: "format.delete", visible_when: "selection.delete_permitted"),
                     ],
                 ),
             ],
@@ -485,7 +485,7 @@
                 Command(id: "format.properties"),
                 Command(id: "format.select_form"),
                 Command(id: "format.unshare_form"),
-                Command(id: "format.delete"),
+                Command(id: "format.delete", visible_when: "selection.delete_permitted"),
             ],
         ),
         (

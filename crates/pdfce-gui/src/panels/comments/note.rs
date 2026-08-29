@@ -140,6 +140,39 @@ impl NoteDraft {
     }
 }
 
+/// **Everything the Comments panel remembers between frames.**
+///
+/// Two members, and the pairing is the point: both are *the operator's place in
+/// this panel* rather than anything about the document.
+///
+/// # ★ Why a struct rather than two fields on `PanelsState`
+///
+/// Because `PanelsState` hands each panel **one** accessor, deliberately — a
+/// panel reaches its own state and cannot reach another's. Two loose fields
+/// would need two accessors and would let a future panel take one of them by
+/// accident. `crate::panels::pages::PagesUi`, `redact::RedactUi` and
+/// `bookmarks::BookmarksUi` are the same shape for the same reason.
+#[derive(Debug, Default)]
+pub struct CommentsUi {
+    /// The note being typed. See [`NoteDraft`].
+    pub draft: NoteDraft,
+    /// ★★★ **The annotation this panel last scrolled to**, so it scrolls once
+    /// per selection *change* rather than once per frame.
+    ///
+    /// Without it, `scroll_to_me` on the selected row would run every frame and
+    /// **pin the list under the operator's own scrollbar** — they could not look
+    /// at any other row while a shape was selected on the canvas, which is a
+    /// surface fighting its user. With it, the scroll is a response to a
+    /// gesture, which is what an operator reads it as.
+    ///
+    /// ★ Deliberately **not** stamped with the edit epoch, unlike
+    /// [`NoteDraft`]'s key, and the difference is worth stating: a draft holds
+    /// *words that would be written into the document*, so a document that moved
+    /// under it invalidates it. This holds only *where the scrollbar is*, which
+    /// no edit can make wrong.
+    pub scrolled_to: Option<ObjId>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

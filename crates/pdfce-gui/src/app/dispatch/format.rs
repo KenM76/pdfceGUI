@@ -164,13 +164,47 @@ pub(crate) fn dispatch(app: &mut PdfceApp, id: &str, actions: &mut Vec<Action>) 
                 // raising an action the engine would refuse; the control
                 // itself should be absent, which is the Format tab's work.
                 if let Some(annot) = doc.selection.annot() {
-                    if !annot.target.locked {
-                        actions.push(Action::Annot(
+                    // ★★★ R83 — ASKED HERE, THROUGH THE SAME FUNCTION THAT
+                    // WITHHELD THE CONTROL.
+                    //
+                    // This arm used to read `if !annot.target.locked`, which was
+                    // two thirds of the answer: it caught §12.5.3 Table 165's
+                    // `Locked` bit and knew nothing about `/Encrypt` or a
+                    // certification signature. On a certified drawing it pushed
+                    // the action, `delete_annotation` refused, and
+                    // `actions::apply::vector_edit`'s `Err` arm wrote one line
+                    // to the trace and said **nothing to the operator**.
+                    //
+                    // `annotation_deletion_refusal` is the missing third, and it
+                    // is asked through `annotdelete::gate` rather than directly
+                    // so that this arm, `canvas::keys`' Delete ladder,
+                    // `app::conditions`' `selection.delete_permitted` and the
+                    // Properties panel's sentence are **one derivation with four
+                    // readers**. A control withheld by one rule while a panel
+                    // explains a different one is the shape the forms audit
+                    // found on 2026-08-28.
+                    //
+                    // ⇒ Reaching this branch at all now means one of two things,
+                    // and neither is a state the operator can see: a **chord**
+                    // bound to `format.delete` (a chord consults no
+                    // `visible_when`), or the condition having gone stale within
+                    // a frame. The sentence for both is already on screen in the
+                    // Properties panel, which is why this declines silently to
+                    // the trace rather than inventing a second wording — exactly
+                    // as the `locked` arm it replaces always did.
+                    match crate::panels::properties::annotdelete::gate(doc, &annot.target) {
+                        Some(refusal) => crate::diag::trace(|| {
+                            // ui-text-exempt: diagnostic trace, never displayed.
+                            format!(
+                                "command-declined id={id} reason=annot-delete-refused why={refusal:?}"
+                            )
+                        }),
+                        None => actions.push(Action::Annot(
                             crate::app::actions::annot::AnnotAction::Delete {
                                 page: annot.target.page,
                                 id: annot.target.id,
                             },
-                        ));
+                        )),
                     }
                 } else {
                     let page = doc.view.page_index;

@@ -122,6 +122,7 @@
 /// `canvas.rotate-handle` region, which [`rotate`] could not: a build with no
 /// ninth handle and a build with a mis-routed one produce the same silence
 /// otherwise.
+pub mod annot_delete_gate;
 pub mod annot_rotate;
 pub mod blend_space;
 /// Export to DXF: the file reaches disk, and its contents agree with the
@@ -628,6 +629,13 @@ pub trait Check {
 pub fn all() -> Vec<Box<dyn Check>> {
     vec![
         Box::new(delete_key::DeleteKeyAfterCanvasClick),
+        // The Delete key's OTHER subject. `delete_key` drives it over page
+        // content on an ordinary document; this drives it over an annotation on
+        // a certified one, where the honest outcome is that the control is not
+        // offered at all. Adjacent because a reader comparing two Delete
+        // verdicts wants them together, and because a run in which the key
+        // channel is broken should say so in the cheaper check first.
+        Box::new(annot_delete_gate::ACertifiedDocumentWithholdsAnnotationDelete),
         Box::new(ribbon_captions::RibbonGroupCaptionsLegible),
         // Reads the trace only — no window is raised and no capture is taken,
         // so it costs nothing and cannot take the operator's focus. Placed

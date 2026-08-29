@@ -435,6 +435,17 @@ mod tests {
             // field; the contextual Format TAB still takes `selection.any`,
             // because a field has no font or stroke for it to offer.
             "selection.actionable",
+            // ★★★ **NOT a refinement of either neighbour, and its default is
+            // TRUE.** It answers *would the engine refuse a delete?* rather
+            // than *is there anything to delete?*, so it is set in almost every
+            // state including the empty one, and cleared only for a selected
+            // annotation that `annotation_deletion_refusal` or §12.5.3's
+            // `Locked` bit forbids. `format.delete` carries it as its
+            // `visible_when` on the Format tab and on the canvas object menu,
+            // where `selection.actionable` stays its `enabled_when` — two
+            // predicates, two questions, and R9 decides which gets greying and
+            // which gets absence. See `PdfceApp::conditions`.
+            "selection.delete_permitted",
             // Not a refinement of `selection.any` — see `PdfceApp::conditions`.
             // A selection can exist and resolve to no box.
             "selection.bounds",

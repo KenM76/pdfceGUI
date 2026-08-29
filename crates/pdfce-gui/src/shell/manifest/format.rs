@@ -269,7 +269,35 @@ pub(super) fn tab() -> Tab {
                     // this answers *make it mine before I change it*. A reader
                     // scanning the group top to bottom reads the workflow.
                     command("format.unshare_form"),
-                    command("format.delete"),
+                    // ★★★ **Withheld, not greyed, where the engine would refuse
+                    // the delete** — `visible_when` rather than a second
+                    // `enabled_when`, and the difference is R9 stated by
+                    // `Item::visible_when`'s own doc: *"this is visibility, not
+                    // enablement … `Command::enable` is the greying; this is the
+                    // disappearing."*
+                    //
+                    // Greying is for a capability that is **temporarily**
+                    // unavailable and is always explained on hover. A
+                    // certification signature is not temporary, `/Encrypt` is
+                    // not temporary, and §12.5.3's `Locked` bit is a statement
+                    // the file's producer wrote down — none of the three is
+                    // arguable, and none of them will change while the operator
+                    // hovers.
+                    //
+                    // ⇒ The sentence that replaces the control is in the
+                    // Properties panel, on the section describing the very
+                    // annotation this Delete would have acted on, and it is
+                    // there **before** the operator reaches for anything:
+                    // `panels::properties::annotdelete`. The two are derived
+                    // from one function, so the control cannot be withheld for a
+                    // reason different from the one the panel gives.
+                    //
+                    // ★ The condition is TRUE for every state but the one narrow
+                    // annotation case, so this changes nothing for a content
+                    // selection or a form field — see `app::conditions`, which
+                    // argues at length why that default direction is the safe
+                    // one.
+                    command("format.delete").shown_when(super::DELETE_PERMITTED),
                 ],
             ),
         ])

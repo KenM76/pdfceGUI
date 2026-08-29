@@ -405,6 +405,22 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     session.settle(8);
     driver.click_at(at)?;
     session.settle(12);
+    // ★★★ The panel FOUND the annotation the canvas selected.
+    //
+    // This is the second half of the interaction `pdfce-core` describes — *draw
+    // the shape → it is selected → type the comment in the panel* — and it is
+    // the half that is invisible from every other angle: the mark on the row is
+    // a word inside a heading string, so a trace cannot see it and a screenshot
+    // can only confirm it if the reader already knows which row to look at.
+    // `selected=` in the census is the only oracle there is.
+    let census_now = session.trace()?.last(CENSUS).map(|l| l.raw.clone());
+    if let Some(line) = &census_now
+        && !line.contains("selected=1")
+    {
+        return Ok(Some(format!(
+            "the canvas selected the shape and the Comments panel did not find it: `{line}`. The panel reads `doc.selection.annot()` and matches it against the rows it drew, so `selected=0` here means either the click selected something else — the trace's `annot-select` line says which — or the row's `id` and the selection's disagree, which on a listing built from the same session should be impossible."
+        )));
+    }
     if session.trace()?.events(SELECTED).count() == 0 {
         return Err(Error::new(format!(
             "the click on the shape produced no `{SELECTED}` line, so nothing is selected and a \

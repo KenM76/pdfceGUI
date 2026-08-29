@@ -85,6 +85,7 @@ fn keys_for(input: RawInput, selection: &mut SelectionState) -> Vec<Action> {
                 page_index: 0,
                 caps: Capabilities::FULL,
                 selected_field: None,
+                annot_delete_refused: false,
                 escape_consumed: false,
             },
             selection,
@@ -133,6 +134,7 @@ fn delete_removes_a_selected_form_field_and_nothing_else() {
                 page_index: 0,
                 caps: Capabilities::FULL,
                 selected_field: Some(&field),
+                annot_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -219,6 +221,7 @@ fn an_escape_spent_on_a_drag_leaves_the_rung_alone() {
                 page_index: 0,
                 caps: Capabilities::FULL,
                 selected_field: None,
+                annot_delete_refused: false,
                 escape_consumed: true,
             },
             &mut selection,
@@ -254,6 +257,7 @@ fn escape_retires_an_armed_region_zoom_before_it_touches_the_ladder() {
                 page_index: 0,
                 caps: Capabilities::FULL,
                 selected_field: None,
+                annot_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -292,6 +296,7 @@ fn escape_reaches_the_ladder_again_once_nothing_is_armed() {
                 page_index: 0,
                 caps: Capabilities::FULL,
                 selected_field: None,
+                annot_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -325,6 +330,7 @@ fn an_escape_spent_on_a_drag_leaves_the_armed_zoom_alone() {
                 page_index: 0,
                 caps: Capabilities::FULL,
                 selected_field: None,
+                annot_delete_refused: false,
                 escape_consumed: true,
             },
             &mut selection,
@@ -391,6 +397,7 @@ fn a_focused_text_field_keeps_delete_for_itself() {
                 page_index: 0,
                 caps: Capabilities::FULL,
                 selected_field: None,
+                annot_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -436,6 +443,7 @@ fn escape_retires_the_markup_tool_before_the_region_zoom() {
                 page_index: 0,
                 caps: Capabilities::FULL,
                 selected_field: None,
+                annot_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -488,6 +496,7 @@ fn an_escape_spent_on_a_markup_drag_leaves_the_tool_armed() {
                 page_index: 0,
                 caps: Capabilities::FULL,
                 selected_field: None,
+                annot_delete_refused: false,
                 escape_consumed: true,
             },
             &mut selection,
@@ -524,6 +533,7 @@ fn escape_still_reaches_the_zoom_and_the_ladder_with_no_markup_armed() {
                     page_index: 0,
                     caps: Capabilities::FULL,
                     selected_field: None,
+                    annot_delete_refused: false,
                     escape_consumed: false,
                 },
                 &mut selection,
@@ -572,6 +582,7 @@ fn escape_abandons_a_guide_drag_before_it_touches_the_region_zoom() {
                 page_index: 0,
                 caps: Capabilities::FULL,
                 selected_field: None,
+                annot_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -635,6 +646,7 @@ fn escape_abandons_a_circle_fit_before_it_puts_the_measure_tool_down() {
                 page_index: 0,
                 caps: Capabilities::FULL,
                 selected_field: None,
+                annot_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -662,6 +674,7 @@ fn escape_abandons_a_circle_fit_before_it_puts_the_measure_tool_down() {
                 page_index: 0,
                 caps: Capabilities::FULL,
                 selected_field: None,
+                annot_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -732,6 +745,7 @@ fn escape_abandons_a_vertex_run_before_it_puts_the_markup_tool_down() {
                 page_index: 0,
                 caps: Capabilities::FULL,
                 selected_field: None,
+                annot_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -759,6 +773,7 @@ fn escape_abandons_a_vertex_run_before_it_puts_the_markup_tool_down() {
                 page_index: 0,
                 caps: Capabilities::FULL,
                 selected_field: None,
+                annot_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -806,6 +821,7 @@ fn a_second_escape_retires_the_zoom_the_guide_drag_protected() {
                     page_index: 0,
                     caps: Capabilities::FULL,
                     selected_field: None,
+                    annot_delete_refused: false,
                     escape_consumed: false,
                 },
                 &mut selection,
@@ -823,5 +839,115 @@ fn a_second_escape_retires_the_zoom_the_guide_drag_protected() {
         selection.level(),
         SelectionLevel::Part,
         "two presses, two effects — and neither of them the ladder"
+    );
+}
+
+/// ★★★ **Delete does NOT act on an annotation the engine would refuse**, and
+/// nothing at all is raised.
+///
+/// # What this pins, and why the shape of the failure matters more than the rung
+///
+/// This rung read `if annot.target.locked` and nothing else until 2026-08-29 —
+/// one of the **three** things that refuse an annotation delete. `/Encrypt` and
+/// an enforced certification signature were not asked, because
+/// `EditSession::annotation_deletion_refusal` — a pure query whose own doc
+/// comment names the call site by rule number — was called by nothing in this
+/// shell.
+///
+/// The consequence was not a harmless no-op. `actions::annots::delete` clears
+/// the annotation selection **after** the funnel rather than on success, so on a
+/// certified drawing the press produced:
+///
+/// 1. an action raised for a verb that would refuse,
+/// 2. a refusal into `actions::apply::vector_edit`'s `Err` arm — a trace line
+///    and, by that arm's own recorded decision, nothing to the operator,
+/// 3. **and the selection cleared anyway**, taking the Properties panel's
+///    explanation off the screen with it.
+///
+/// ⇒ A silence that also destroys the sentence explaining it. Asserting
+/// `actions.is_empty()` pins step 1, which is the only one of the three this
+/// ladder can prevent — and preventing it prevents all three.
+///
+/// ★ Asserted with the annotation **unlocked**, deliberately. A locked
+/// annotation would be refused by the older half of the gate, so the test would
+/// pass on the code this fixes and prove nothing.
+#[test]
+fn delete_does_not_act_on_an_annotation_whose_deletion_would_be_refused() {
+    let mut selection = SelectionState::default();
+    selection.select_annot(crate::canvas::selection::annot::AnnotSelection {
+        target: crate::canvas::selection::annot::AnnotTarget {
+            page: 0,
+            id: pdfce_core::object::ObjId::new(12, 0),
+            kind: crate::canvas::selection::annot::AnnotKind::Markup,
+            subtype: "Square".to_owned(),
+            locked: false,
+        },
+        outline: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(10.0, 10.0)),
+    });
+
+    let ctx = Context::default();
+    let mut actions = Vec::new();
+    let mut text_selection = None;
+    let _ = ctx.run_ui(key(Key::Delete), |ui| {
+        canvas_keys(
+            Keys {
+                ctx: ui.ctx(),
+                page_index: 0,
+                caps: Capabilities::FULL,
+                selected_field: None,
+                annot_delete_refused: true,
+                escape_consumed: false,
+            },
+            &mut selection,
+            &mut text_selection,
+            &mut actions,
+        );
+    });
+
+    assert!(
+        actions.is_empty(),
+        "the ladder must stop at the annotation rung rather than fall through to \
+         the content rung: a refused annotation delete is not a licence to delete \
+         the page objects underneath it"
+    );
+    assert!(
+        selection.annot().is_some(),
+        "nothing may clear the selection here — the Properties panel's sentence \
+         explaining the refusal is drawn from it, and losing it is how the \
+         refusal became a silence in the first place"
+    );
+}
+
+/// ★★ **The same press with the gate open raises the delete**, which is what
+/// makes the test above evidence rather than a tautology.
+///
+/// A rung that declined unconditionally would satisfy the assertion above
+/// perfectly. This is the other half every rung in this file is required to
+/// carry: a case that reaches it, beside the case that proves it was not
+/// swallowed.
+#[test]
+fn delete_acts_on_an_annotation_when_the_gate_is_open() {
+    let mut selection = SelectionState::default();
+    let id = pdfce_core::object::ObjId::new(12, 0);
+    selection.select_annot(crate::canvas::selection::annot::AnnotSelection {
+        target: crate::canvas::selection::annot::AnnotTarget {
+            page: 0,
+            id,
+            kind: crate::canvas::selection::annot::AnnotKind::Markup,
+            subtype: "Square".to_owned(),
+            locked: false,
+        },
+        outline: egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(10.0, 10.0)),
+    });
+
+    let actions = keys_for(key(Key::Delete), &mut selection);
+    assert_eq!(
+        actions,
+        vec![Action::Annot(
+            crate::app::actions::annot::AnnotAction::Delete { page: 0, id }
+        )],
+        "one action, naming the annotation by object id — `delete_annotation` \
+         finds it wherever it lives, so the page travels for the message rather \
+         than for the verb"
     );
 }

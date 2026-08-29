@@ -127,6 +127,78 @@ impl PdfceApp {
             if !doc.selection.is_empty() || doc.selected_field.is_some() {
                 set.set("selection.actionable");
             }
+            // ★★★ **Deleting what is selected would not be refused** — the
+            // condition `format.delete` carries as its `visible_when`, so the
+            // control is **absent** rather than greyed where the engine would
+            // refuse it (R9).
+            //
+            // # ★★★ Why this exists, and it is a defect rather than a polish
+            //
+            // `EditSession::annotation_deletion_refusal` is a pure query whose
+            // own doc comment names this call site by rule number, and until
+            // 2026-08-29 **nothing in this shell called it**. On a certified or
+            // encrypted drawing the Format tab's Delete, both canvas menus'
+            // Delete and the Delete key were all live, and every press ended in
+            // `actions::apply::vector_edit`'s `Err` arm — one line to the trace,
+            // nothing to the operator. That is the day-before forms defect
+            // (`deletion_refusal`, consulted by nothing) wearing a different
+            // `/Subtype`.
+            //
+            // # ★★ It is a POSITIVE name for a negative fact, deliberately
+            //
+            // `Enable::When` and `Item::visible_when` both accept a leading `!`,
+            // so `!selection.delete_refused` would compile and read backwards at
+            // the one place it matters — a manifest an operator may edit. The
+            // set is also *closed* (`shell::commands`' `KNOWN`), so a name that
+            // has to be negated at every use is a name that will one day be used
+            // un-negated by accident, and the symptom is a Delete that appears
+            // only on the documents that refuse it.
+            //
+            // # ★★★ The default is TRUE, and that is the whole safety argument
+            //
+            // Set for every state except the one narrow case below. In
+            // particular it is set when **nothing** is selected, when a *content*
+            // object is selected, and when a form field is selected — because
+            // this condition answers only the annotation question and must not
+            // silently become a second, weaker spelling of `selection.actionable`
+            // for the other two. `format.delete` keeps that condition as its
+            // `enabled_when`; this one decides only whether it is drawn at all.
+            //
+            // ⇒ A control that is *drawn and refuses* is the defect being fixed.
+            // A control that is *withheld where it would have worked* is a worse
+            // one, because the operator has no gesture that reports it. So the
+            // false answer this predicate must never give is `false`, and every
+            // path that cannot prove a refusal leaves it `true`.
+            //
+            // # ★★ The form-field arm mirrors the dispatcher's ladder exactly
+            //
+            // `app::dispatch::format`'s `format.delete` arm checks
+            // `doc.selected_field` FIRST and returns, so on the (reachable)
+            // frame where a field and an annotation are both selected the
+            // command deletes the *widget* and never consults the annotation at
+            // all. Withholding the control there on the strength of the
+            // annotation's gate would hide a Delete that works. `canvas::keys`'
+            // Delete ladder has the same precedence, which is why it can be
+            // stated once here.
+            //
+            // # Cost
+            //
+            // Rebuilt every frame like the rest of this set, and that is sound
+            // rather than tolerated: the query reads the signature census and
+            // the trailer, mutates nothing, and core documents it as *"safe to
+            // call every frame from a UI"*. The expensive half of this feature —
+            // `annotation_deletion_preview`, which walks `/Annots` — is **not**
+            // asked here; it is memoised on `(id, epoch)` in the panel.
+            //
+            // ★ One derivation, two consumers.
+            // `panels::properties::annotdelete::gate` is called from here and
+            // from the panel that draws the sentence, so the control cannot be
+            // withheld for one reason while the panel explains another.
+            let delete_refused = doc.selected_field.is_none()
+                && crate::panels::properties::annotdelete::refuses_selected(doc);
+            if !delete_refused {
+                set.set("selection.delete_permitted");
+            }
             // ★★ **Something selected on this page lives inside a form
             // XObject**, so `format.select_form` has a container to offer.
             //

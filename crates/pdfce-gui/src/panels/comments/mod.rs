@@ -285,7 +285,7 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, actions: 
     // describes a document that no longer exists, and an editor showing words
     // beside a shape that no longer has them is lying for as long as it is on
     // screen.
-    state.comments_mut().sync(doc.edit_epoch);
+    state.comments_mut().draft.sync(doc.edit_epoch);
     // Asked ONCE per frame, never per row. `dimension_model` walks the catalog
     // to the `/PieceInfo` sidecar and deserializes it — cheap, and bounded by
     // the number of ce dimensions rather than by the document — but calling it
@@ -355,33 +355,83 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, actions: 
     // deterministic choice.
     let mut published = false;
     let epoch = doc.edit_epoch;
-    let draft = state.comments_mut();
+    // ★★★ **The annotation the CANVAS has selected** — the other half of the
+    // interaction `pdfce-core` describes, and the half this panel was missing:
+    //
+    // > draw the shape → **it is selected** → type the comment in the panel
+    // > beside the page.
+    //
+    // Without it the second arrow is *"now find your shape among forty rows"*,
+    // and on the drawings this program is for that is a scroll and a guess: the
+    // rows are headed by subtype and page, so two clouds on sheet 3 read
+    // identically.
+    //
+    // ★★ **This is not a second selection.** It is the canvas's own, read. The
+    // panel decides nothing about it, writes nothing to it, and lists the same
+    // rows in the same order whether it is set or not.
+    // `crate::panels::ObjectTreeUi::focus`' docs draw that line, and this is it
+    // being respected rather than blurred.
+    let selected = doc.selection.annot().map(|a| a.target.id);
+    let ui_state = state.comments_mut();
+    // Taken before the closure borrows the state, and written back after — the
+    // scroll must happen once per selection CHANGE, and the closure needs to
+    // know what the last one was while it is deciding.
+    let already = ui_state.scrolled_to;
+    let mut scrolled_to = already;
+    let draft = &mut ui_state.draft;
     egui::ScrollArea::vertical()
         .id_salt("comment-rows")
         .show(ui, |ui| {
             let last = listing.rows.len() - 1;
             for (i, comment) in listing.rows.iter().enumerate() {
+                let is_selected = comment.id.is_some() && comment.id == selected;
                 // `push_id` per row, because two rows of the same subtype on
                 // the same page would otherwise give their **Go to** buttons
                 // the same egui id — which shows up as the wrong button
                 // responding to a hover, the same collision
                 // `crate::panels::bookmarks` keys its indent against.
-                ui.push_id(i, |ui| {
-                    row(
-                        ui,
-                        comment,
-                        &mut go,
-                        draft,
-                        epoch,
-                        &mut verb,
-                        &mut published,
-                    );
-                });
+                let response = ui
+                    .push_id(i, |ui| {
+                        row(
+                            ui,
+                            comment,
+                            &mut RowSink {
+                                go: &mut go,
+                                verb: &mut verb,
+                                published: &mut published,
+                            },
+                            draft,
+                            epoch,
+                            is_selected,
+                        );
+                    })
+                    .response;
+                // ★ Scrolled to on the frame the selection MOVES, and not while
+                // it stands.
+                //
+                // `scroll_to_me` every frame would pin the list under the
+                // operator's own scrollbar: they could not look at any other row
+                // while a shape was selected on the canvas, which is a surface
+                // fighting its user. `CommentsUi::scrolled_to` is what makes
+                // this once-per-change rather than once-per-frame.
+                if is_selected && already != selected {
+                    response.scroll_to_me(Some(egui::Align::Center));
+                    scrolled_to = selected;
+                }
                 if i != last {
                     ui.separator();
                 }
             }
         });
+    // ★ Written back unconditionally, INCLUDING when nothing is selected — so
+    // deselecting and re-selecting the same annotation scrolls to it again,
+    // which is what an operator who has scrolled away and clicked the shape a
+    // second time is asking for.
+    ui_state.scrolled_to = if selected.is_some() {
+        scrolled_to
+    } else {
+        None
+    };
 
     if let Some(page) = go {
         actions.push(Action::GoToPage(page));
@@ -410,14 +460,32 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, actions: 
 /// two and seven lines tall depending on what the annotation actually carries,
 /// which is why this panel cannot use `ScrollArea::show_rows` — see the module
 /// header.
+/// **What one row can raise**, collected so the row function takes a subject
+/// and a destination rather than eight loose parameters.
+///
+/// Three `Option`s and a flag, and each is `None`/`false` for the whole frame
+/// unless exactly one row sets it — which is the invariant that makes them
+/// scalars rather than `Vec`s: **two rows cannot be pressed in one frame**, and
+/// a `Vec` would invite a future reader to queue two navigations or two edits
+/// that would each bump the epoch under the other.
+struct RowSink<'a> {
+    /// The page a **Go to** press asks for.
+    go: &'a mut Option<usize>,
+    /// The document verb a Save or a Remove raised.
+    verb: &'a mut Option<AnnotAction>,
+    /// Whether [`REGION_EDIT`] has been published this frame — one name, one
+    /// row, and the first row that offers the control is the only deterministic
+    /// choice. See that constant.
+    published: &'a mut bool,
+}
+
 fn row(
     ui: &mut egui::Ui,
     comment: &CommentRow,
-    go: &mut Option<usize>,
+    sink: &mut RowSink<'_>,
     draft: &mut NoteDraft,
     epoch: u64,
-    verb: &mut Option<AnnotAction>,
-    published: &mut bool,
+    is_selected: bool,
 ) {
     // The page number is 1-based **only here**, where a human reads it. The
     // index itself travels 0-based to `Action::GoToPage`; see
@@ -436,6 +504,21 @@ fn row(
         t::comment_row_heading(&comment.subtype, page_number)
     };
     // `.strong()` is unusable in this theme — see `DEFECTS.md` D11.
+    //
+    // ★★★ The selected row says so **in words**, on the heading line.
+    //
+    // Not a colour, not a tint, not a highlight: `DEFECTS.md` D2 is this
+    // project's record of a theme change making text invisible against its own
+    // background, and every list in this shell that marks a row — the Pages
+    // panel's picks, the Objects tree's focus — marks it with a *shape or a
+    // word* rather than with colour alone. A reviewer scanning forty rows for
+    // the cloud they just drew needs the mark to survive a theme they have not
+    // chosen yet.
+    let heading = if is_selected {
+        t::comment_row_selected_heading(&heading)
+    } else {
+        heading
+    };
     ui.label(egui::RichText::new(heading));
 
     // Author and modification date, when the annotation carries either.
@@ -528,14 +611,14 @@ fn row(
     // The note editor, and the control that opens it. Below the disclosures
     // because it is the one thing on the row that *acts*, and an operator
     // scanning the list reads downward and stops when they reach a button.
-    note_controls(ui, comment, draft, epoch, verb, published);
+    note_controls(ui, comment, draft, epoch, sink);
 
     if ui
         .button(t::comment_row_goto())
         .on_hover_text(t::comment_row_goto_tooltip(page_number))
         .clicked()
     {
-        *go = Some(comment.page_index);
+        *sink.go = Some(comment.page_index);
     }
 }
 
@@ -579,8 +662,7 @@ fn note_controls(
     comment: &CommentRow,
     draft: &mut NoteDraft,
     epoch: u64,
-    verb: &mut Option<AnnotAction>,
-    published: &mut bool,
+    sink: &mut RowSink<'_>,
 ) {
     if comment.is_ce_dimension {
         ui.label(
@@ -600,7 +682,7 @@ fn note_controls(
     };
 
     if draft.editing(id, epoch) {
-        editor(ui, comment, id, draft, verb);
+        editor(ui, comment, id, draft, sink.verb);
         return;
     }
 
@@ -622,9 +704,9 @@ fn note_controls(
     // control scrolled out of view still reports a rect. A harness clicking a
     // coordinate that is behind the scroll edge clicks whatever IS there, which
     // fails as something else entirely.
-    if !*published {
+    if !*sink.published {
         crate::diag::ui_rect_visible(REGION_EDIT, button.rect, ui.clip_rect());
-        *published = true;
+        *sink.published = true;
     }
     if button.clicked() {
         draft.begin(id, epoch, existing);
@@ -791,15 +873,31 @@ fn trace(doc: &OpenDoc, listing: &Listing) {
             .iter()
             .filter(|r| matches!(r.relation, Some(Relation::GroupMember)))
             .count();
+        // The canvas's own selection, matched against the rows this panel
+        // drew — read, never set. See `body` for why that distinction is
+        // load-bearing rather than pedantic.
+        let picked = doc.selection.annot().map(|a| a.target.id);
+        let selected = listing
+            .rows
+            .iter()
+            .filter(|r| r.id.is_some() && r.id == picked)
+            .count();
         let descriptions = listing
             .rows
             .iter()
             .filter(|r| matches!(r.note, Note::Description(_)))
             .count();
         format!(
+            // ★ `selected` is the oracle for the canvas→panel link, and it is
+            // the ONLY one available from outside the process: the mark on the
+            // row is a word inside a heading string, which a trace cannot see
+            // and which a screenshot can only confirm if the reader already
+            // knows which row to look at. This number says the panel found the
+            // annotation the canvas has — 0 or 1, never more, because
+            // `SelectionState` holds one.
             "comments-panel pages={} listed={} with_note={} descriptions={} authors={} \
              ce_dimensions={ce} suppressed={suppressed} unresolved={unresolved} \
-             replies={replies} group_members={group_members} \
+             replies={replies} group_members={group_members} selected={selected} \
              excluded_widgets={} excluded_popups={} excluded_trapnet={} excluded_total={}",
             doc.pages.len(),
             listing.rows.len(),

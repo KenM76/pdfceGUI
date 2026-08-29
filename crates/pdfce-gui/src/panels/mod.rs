@@ -739,6 +739,25 @@ pub struct PanelsState {
     /// program is for. The struct carries a `(page, run, epoch)` stamp and
     /// re-reads only when it moves.
     text_style: properties::text::TextStyleDraft,
+    /// ★ The memoised answer to *what would go with deleting the selected
+    /// annotation?* — `EditSession::annotation_deletion_preview`.
+    ///
+    /// Held here for [`Self::text_style`]'s reason at a smaller magnitude, and
+    /// the shape of the argument is what matters rather than the milliseconds.
+    /// The query is `&self` and side-effect-free, but it walks the page's whole
+    /// `/Annots` array looking for `/IRT` referrers — O(annotations) per call —
+    /// and the old shell paid that per *row* and gated it on hover for exactly
+    /// that reason. This section has one subject rather than a list, so the
+    /// worst case is one call per frame; the `(annotation id, edit epoch)` stamp
+    /// takes it down to none. See `properties::annotdelete`'s header.
+    ///
+    /// ★★ Not a document cache smuggled into the operator's own state. What is
+    /// stored is the finished **sentence**, which is drawing state, and it is
+    /// reset with the document by [`Self::forget_document`] like everything else
+    /// here — an object id carried into a second file names a different object
+    /// there, which for a cached collateral warning would mean describing one
+    /// document's reply thread while the operator looks at another's.
+    annot_delete: properties::annotdelete::DeletionPreview,
     /// The Bookmarks panel's half-typed title and its chosen parent.
     ///
     /// Here for [`Self::pages`]' reason: a panel body is handed `&OpenDoc`,
@@ -788,7 +807,7 @@ pub struct PanelsState {
     /// a different annotation in a different file, so a draft carried across
     /// would offer to write one document's comment onto another document's
     /// shape.
-    comments: comments::note::NoteDraft,
+    comments: comments::note::CommentsUi,
 }
 
 /// What the operator has opened and picked in the Objects tree.
@@ -1000,7 +1019,7 @@ impl PanelsState {
     /// [`Self::properties_mut`]: the body is handed `&mut PanelsState` and
     /// reaches its own state through an accessor, so the field stays private
     /// and no other panel can write it.
-    pub fn comments_mut(&mut self) -> &mut comments::note::NoteDraft {
+    pub fn comments_mut(&mut self) -> &mut comments::note::CommentsUi {
         &mut self.comments
     }
 
@@ -1037,6 +1056,17 @@ impl PanelsState {
     /// and a caller would have to be handed that as well.
     pub fn text_style_mut(&mut self) -> &mut properties::text::TextStyleDraft {
         &mut self.text_style
+    }
+
+    /// The selected annotation's memoised deletion collateral, for
+    /// `properties::annotdelete`.
+    ///
+    /// No re-seed argument, like [`Self::text_style_mut`]: the memo owns its own
+    /// `(id, epoch)` stamp and decides for itself when what it holds is stale,
+    /// which is right here because the staleness condition includes the edit
+    /// epoch and a caller would have to be handed that as well.
+    pub fn annot_delete_mut(&mut self) -> &mut properties::annotdelete::DeletionPreview {
+        &mut self.annot_delete
     }
 
     /// The selected form field's typed-property draft.

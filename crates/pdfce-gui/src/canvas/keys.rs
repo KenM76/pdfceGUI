@@ -312,6 +312,47 @@ pub(super) struct Keys<'a> {
     /// and why Delete could not reach one until it did: the ladder below never
     /// had the fact in front of it.
     pub selected_field: Option<&'a crate::app::state::SelectedField>,
+    /// ★★★ **Whether deleting the selected annotation would be refused** —
+    /// `crate::panels::properties::annotdelete::refuses_selected`, computed by
+    /// the caller.
+    ///
+    /// # Why the ANSWER arrives here and not the document
+    ///
+    /// [`canvas_keys`] takes no `&OpenDoc` and must not start. It is a pure
+    /// function over what it is handed, which is what lets its eleven unit tests
+    /// exercise the whole Delete/Escape ladder **without opening a file** — and
+    /// those tests are the only thing standing between this ladder and the
+    /// rung-order regressions its header catalogues. A `&OpenDoc` parameter
+    /// would make every one of them need a real document.
+    ///
+    /// So the caller asks and passes a `bool`, exactly as it already does for
+    /// [`Self::selected_field`], and for the same reason stated one field up:
+    /// the fact lives somewhere this function cannot see.
+    ///
+    /// # ★★ What it costs to get wrong, which is why the ladder consults it
+    ///
+    /// Before 2026-08-29 this rung asked `annot.target.locked` and nothing else
+    /// — one of the **three** things that refuse a delete. `/Encrypt` and a
+    /// certification signature were not asked, so on a certified drawing the key
+    /// raised the action, `delete_annotation` refused into
+    /// `actions::apply::vector_edit`'s `Err` arm — a trace line and nothing to
+    /// the operator — **and `actions::annots::delete` then cleared the selection
+    /// anyway**, unconditionally, because it clears after the funnel rather than
+    /// on success.
+    ///
+    /// ⇒ The operator pressed Delete, the comment stayed, the selection vanished
+    /// with the Properties panel's explanation inside it, and nothing was said.
+    /// A silence that also destroys the sentence explaining it is the worst
+    /// shape this refusal could have taken, and it is what makes this a rung
+    /// rather than a nicety.
+    ///
+    /// ★ `bool` rather than the `Refusal` itself: this rung only decides whether
+    /// to proceed. **The wording is not this file's** — it is already on screen
+    /// in `panels::properties::annotdelete`, drawn from the moment the
+    /// annotation was selected, which is the R83 half a keystroke cannot
+    /// provide. Carrying the reason here would invite a second sentence in a
+    /// second place, and two wordings of one fact is how they come to disagree.
+    pub annot_delete_refused: bool,
     /// Whether Escape was already spent by a drag this frame.
     pub escape_consumed: bool,
 }
@@ -327,6 +368,7 @@ pub(super) fn canvas_keys(
         page_index,
         caps,
         selected_field,
+        annot_delete_refused,
         escape_consumed,
     } = keys;
     // ★ Claimant 0, and it is read BEFORE the D1 guard rather than after it.
@@ -664,11 +706,42 @@ pub(super) fn canvas_keys(
     if caps.author_markup
         && let Some(annot) = selection.annot()
     {
-        if annot.target.locked {
+        // ★★★ **The gate, asked through the one function that also withholds the
+        // control** — `panels::properties::annotdelete::gate`.
+        //
+        // This was `if annot.target.locked` and nothing else, which is one of
+        // three refusals. §12.5.3 Table 165 bit 8 was caught; `/Encrypt` and a
+        // certification signature were not, so on a certified drawing the key
+        // raised the action, `delete_annotation` refused, and
+        // `actions::apply::vector_edit`'s `Err` arm wrote a line to the trace
+        // and — by that arm's own recorded decision — said nothing at all to the
+        // operator. Discovery by pressing, on a press the program already knew
+        // would fail: R83's whole subject.
+        //
+        // ★★ Why the key declines to the TRACE while the ribbon's Delete is
+        // withheld outright, and why that is not two policies
+        //
+        // Because a key cannot be undrawn. R9's remedy for a permanently
+        // unavailable capability is *render nothing, or say where the thing
+        // lives*; a keystroke renders nothing by nature, so the only thing left
+        // to decide is where the sentence goes — and it is already on screen,
+        // in the Properties panel's `annotdelete` section, which draws it the
+        // moment the annotation is selected and keeps it there. The operator has
+        // been told **before** the press rather than after it, which is the
+        // outcome R83 asks for and a strictly better one than a status line that
+        // arrives with the failure and retires on the next command.
+        //
+        // ⇒ Deliberately NOT `app::status::decline`. That module's own header
+        // draws the line this sits on: a decline reports *a gesture just failed*
+        // and must be repeatable, whereas this is a **standing property of the
+        // open document** — true from the moment it was opened, true whether or
+        // not anything was pressed. A sentence that only appears after a press
+        // delivers that fact at the one moment R83 exists to get ahead of.
+        if annot_delete_refused {
             crate::diag::trace(|| {
                 format!(
                     // ui-text-exempt: diagnostic trace, never displayed in the UI
-                    "canvas-delete-declined id={:?} reason=annotation-locked",
+                    "canvas-delete-declined id={:?} reason=annot-delete-refused",
                     annot.target.id
                 )
             });

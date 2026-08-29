@@ -371,7 +371,19 @@ pub fn built_in() -> Menus {
             // form, by the same R9 reading the catalog entry argues, and on the
             // same `selection.in_form` predicate as the row above it.
             Item::command("format.unshare_form"),
-            Item::command("format.delete"),
+            // ★★★ **Absent, not greyed, where the engine would refuse it.** The
+            // same condition and the same constant the Format tab's Delete
+            // carries — `manifest::format::DELETE_VISIBLE_WHEN` — so this menu
+            // and that ribbon group cannot disagree about whether the operator
+            // is offered a Delete on a certified drawing.
+            //
+            // ⇒ This is the second of the two live-and-inert routes the
+            // `annotation_deletion_refusal` audit found: right-clicking a
+            // comment on a certified sheet opened a menu with a working-looking
+            // Delete, and pressing it wrote one line to the trace and said
+            // nothing. `panels::properties::annotdelete` carries the finding and
+            // the sentence that replaces the control.
+            Item::command("format.delete").shown_when(super::manifest::DELETE_PERMITTED),
         ]))
         // -------------------------------------------------------------------
         // canvas.empty — the view menu.

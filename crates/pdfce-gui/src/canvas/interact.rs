@@ -1239,6 +1239,7 @@ pub(super) fn interact(
             // ★ The third surface Delete has to know about, and the one it
             // could not see. See the field's own doc on `keys::Keys`.
             selected_field: doc.selected_field.as_ref(),
+            annot_delete_refused: crate::panels::properties::annotdelete::refuses_selected(doc),
             escape_consumed: matches!(outcome, GestureOutcome::Cancelled),
         },
         &mut selection,
