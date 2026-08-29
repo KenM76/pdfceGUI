@@ -77,7 +77,15 @@
 //!   deleted, because "this used to be absent and is now built" is exactly
 //!   what a catalog header should make legible.)
 
+mod formdelete;
 mod selection;
+
+/// ★ Re-exported for the reason stated on [`selection`]'s block below, and it
+/// earns a file of its own rather than a place in this catalog because its
+/// argument is long: a **decline** that repeats a panel's **standing
+/// description** almost word for word has to justify every word it does not
+/// share with it, or the two surfaces become two paraphrases of one fact.
+pub use formdelete::field_delete_declined_structural;
 
 /// ★ Re-exported rather than moved-and-repathed.
 ///

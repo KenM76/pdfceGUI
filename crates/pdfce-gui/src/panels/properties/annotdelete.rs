@@ -263,8 +263,16 @@ pub enum Refusal {
 
 impl Refusal {
     /// The sentence.
+    ///
+    /// ★ `pub(crate)` since 2026-08-29, when `Ctrl+X` turned out to be a fourth
+    /// door onto this verb and needed the same words on the status row that this
+    /// panel puts beside the selection. **One catalog, two surfaces** — the
+    /// alternative is a second wording of one fact, and this project's record of
+    /// that is `UnembedBlocker::reason` delegating to `Removability::reason`
+    /// precisely so a font that refuses in two places refuses for the same
+    /// stated reason.
     #[must_use]
-    const fn line(self) -> &'static str {
+    pub(crate) const fn line(self) -> &'static str {
         match self {
             Self::Locked => t::annot_delete_locked(),
             Self::Document(why) => why.line(),

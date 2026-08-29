@@ -150,6 +150,45 @@ pub(crate) fn dispatch(app: &mut PdfceApp, id: &str, actions: &mut Vec<Action>) 
                 if app.capabilities().edit_content
                     && let Some(field) = &doc.selected_field
                 {
+                    // ★★★ R83 — ASKED HERE, THROUGH THE SAME FUNCTION THAT
+                    // WITHHOLDS THE MENU ITEM AND DRAWS THE SENTENCE.
+                    //
+                    // This arm asked nothing at all until 2026-08-29, and the
+                    // `canvas.field` menu that is its only pointer route
+                    // carried no `visible_when` either — so on an ordinary
+                    // certified fillable form the item was drawn, live and
+                    // undimmed, and the press reached `delete_widget`, was
+                    // refused into `actions::apply::vector_edit`'s `Err` arm,
+                    // and said nothing to the operator.
+                    //
+                    // `panels::properties::formfield::refuses_delete` is the
+                    // one derivation, asked here so that this arm, the
+                    // `canvas.field` menu (via
+                    // `app::conditions`' `selection.delete_permitted`),
+                    // `canvas::keys`' rung 0 and the Properties panel's
+                    // sentence are **one question with four readers**. A
+                    // control withheld by one rule while a panel explains a
+                    // different one is the shape the forms audit found.
+                    //
+                    // ⇒ Reaching this branch refused now means one of the two
+                    // things the annotation arm below lists: a **chord** bound
+                    // to `format.delete` (a chord consults no `visible_when`),
+                    // or the condition having gone stale within a frame. The
+                    // sentence for both is already on screen in the Properties
+                    // panel — and, since the verb no longer clears the
+                    // selection ahead of the engine, it stays there — so this
+                    // declines silently to the trace rather than inventing a
+                    // second wording.
+                    if crate::panels::properties::formfield::refuses_delete(doc) {
+                        crate::diag::trace(|| {
+                            // ui-text-exempt: diagnostic trace, never displayed.
+                            format!(
+                                "command-declined id={id} reason=field-delete-refused field={}",
+                                field.field
+                            )
+                        });
+                        return;
+                    }
                     actions.push(Action::Field(
                         crate::app::actions::forms::FieldAction::DeleteWidget {
                             field: field.field.clone(),

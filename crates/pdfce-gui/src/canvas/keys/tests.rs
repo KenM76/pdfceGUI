@@ -86,6 +86,7 @@ fn keys_for(input: RawInput, selection: &mut SelectionState) -> Vec<Action> {
                 caps: Capabilities::FULL,
                 selected_field: None,
                 annot_delete_refused: false,
+                field_delete_refused: false,
                 escape_consumed: false,
             },
             selection,
@@ -135,6 +136,7 @@ fn delete_removes_a_selected_form_field_and_nothing_else() {
                 caps: Capabilities::FULL,
                 selected_field: Some(&field),
                 annot_delete_refused: false,
+                field_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -150,6 +152,138 @@ fn delete_removes_a_selected_form_field_and_nothing_else() {
                 if field == "Check1" && *widget == 0
         ),
         "Delete did not remove the selected form field: {actions:?}"
+    );
+}
+
+/// ★★★ **Delete does NOT act on a form field the engine would refuse, and it
+/// does not fall through to the content rung either.**
+///
+/// # What this pins, and why the shape of the failure is the point
+///
+/// Rung 0 above was added on 2026-08-28 with **no gate at all** — it pushed
+/// `DeleteWidget` on `caps.edit_content && selected_field` and returned six
+/// lines above the annotation branch that does ask one. So the R83 pass that
+/// closed the annotation rung on 2026-08-29 walked past this rung without
+/// seeing it, because a rung that asks nothing looks like a rung with nothing
+/// to ask.
+///
+/// The consequence was not a harmless no-op. `actions::forms::delete_widget`
+/// cleared `doc.selected_field` **before** calling the engine, so on an
+/// ordinary certified fillable form the press produced:
+///
+/// 1. an action raised for a verb that would refuse,
+/// 2. a refusal into `actions::apply::vector_edit`'s `Err` arm — a trace line
+///    and, by that arm's own recorded decision, nothing to the operator,
+/// 3. **and the selection cleared anyway**, which blanked the Properties
+///    panel's `formfield` section — the one surface that was correctly saying
+///    *"This document does not allow form fields to be removed."*
+///
+/// ⇒ A silence that also destroys the sentence explaining it. `actions` being
+/// empty pins step 1, which is the only one of the three this ladder can
+/// prevent — and preventing it prevents all three.
+///
+/// ★★ A **content** selection is live at the same time, deliberately, and that
+/// is what makes the second assertion evidence rather than decoration: a build
+/// that declined the field rung by *falling through* instead of returning would
+/// delete the page objects underneath the widget. Refusing one verb is never a
+/// licence to run a different one.
+#[test]
+fn delete_does_not_act_on_a_form_field_whose_deletion_would_be_refused() {
+    use crate::app::state::SelectedField;
+
+    let field = SelectedField {
+        field: "Check1".to_owned(),
+        widget: 0,
+        page: 0,
+    };
+    let mut selection = object_selected();
+    let mut text_selection = None;
+    let mut actions = Vec::new();
+    let ctx = egui::Context::default();
+    let _ = ctx.run_ui(key(Key::Delete), |ui| {
+        canvas_keys(
+            Keys {
+                ctx: ui.ctx(),
+                page_index: 0,
+                caps: Capabilities::FULL,
+                selected_field: Some(&field),
+                annot_delete_refused: false,
+                field_delete_refused: true,
+                escape_consumed: false,
+            },
+            &mut selection,
+            &mut text_selection,
+            &mut actions,
+        );
+    });
+
+    assert!(
+        actions.is_empty(),
+        "the ladder must stop at the form-field rung rather than fall through to \
+         the content rung: a refused widget delete is not a licence to delete the \
+         page objects underneath it — {actions:?}"
+    );
+    assert!(
+        !selection.is_empty(),
+        "nothing may clear a selection here. The Properties panel's sentence \
+         explaining the refusal is drawn from `doc.selected_field`, and losing a \
+         selection to a delete that did not happen is how the refusal became a \
+         silence in the first place"
+    );
+}
+
+/// ★★ **The same press with the field gate open raises the delete**, which is
+/// what makes the test above evidence rather than a tautology.
+///
+/// A rung that declined unconditionally would satisfy every assertion above
+/// perfectly, and would be a strictly worse defect than the one being fixed: a
+/// control withheld where it would have worked leaves the operator no gesture
+/// that reports it. This is the other half every rung in this file is required
+/// to carry.
+///
+/// ★ It is `delete_removes_a_selected_form_field_and_nothing_else` above with
+/// one field flipped, and it is written separately rather than folded into it
+/// because that test is about **precedence** and this one is about the
+/// **gate**. Two questions, two failures worth telling apart.
+#[test]
+fn delete_acts_on_a_form_field_when_the_gate_is_open() {
+    use crate::app::actions::forms::FieldAction;
+    use crate::app::state::SelectedField;
+
+    let field = SelectedField {
+        field: "Check1".to_owned(),
+        widget: 2,
+        page: 0,
+    };
+    let mut selection = object_selected();
+    let mut text_selection = None;
+    let mut actions = Vec::new();
+    let ctx = egui::Context::default();
+    let _ = ctx.run_ui(key(Key::Delete), |ui| {
+        canvas_keys(
+            Keys {
+                ctx: ui.ctx(),
+                page_index: 0,
+                caps: Capabilities::FULL,
+                selected_field: Some(&field),
+                annot_delete_refused: false,
+                field_delete_refused: false,
+                escape_consumed: false,
+            },
+            &mut selection,
+            &mut text_selection,
+            &mut actions,
+        );
+    });
+
+    assert_eq!(actions.len(), 1, "{actions:?}");
+    assert!(
+        matches!(
+            &actions[0],
+            Action::Field(FieldAction::DeleteWidget { field, widget })
+                if field == "Check1" && *widget == 2
+        ),
+        "an open gate must still delete THIS box, named by its widget index: {actions:?}"
     );
 }
 
@@ -222,6 +356,7 @@ fn an_escape_spent_on_a_drag_leaves_the_rung_alone() {
                 caps: Capabilities::FULL,
                 selected_field: None,
                 annot_delete_refused: false,
+                field_delete_refused: false,
                 escape_consumed: true,
             },
             &mut selection,
@@ -258,6 +393,7 @@ fn escape_retires_an_armed_region_zoom_before_it_touches_the_ladder() {
                 caps: Capabilities::FULL,
                 selected_field: None,
                 annot_delete_refused: false,
+                field_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -297,6 +433,7 @@ fn escape_reaches_the_ladder_again_once_nothing_is_armed() {
                 caps: Capabilities::FULL,
                 selected_field: None,
                 annot_delete_refused: false,
+                field_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -331,6 +468,7 @@ fn an_escape_spent_on_a_drag_leaves_the_armed_zoom_alone() {
                 caps: Capabilities::FULL,
                 selected_field: None,
                 annot_delete_refused: false,
+                field_delete_refused: false,
                 escape_consumed: true,
             },
             &mut selection,
@@ -398,6 +536,7 @@ fn a_focused_text_field_keeps_delete_for_itself() {
                 caps: Capabilities::FULL,
                 selected_field: None,
                 annot_delete_refused: false,
+                field_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -444,6 +583,7 @@ fn escape_retires_the_markup_tool_before_the_region_zoom() {
                 caps: Capabilities::FULL,
                 selected_field: None,
                 annot_delete_refused: false,
+                field_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -497,6 +637,7 @@ fn an_escape_spent_on_a_markup_drag_leaves_the_tool_armed() {
                 caps: Capabilities::FULL,
                 selected_field: None,
                 annot_delete_refused: false,
+                field_delete_refused: false,
                 escape_consumed: true,
             },
             &mut selection,
@@ -534,6 +675,7 @@ fn escape_still_reaches_the_zoom_and_the_ladder_with_no_markup_armed() {
                     caps: Capabilities::FULL,
                     selected_field: None,
                     annot_delete_refused: false,
+                    field_delete_refused: false,
                     escape_consumed: false,
                 },
                 &mut selection,
@@ -583,6 +725,7 @@ fn escape_abandons_a_guide_drag_before_it_touches_the_region_zoom() {
                 caps: Capabilities::FULL,
                 selected_field: None,
                 annot_delete_refused: false,
+                field_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -647,6 +790,7 @@ fn escape_abandons_a_circle_fit_before_it_puts_the_measure_tool_down() {
                 caps: Capabilities::FULL,
                 selected_field: None,
                 annot_delete_refused: false,
+                field_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -675,6 +819,7 @@ fn escape_abandons_a_circle_fit_before_it_puts_the_measure_tool_down() {
                 caps: Capabilities::FULL,
                 selected_field: None,
                 annot_delete_refused: false,
+                field_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -746,6 +891,7 @@ fn escape_abandons_a_vertex_run_before_it_puts_the_markup_tool_down() {
                 caps: Capabilities::FULL,
                 selected_field: None,
                 annot_delete_refused: false,
+                field_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -774,6 +920,7 @@ fn escape_abandons_a_vertex_run_before_it_puts_the_markup_tool_down() {
                 caps: Capabilities::FULL,
                 selected_field: None,
                 annot_delete_refused: false,
+                field_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,
@@ -822,6 +969,7 @@ fn a_second_escape_retires_the_zoom_the_guide_drag_protected() {
                     caps: Capabilities::FULL,
                     selected_field: None,
                     annot_delete_refused: false,
+                    field_delete_refused: false,
                     escape_consumed: false,
                 },
                 &mut selection,
@@ -896,6 +1044,7 @@ fn delete_does_not_act_on_an_annotation_whose_deletion_would_be_refused() {
                 caps: Capabilities::FULL,
                 selected_field: None,
                 annot_delete_refused: true,
+                field_delete_refused: false,
                 escape_consumed: false,
             },
             &mut selection,

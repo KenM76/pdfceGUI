@@ -1240,6 +1240,7 @@ pub(super) fn interact(
             // could not see. See the field's own doc on `keys::Keys`.
             selected_field: doc.selected_field.as_ref(),
             annot_delete_refused: crate::panels::properties::annotdelete::refuses_selected(doc),
+            field_delete_refused: crate::panels::properties::formfield::refuses_delete(doc),
             escape_consumed: matches!(outcome, GestureOutcome::Cancelled),
         },
         &mut selection,

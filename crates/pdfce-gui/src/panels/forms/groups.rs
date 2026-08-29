@@ -210,6 +210,10 @@ pub(super) fn section(
         return;
     }
 
+    // ★ Before the header, so the listing is in the trace whether or not the
+    // operator opened it. See `trace_rows`.
+    trace_rows(doc, form);
+
     let header = egui::CollapsingHeader::new(t::field_groups_heading())
         .id_salt("pdfce-forms-groups")
         // Closed by default, like the Tab-order section beside it and for the
@@ -273,11 +277,59 @@ pub(super) fn section(
 /// It is also the useful order here: the deepest node is the smallest,
 /// least-destructive removal, so the list reads from the safest press to the
 /// most sweeping one.
+/// **The per-row census, written from the MODEL rather than from the drawing.**
+///
+/// # ★★★ It lived inside the drawing loop until 2026-08-29, and the header lied
+///
+/// This module's header promises the row lines are written *"whether or not the
+/// collapsing header is open, so the listing is provable from a trace without
+/// anyone having to click."* It was not true: the loop that wrote them sat
+/// inside `CollapsingHeader::show`'s body, and egui does not run that closure
+/// while the header is closed — and this section ships **closed**.
+///
+/// So a trace from a run that never opened the header carried the summary and
+/// no rows, and a check reading it would conclude the form has no groups. The
+/// promise was in prose, in a doc comment, checked by nobody.
+///
+/// ⇒ Lifted here, above the header, where the claim is true by construction.
+/// The separation is also the more honest one and matches
+/// `crate::panels::comments`: **a trace describes what the panel computed**,
+/// not what it happened to paint. A surface that traced only what it drew would
+/// go quiet exactly when a reader most wants to know what it decided — behind a
+/// closed header, off the bottom of a scroll, inside a collapsed tree.
+///
+/// ★ Capped at [`MAX_TRACED_ROWS`], and the summary line above carries the real
+/// total, so a truncated listing can never be mistaken for a short one.
+fn trace_rows(doc: &OpenDoc, form: &AcroForm) {
+    if !crate::diag::enabled() {
+        return;
+    }
+    let live = armed::armed(doc.edit_epoch);
+    for node in form.groups.iter().take(MAX_TRACED_ROWS) {
+        let name = &node.fully_qualified_name;
+        let fields = form.descendants_of(name).count();
+        let armed_here = live.as_ref().is_some_and(|a| a.preview.group_name == *name);
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI.
+            // The NAME is not carried: a field's name is the operator's own
+            // words about their document, and `adopt-row` and `bookmark-add`
+            // make the same ruling for the same reason. The object number
+            // identifies the row for a check; the count is what a check asserts
+            // against.
+            format!(
+                "form-group-row obj={} fields={fields} armed={}",
+                node.id.num,
+                u8::from(armed_here),
+            )
+        });
+    }
+}
+
 fn rows(ui: &mut egui::Ui, doc: &OpenDoc, form: &AcroForm, actions: &mut Vec<Action>) {
     let live = armed::armed(doc.edit_epoch);
     let mut raised: Option<FieldAction> = None;
 
-    for (index, node) in form.groups.iter().enumerate() {
+    for node in form.groups.iter() {
         let name = &node.fully_qualified_name;
         // ★★ CORE'S walk, not a prefix match written here.
         //
@@ -294,22 +346,6 @@ fn rows(ui: &mut egui::Ui, doc: &OpenDoc, form: &AcroForm, actions: &mut Vec<Act
         // field list cannot answer either.
         let fields = form.descendants_of(name).count();
         let armed_here = live.as_ref().is_some_and(|a| a.preview.group_name == *name);
-
-        if index < MAX_TRACED_ROWS {
-            crate::diag::trace(|| {
-                // ui-text-exempt: diagnostic trace, never displayed in the UI.
-                // The NAME is not carried: a field's name is the operator's own
-                // words about their document, and `adopt-row` and `bookmark-add`
-                // make the same ruling for the same reason. The object number
-                // identifies the row for a check; the count is what a check
-                // asserts against.
-                format!(
-                    "form-group-row obj={} fields={fields} armed={}",
-                    node.id.num,
-                    u8::from(armed_here),
-                )
-            });
-        }
 
         // ★ `push_id` per node, or two rows' buttons share one egui id and the
         // wrong one responds to a hover — the collision `crate::panels::comments`

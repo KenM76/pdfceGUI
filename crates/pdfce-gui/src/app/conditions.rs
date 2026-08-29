@@ -156,13 +156,17 @@ impl PdfceApp {
             //
             // # ★★★ The default is TRUE, and that is the whole safety argument
             //
-            // Set for every state except the one narrow case below. In
-            // particular it is set when **nothing** is selected, when a *content*
-            // object is selected, and when a form field is selected — because
-            // this condition answers only the annotation question and must not
-            // silently become a second, weaker spelling of `selection.actionable`
-            // for the other two. `format.delete` keeps that condition as its
-            // `enabled_when`; this one decides only whether it is drawn at all.
+            // Set for every state except the two narrow cases below. In
+            // particular it is set when **nothing** is selected and when a
+            // *content* object is selected — because this condition answers
+            // only the *refusal* question and must not silently become a
+            // second, weaker spelling of `selection.actionable`.
+            // `format.delete` keeps that condition as its `enabled_when`; this
+            // one decides only whether it is drawn at all.
+            //
+            // ★ It is NOT set for a selected form field on a document whose
+            // form structure is frozen, and that arm was missing until
+            // 2026-08-29 — see the ladder below.
             //
             // ⇒ A control that is *drawn and refuses* is the defect being fixed.
             // A control that is *withheld where it would have worked* is a worse
@@ -181,6 +185,12 @@ impl PdfceApp {
             // Delete ladder has the same precedence, which is why it can be
             // stated once here.
             //
+            // What that argument did NOT license, and what it was read as
+            // licensing for a day, is asking the annotation question and then
+            // giving up: the field arm has a gate of its own and it is
+            // `EditSession::deletion_refusal`. Mirroring the ladder means
+            // mirroring both rungs.
+            //
             // # Cost
             //
             // Rebuilt every frame like the rest of this set, and that is sound
@@ -190,12 +200,46 @@ impl PdfceApp {
             // `annotation_deletion_preview`, which walks `/Annots` — is **not**
             // asked here; it is memoised on `(id, epoch)` in the panel.
             //
-            // ★ One derivation, two consumers.
-            // `panels::properties::annotdelete::gate` is called from here and
-            // from the panel that draws the sentence, so the control cannot be
-            // withheld for one reason while the panel explains another.
-            let delete_refused = doc.selected_field.is_none()
-                && crate::panels::properties::annotdelete::refuses_selected(doc);
+            // ★ One derivation per rung, four consumers each.
+            // `panels::properties::annotdelete::gate` and
+            // `panels::properties::formfield::refuses_delete` are each called
+            // from here, from the panel that draws the sentence, from the
+            // Delete key's ladder and from the dispatcher's arm — so a control
+            // can never be withheld for one reason while the panel explains
+            // another.
+            //
+            // ★★★ **A LADDER, and the `is_none()` guard it replaces was a gate
+            // that was a no-op by construction.**
+            //
+            // It read `doc.selected_field.is_none() && annotdelete::…`. With a
+            // field selected the first conjunct is FALSE, so `delete_refused`
+            // was false and this condition was set **unconditionally for every
+            // selected field on every document** — including the certified
+            // fillable form that is the ordinary case. The comment above
+            // defended that as *"this condition answers only the annotation
+            // question"*, which was true and was the wrong shape: the condition
+            // is `format.delete`'s `visible_when`, and `format.delete` deletes a
+            // WIDGET when a field is selected, so a condition that answers only
+            // the annotation question is answering about a verb that will not
+            // run.
+            //
+            // ⇒ The two arms are the dispatcher's ladder, in its order. The
+            // field arm asks the **forms** query
+            // (`EditSession::deletion_refusal`, through
+            // `panels::properties::formfield::refuses_delete`) and the
+            // annotation arm asks the **annotation** one. They are not
+            // interchangeable — see `refuses_delete`'s own doc, which argues it
+            // at length — and the reason the ladder is stated here rather than
+            // collapsed into one predicate is that `app::dispatch::format`'s
+            // `format.delete` arm and `canvas::keys`' Delete ladder both check
+            // `doc.selected_field` FIRST and return. This mirrors them exactly,
+            // so the drawn control and the arm behind it can never be answering
+            // about different objects.
+            let delete_refused = if doc.selected_field.is_some() {
+                crate::panels::properties::formfield::refuses_delete(doc)
+            } else {
+                crate::panels::properties::annotdelete::refuses_selected(doc)
+            };
             if !delete_refused {
                 set.set("selection.delete_permitted");
             }
@@ -1348,6 +1392,82 @@ mod tests {
         assert!(
             app.conditions(&ctx).is_set("markup.finishable"),
             "…and the same two corners ARE a polyline"
+        );
+    }
+
+    /// ★★★ **`selection.delete_permitted` follows the FORMS gate when a form
+    /// field is selected**, which is the arm this condition did not have.
+    ///
+    /// # The defect, and why it is invisible without the second document
+    ///
+    /// The publication read
+    /// `doc.selected_field.is_none() && annotdelete::refuses_selected(doc)`.
+    /// With a field selected the first conjunct is **false**, so the whole
+    /// expression is false and the condition was set **unconditionally for
+    /// every selected field on every document** — a gate that is a no-op by
+    /// construction. `format.delete`'s `visible_when` on the `canvas.field`
+    /// menu therefore resolved *shown* on a certified fillable form, and the
+    /// press it invited deleted nothing and said nothing.
+    ///
+    /// ⇒ Both halves are asserted, against a fixture **pair** that differs in
+    /// exactly one dictionary (`tools/gen-certified-fixture.py`), because the
+    /// negative half alone is satisfied by a build that withholds Delete
+    /// always — which is a worse defect than the one being fixed: a control
+    /// absent where it would have worked leaves the operator no gesture that
+    /// reports it.
+    ///
+    /// ★ Driven through `app.conditions()` and `open_path` rather than by
+    /// calling the derivation, for this module's standing reason one test up:
+    /// what is under test is the **join** between the query and the published
+    /// name, and a test that read the derivation would prove `set.set` works.
+    #[test]
+    fn a_certified_document_withholds_delete_for_a_selected_form_field() {
+        use crate::app::state::SelectedField;
+
+        let ctx = egui::Context::default();
+        let certifier = SelectedField {
+            field: "Certifier".to_owned(),
+            widget: 0,
+            page: 0,
+        };
+        let local = |rel: &str| {
+            std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../fixtures")
+                .join(rel)
+        };
+
+        let mut app = PdfceApp::new();
+        app.open_path(local("certified-comments.pdf"));
+        let Status::Open(doc) = &mut app.status else {
+            panic!("the certified fixture opens") // ui-text-exempt: test panic, never displayed
+        };
+        doc.selected_field = Some(certifier.clone());
+        assert!(
+            !app.conditions(&ctx).is_set("selection.delete_permitted"),
+            "Delete is offered over a form field on a document whose /Perms \
+             /DocMDP freezes the form's structure. §12.8.2.2 Table 257 permits \
+             filling such a form and forbids restructuring it, so \
+             `EditSession::deletion_refusal` answers Some and the control must \
+             not be drawn (R9)"
+        );
+        assert!(
+            app.conditions(&ctx).is_set("selection.actionable"),
+            "the field is still SELECTED — `selection.actionable` and \
+             `selection.delete_permitted` answer different questions, and \
+             collapsing them would take the Properties command away too"
+        );
+
+        let mut app = PdfceApp::new();
+        app.open_path(local("threaded-comments.pdf"));
+        let Status::Open(doc) = &mut app.status else {
+            panic!("the uncertified twin opens") // ui-text-exempt: test panic, never displayed
+        };
+        doc.selected_field = Some(certifier);
+        assert!(
+            app.conditions(&ctx).is_set("selection.delete_permitted"),
+            "the condition refused on the uncertified twin, which differs from \
+             the certified fixture only in the catalog's /Perms entry — so this \
+             build hides Delete on every signed document"
         );
     }
 }

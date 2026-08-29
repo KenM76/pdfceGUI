@@ -17,10 +17,10 @@
 //! 1. **`action.rs` is at 1,441 of R2's 1,500 lines.** A variant with the doc
 //!    comment this one needs — an operand derived through two hops, a
 //!    granularity decision that is the engine's rather than ours, and a
-//!    refusal ladder of seven — does not fit, and trimming the prose to make it
-//!    fit is the response R2's own message forbids: *"split the module along
-//!    its seams rather than raising the limit"*, and the seam is not "wherever
-//!    the count ran out".
+//!    refusal ladder longer than any other verb's in this crate — does not fit,
+//!    and trimming the prose to make it fit is the response R2's own message
+//!    forbids: *"split the module along its seams rather than raising the
+//!    limit"*, and the seam is not "wherever the count ran out".
 //! 2. **`super::attachments` is the precedent for arriving as a sub-enum**, and
 //!    its header states the rule this follows: *"a family that arrives with
 //!    three verbs at once has grown before anybody had to measure it."* This
@@ -195,7 +195,37 @@ pub(super) fn apply(doc: &mut OpenDoc, action: XObjectAction) {
 /// unchanged: a number about a content stream is evidence, and evidence belongs
 /// where a driven check can read it; a count of places on the sheet in front of
 /// the operator is a disclosure.
+///
+/// # ★★★ It ASKS before it acts, and the question is the fix of 2026-08-29
+///
+/// [`fanout`] runs **first**, before `vector_edit` is called at all, and its
+/// two possible answers are the two possible shapes of this whole verb:
+///
+/// | [`fanout`] answers | this function does |
+/// |---|---|
+/// | `None` — no other page draws it | **nothing**, and says so in a sentence |
+/// | `Some(measurement)` | the edit, and discloses the measured number |
+///
+/// Before that question existed, the verb succeeded on a form invoked exactly
+/// once and told the operator *"every other page still shares the original"*
+/// about a document that had no other page. Neither half of that was defensible
+/// — a byte-identical clone, a rewritten `/Resources`, an undo entry and a
+/// dirty document, bought for nothing, and then a false statement about their
+/// own file. [`UnshareRefusal::NotShared`]'s docs carry the full account.
+///
+/// ★★ The order matters: the walk is done **outside** `vector_edit`, not inside
+/// its closure. `vector_edit` cancels the render worker and takes `&mut` on the
+/// session before the closure runs, so a decline from inside it would have
+/// stopped a raster mid-flight to learn that nothing was going to happen. From
+/// out here a decline costs one document walk and touches nothing.
 fn unshare(doc: &mut OpenDoc, page: usize, form: ObjId) {
+    let Some(measured) = fanout(doc, page, form) else {
+        // The decline is already worded and recorded by `fanout`. Returning
+        // here is the whole of "change nothing": no worker cancel, no session
+        // borrow, no undo entry, no `edit_epoch` bump, and a document that is
+        // exactly as clean as it was a moment ago.
+        return;
+    };
     super::apply::vector_edit(doc, "unshare-form", page, 1, |session| {
         session
             .unshare_form(page, form)
@@ -222,9 +252,169 @@ fn unshare(doc: &mut OpenDoc, page: usize, form: ObjId) {
                         report.original.num, report.copy.num, report.references_moved
                     )
                 });
-                vec![crate::text::unshare::unshared(report.references_moved)]
+                vec![crate::text::unshare::unshared(
+                    report.references_moved,
+                    measured,
+                )]
             })
     });
+}
+
+/// **Ask how widely this drawing is drawn, once, on the press.**
+///
+/// Returns the measurement the disclosure is built from, or `None` when no
+/// other page draws it — in which case the decline is already worded and
+/// recorded and the caller must do nothing at all.
+///
+/// # ★★★ Why this exists: the command shipped without ever asking
+///
+/// "Give this page its own copy" went out on 2026-08-28 and, for one day,
+/// **nothing in its chain asked whether the form was invoked more than once.**
+/// `catalog/format.rs` gates the control on `selection.in_form`;
+/// `conditions.rs` defines that as *"a leaf id is in the selection for this
+/// page"*; `dispatch/format.rs` adds only *"the leaf resolves to a containing
+/// form"*. And `EditSession::unshare_form` itself guards encryption,
+/// certification, `/Size` suppression, form-not-on-page and nesting — and has
+/// **no is-shared check**, by design: it is a verb, and a verb does what it is
+/// told. So on an ordinary one-page CAD sheet wrapped in a single form the
+/// engine allocated an object, privatised `/Resources`, committed an undo entry
+/// and returned `Ok`, and the shell told the operator that every other page
+/// still shared the original. There were no other pages.
+///
+/// ⇒ The question is the shell's to ask, and this is where it is asked.
+///
+/// # ★★★ THE COST, and why a whole-document walk is affordable HERE
+///
+/// `pdfce_core::text_edit::invocation_set` walks **every page in the document**
+/// and decodes every form it finds, recursively. Its own documentation is blunt
+/// about why nothing cheaper exists: *"nothing cheaper can prove a form is not
+/// also reached from a page the caller did not ask about."* A form XObject is
+/// bound to no page by the standard, so the only proof of absence is a complete
+/// scan. On a thirty-six-sheet drawing set that is thirty-six content streams
+/// parsed and every form in them decoded — call it tens of milliseconds.
+///
+/// **That is fine here, and it is fine for exactly one reason: this runs once
+/// per operator press.** A press is already a frame the operator expects to
+/// cost something; the alternative — the edit itself — allocates an object and
+/// rewrites a resource dictionary, which is not cheap either.
+///
+/// ## ★★★ And why the same walk must NOT go in a condition — R9
+///
+/// The tempting shape is to grey the control when the form is not shared. It is
+/// wrong, and `crate::app::conditions`' own budget says why: conditions are
+/// evaluated **on every frame**, for every command in the ribbon plan, to
+/// decide what is enabled. Putting a document-wide page walk behind
+/// `selection.in_form` would pay for it sixty times a second, on a document
+/// nobody is editing, to learn an answer that changes only when the document
+/// does. `crate::app::status::decline::Declined::FlattenCertified` already
+/// records this ruling in the same words for a certification census: *"putting
+/// it in the per-frame path … would pay for it sixty times a second to learn an
+/// answer that never moves."*
+///
+/// ⇒ So the control stays live and **answers in words when it is pressed**,
+/// which is R9's own remedy and this project's founding rule: a refusal is a
+/// sentence, never a silence.
+///
+/// # ★★★ What "not shared" is measured as, and why `is_shared()` alone is not
+/// # the test
+///
+/// `InvocationSet::is_shared()` is `sites.len() > 1` — *more than one `Do`
+/// reaches this form*. That is the right predicate for the question the engine
+/// asks with it (*will an in-place edit be visible somewhere the operator is
+/// not looking?* — no, if every site is on the page in front of them). It is
+/// **not** the right predicate for this verb, and the difference is a real
+/// document rather than a hypothetical one: the engine's own corpus ships
+/// `shared-form-twice.pdf`, one page invoking one form twice.
+///
+/// On that file `is_shared()` is `true`, and unsharing would move **both**
+/// references to the copy and leave the original referenced by nothing — an
+/// orphan object, a dirty document, and no sentence that is both true and worth
+/// reading. So the test is the operator's question rather than the engine's:
+/// **does any page other than this one draw it?**
+///
+/// | measurement | `is_shared()` | this function |
+/// |---|---|---|
+/// | drawn once, here | `false` | decline |
+/// | drawn twice, both here | `true` | **decline** |
+/// | drawn here and on sheet 12 | `true` | proceed, "1 other page" |
+///
+/// # ★★★ An incomplete walk NEVER declines
+///
+/// `InvocationSet::is_lower_bound()` is true when some page's scan hit the
+/// depth guard or a form pdfce could not decode. On such a document the count
+/// is a floor: pages pdfce could not read may draw this form. Declining there
+/// would assert *"nothing else draws it"* from a measurement that did not
+/// finish — which is the same defect this function exists to fix, committed in
+/// the opposite direction, and `invocation_set`'s docs name that class in as
+/// many words: *"an under-count presented as a total is the same class of
+/// defect as a silent edit."*
+///
+/// ⇒ So a lower bound **proceeds**, and the disclosure it produces says *at
+/// least* or, when it counted no other page at all, declines to name a number.
+/// A `count() == 0` walk — the form was resolved from the page's object model
+/// but the scan never saw it — is treated the same way and for the same reason:
+/// the two disagree, and the honest response to a disagreement is not a claim.
+///
+/// # ★★ Read through `session.view()`, paired with `session.document()`
+///
+/// The pairing `EditSession` itself uses at its two internal `invocation_map`
+/// call sites: the **graph** comes from the base document and the **bytes**
+/// come from the session-aware view, so a form whose stream the operator has
+/// already edited in this session is walked as it now stands rather than as it
+/// was on disk.
+fn fanout(doc: &OpenDoc, page: usize, form: ObjId) -> Option<crate::text::unshare::Fanout> {
+    let set = pdfce_core::text_edit::invocation_set(
+        doc.session.document(),
+        &doc.session.view(),
+        form.num,
+    );
+    // ★ Counted rather than read off `set.pages.len()`, because "other" is this
+    // verb's whole subject: the page in front of the operator is not one of the
+    // pages that keeps the original, and a build that forgot to subtract it
+    // would over-report by exactly one on every document — the friendliest
+    // possible off-by-one, since it is invisible on any file with two or more
+    // sheets and wrong on every file with one.
+    let other_pages = set.pages.iter().filter(|&&p| p != page).count();
+    let lower_bound = set.is_lower_bound();
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed.
+        //
+        // ★ Written on BOTH paths — decline and proceed — because the number
+        // that decided which one ran is the evidence a driven check needs, and
+        // a line emitted only on success would leave the decline provable only
+        // by the absence of something.
+        format!(
+            "unshare-form-measured page={page} form={} places={} pages={} other={other_pages} \
+             lower_bound={lower_bound}",
+            form.num,
+            set.count(),
+            set.pages.len()
+        )
+    });
+    if !lower_bound && set.count() > 0 && other_pages == 0 {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            //
+            // ★★★ The decline gets a line of its OWN, and it is not redundant
+            // with the measurement above. A driven check that had to prove the
+            // decline from the *absence* of `unshare-form-applied` would pass
+            // on every build where the row is greyed, the dispatcher has no arm
+            // or the menu never opened — every possible breakage produces the
+            // same absence. This line is the positive oracle: the press
+            // arrived, the walk ran, and the verb chose not to act.
+            format!(
+                "unshare-form-declined page={page} form={} reason=not-shared places={}",
+                form.num,
+                set.count()
+            )
+        });
+        crate::app::status::decline::record_unshare(UnshareRefusal::NotShared);
+        return None;
+    }
+    Some(crate::text::unshare::Fanout {
+        other_pages,
+        lower_bound,
+    })
 }
 
 /// Which sentence an `EditError` from `unshare_form` earns.

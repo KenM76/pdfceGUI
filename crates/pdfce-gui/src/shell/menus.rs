@@ -441,9 +441,28 @@ pub fn built_in() -> Menus {
         // ★ `format.delete` removes THIS BOX, not the whole field. A field with
         // two widgets on two pages is one field selectable from either place,
         // and the panel offers both deletions labelled. See `dispatch::format`.
+        //
+        // ★★★ **`shown_when` — and its absence here was the second half of the
+        // R83 forms defect, left open for a day by the fix that closed the
+        // first.**
+        //
+        // `canvas.object`'s `format.delete` two menus above has carried
+        // `DELETE_PERMITTED` since 2026-08-29; this one carried nothing. On an
+        // ordinary certified fillable form that made the menu's Delete drawn,
+        // live and undimmed over a widget the engine will not remove — and the
+        // press cleared `doc.selected_field`, which took away the Properties
+        // panel's sentence that had been correctly explaining the refusal. A
+        // refused gesture that destroys its own explanation.
+        //
+        // It is the SAME condition as `canvas.object`'s, deliberately, and it
+        // is correct for both because `app::conditions` publishes it from a
+        // ladder that asks the forms query when a field is selected and the
+        // annotation query otherwise — the same precedence
+        // `app::dispatch::format` resolves the command by. One name, one
+        // meaning: *deleting what is selected would not be refused*.
         .with(Menu::new(CANVAS_FIELD).with_items([
             Item::command("format.properties"),
-            Item::command("format.delete"),
+            Item::command("format.delete").shown_when(super::manifest::DELETE_PERMITTED),
         ]))
         // -------------------------------------------------------------------
         // canvas.text — the caret's menu.
@@ -1265,9 +1284,34 @@ mod tests {
         // string an operator scrolling the file actually looks for.
         assert!(text.contains(CANVAS_OBJECT), "{text}");
         let compact = original.to_ron().expect("serializes");
+        // ★★ The spelling checked here carries the CONDITION, and it had to
+        // change on 2026-08-29: **both** `format.delete` items now do.
+        //
+        // `canvas.object`'s gained `selection.delete_permitted` with the
+        // annotation half of R83; `canvas.field`'s gained the same name with
+        // the form half, which is what this assertion's previous bare spelling
+        // was silently attesting was still missing. A `contains` for
+        // `Command(id:"format.delete")` matched only because no gate was
+        // written on that menu at all.
+        //
+        // ⇒ Asserting the gated spelling rather than deleting the assertion:
+        // the point of the check is that an operator scrolling the compact
+        // document can find the command, and the visible-condition is the half
+        // that decides whether the row is drawn — which is exactly what such an
+        // operator is looking for it to say.
         assert!(
-            compact.contains("Command(id:\"format.delete\")"),
+            compact.contains(
+                "Command(id:\"format.delete\",visible_when:\"selection.delete_permitted\")"
+            ),
             "{compact}"
+        );
+        assert!(
+            !compact.contains("Command(id:\"format.delete\")"),
+            "an UNGATED `format.delete` is back on some menu. Both of them are \
+             gated on `selection.delete_permitted`, because a Delete drawn where \
+             the engine refuses it is silently inert — and on `canvas.field` that \
+             press also cleared the selection, blanking the Properties panel \
+             sentence that explained the refusal: {compact}"
         );
     }
 

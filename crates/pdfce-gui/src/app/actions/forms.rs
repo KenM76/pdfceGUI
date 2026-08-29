@@ -105,6 +105,7 @@
 /// rectangle, whose entire difficulty is that its removal is invisible. That
 /// module's header carries the two-press protocol, why the preview cannot run
 /// in a panel, and where the armed preview is kept.
+pub mod delete;
 pub mod groups;
 
 use pdfce_core::object::ObjId;
@@ -483,14 +484,14 @@ pub(super) fn apply(doc: &mut OpenDoc, action: FieldAction) {
         } => edit_widget(doc, &field, widget, &edit, touched),
         FieldAction::Import { path } => import_data(doc, &path),
         FieldAction::Rename { from, to } => rename(doc, &from, &to),
-        FieldAction::DeleteField { field } => delete_field(doc, &field),
+        FieldAction::DeleteField { field } => delete::field(doc, &field),
         FieldAction::MoveWidget {
             field,
             widget,
             dx,
             dy,
         } => move_widget(doc, &field, widget, dx, dy),
-        FieldAction::DeleteWidget { field, widget } => delete_widget(doc, &field, widget),
+        FieldAction::DeleteWidget { field, widget } => delete::widget(doc, &field, widget),
         // ★ The arm changes no document and bumps no epoch, so it does not go
         // near `vector_edit`; the deletion does, like every other structural
         // form verb. See `groups`' header for why a query needs to be an action
@@ -1047,43 +1048,6 @@ pub(super) fn rename(doc: &mut OpenDoc, from: &str, to: &str) {
                 &outcome.to,
                 outcome.descendants_renamed,
             )]
-        })
-    });
-}
-
-/// **Delete a whole field, with every widget it draws.**
-///
-/// ★ The disclosure names the **widget count**, because that is the part the
-/// operator cannot see: a field drawn in three places disappears from three
-/// pages, and they are looking at one of them. A confirmation that said only
-/// "deleted" would be true and would leave two pages changed without mention.
-pub(super) fn delete_field(doc: &mut OpenDoc, field: &str) {
-    doc.selected_field = None;
-    super::apply::vector_edit(doc, "delete-field", 0, 1, |session| {
-        session.delete_field(field).map(|outcome| {
-            vec![crate::text::forms::form_field_deleted(
-                outcome.widgets_removed,
-            )]
-        })
-    });
-}
-
-/// **Delete one widget, leaving the field.**
-///
-/// ★★ The engine may report that the field went too, and the disclosure has to
-/// follow it rather than assume: removing the last widget of a field leaves a
-/// name nothing draws and nothing can fill, so `delete_widget` removes the
-/// field as well. That is the right behaviour and it is **not** what the
-/// operator pressed, so it is said out loud.
-pub(super) fn delete_widget(doc: &mut OpenDoc, field: &str, widget: usize) {
-    doc.selected_field = None;
-    super::apply::vector_edit(doc, "delete-widget", 0, 1, |session| {
-        session.delete_widget(field, widget).map(|outcome| {
-            vec![if outcome.field_removed {
-                crate::text::forms::form_widget_deleted_last()
-            } else {
-                crate::text::forms::form_widget_deleted()
-            }]
         })
     });
 }

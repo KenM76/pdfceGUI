@@ -501,7 +501,7 @@
             context: "canvas.field",
             items: [
                 Command(id: "format.properties"),
-                Command(id: "format.delete"),
+                Command(id: "format.delete", visible_when: "selection.delete_permitted"),
             ],
         ),
         (

@@ -230,6 +230,20 @@ pub enum Clipped {
 /// says nothing is indistinguishable from a broken keyboard.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refusal {
+    /// ★★★ **The cut's DELETE half would be refused, so its copy half did not
+    /// run either.**
+    ///
+    /// Only `cut` can answer this, and only `cut` returns it: a plain copy
+    /// changes nothing and is correct on a document that forbids every change.
+    ///
+    /// It exists as its own variant rather than reusing [`Self::Unreadable`]
+    /// because the operator's next move differs — a clip the engine could not
+    /// assemble is a fact about *the selection*, and this is a fact about *the
+    /// document*, true of every annotation in it until the signature or the
+    /// encryption goes. The sentence is on the status row already, put there by
+    /// `app::status::decline`, which is the same surface the three other doors
+    /// onto this verb use.
+    DeleteRefused(crate::panels::properties::annotdelete::Refusal),
     /// Nothing is selected.
     NothingSelected,
     /// The engine refused to copy the selection.
@@ -438,6 +452,49 @@ pub fn cut(
     doc: &OpenDoc,
     actions: &mut Vec<Action>,
 ) -> Result<Clipped, Refusal> {
+    // ★★★ **ASK WHETHER THE DELETE CAN HAPPEN BEFORE THE COPY DOES.**
+    //
+    // This is the fourth door onto `delete_annotation`, found by an adversarial
+    // review on 2026-08-29 after the other three had been gated the day before,
+    // and it is the worst of the four:
+    //
+    // On a certified or encrypted document, `Ctrl+X` over a markup **copied it
+    // to the clipboard**, raised the Delete, watched the engine refuse into
+    // `vector_edit`'s `Err` arm — one trace line, nothing said — and then
+    // `annots::delete` cleared the selection anyway, because it clears after
+    // the funnel rather than on success.
+    //
+    // ⇒ So the operator was left with the annotation still on the page, no
+    // selection, no explanation, **and a clipboard holding a copy of it**. The
+    // next `Ctrl+V` duplicates the thing they were trying to move. That is a
+    // half-executed cut, which is the one outcome the ordering note below
+    // exists to prevent — stated there for the copy half and never asked for
+    // the delete half.
+    //
+    // ★★ The whole gesture is refused rather than degraded to a copy. A cut
+    // that silently becomes a copy is a different verb wearing the operator's
+    // chord, and they would find out by pasting.
+    //
+    // ★ Asked HERE rather than in `annots::delete`, and the difference matters:
+    // the delete arm is reached by four routes and must stay a routing arm, but
+    // only this route has a **second half to call off**. Gating inside the arm
+    // would refuse the delete and leave the copy already on the clipboard.
+    if let Some(selected) = doc.selection.annot()
+        && let Some(why) = crate::panels::properties::annotdelete::gate(doc, &selected.target)
+    {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            format!("clipboard-cut-refused reason=delete-gated why={why:?}")
+        });
+        // ★ The REASON travels out; the sentence is written where every other
+        // clipboard refusal's is. This module changes no document and words no
+        // decline — its own header's contract — and `crate::app::status::decline`
+        // is `pub(super)` inside `crate::app` and deliberately out of reach from
+        // the canvas. `crate::text::clipboard` already maps every other variant
+        // to a sentence, and this one reuses `annotdelete`'s catalog rather than
+        // writing a second wording for one fact.
+        return Err(Refusal::DeleteRefused(why));
+    }
     let clipped = copy(ctx, doc)?;
     // ★★ COPY RUNS FIRST, and the engine makes the same point about its own
     // `cut_objects`: *"a selection that cannot be copied is refused with
@@ -827,6 +884,77 @@ fn carried_options(doc: &OpenDoc, page: usize, id: ObjId) -> pdfce_core::edit::M
 
 #[cfg(test)]
 mod tests {
+    /// ★★★ **A cut that cannot delete must not copy either.**
+    ///
+    /// The fourth door onto `delete_annotation`, found by an adversarial review
+    /// on 2026-08-29 after the other three had been gated the day before, and
+    /// the worst of the four: on a certified document `Ctrl+X` copied the
+    /// annotation, raised a Delete the engine then refused into a silent `Err`
+    /// arm, and `annots::delete` cleared the selection anyway — leaving the
+    /// operator with the markup still on the page, no selection, no
+    /// explanation, **and a clipboard holding a copy of it**, so the next
+    /// `Ctrl+V` duplicates the thing they were trying to move.
+    ///
+    /// # What this asserts, and why each half is needed
+    ///
+    /// 1. **`Err(DeleteRefused)`** — the whole gesture is refused, and it
+    ///    carries the reason so the status row can say which of encryption,
+    ///    certification or the `/F` Locked bit it was.
+    /// 2. **No action was raised** — asserting only the `Err` would pass on a
+    ///    build that refused *and* pushed the Delete anyway, which is the state
+    ///    this fix exists to remove.
+    /// 3. **Nothing reached the clipboard** — the half that makes it a *cut*
+    ///    failure rather than a delete failure. A build that degraded the cut to
+    ///    a copy would satisfy 1 and 2 and still hand the operator a duplicate.
+    ///
+    /// ★ `certified-comments.pdf` and `threaded-comments.pdf` differ in exactly
+    /// one dictionary — the catalog's `/Perms` — so the pair tells *"withheld
+    /// here"* from *"offered there"* while varying one thing. This test drives
+    /// the refusing half; the offering half is the driven check's.
+    #[test]
+    fn a_cut_that_cannot_delete_does_not_copy_either() {
+        use crate::canvas::selection::annot::{AnnotKind, AnnotSelection, AnnotTarget};
+
+        let ctx = egui::Context::default();
+        let mut doc = crate::app::state::open_local_fixture("certified-comments.pdf");
+        let page = doc.pages.first().expect("the fixture has a page");
+        let square = pdfce_core::annot::page_annotations(&doc.session.graph(), page.id)
+            .into_iter()
+            .find(|a| a.subtype_label() == "Square")
+            .expect("the fixture carries a /Square");
+        let id = square.id.expect("an indirect annotation");
+        doc.selection.select_annot(AnnotSelection {
+            target: AnnotTarget {
+                page: 0,
+                id,
+                kind: AnnotKind::Markup,
+                subtype: "Square".to_owned(),
+                locked: false,
+            },
+            outline: egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(10.0, 10.0)),
+        });
+
+        let mut actions = Vec::new();
+        let outcome = cut(&ctx, &doc, &mut actions);
+
+        assert!(
+            matches!(outcome, Err(Refusal::DeleteRefused(_))),
+            "a certified document must refuse the whole gesture, got {outcome:?}"
+        );
+        assert!(
+            actions.is_empty(),
+            "the cut was refused and raised {} action(s) anyway — a refusal that \
+             still pushes the delete is the state this gate exists to remove",
+            actions.len()
+        );
+        assert!(
+            read(&ctx).is_none(),
+            "nothing was deleted and something reached the clipboard: the cut \
+             degraded to a copy, so the next paste hands the operator a duplicate \
+             of the markup they were trying to move"
+        );
+    }
+
     use super::*;
 
     /// The offset is applied on a same-page paste and not on a cross-page one.

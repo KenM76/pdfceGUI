@@ -113,6 +113,116 @@ const REGION_DELETE: &str = "properties.form_field.delete";
 /// Written whether or not either control is drawn, which is what makes the
 /// regions above readable as evidence rather than as noise.
 const TRACE_GATES: &str = "form-field-gates";
+/// The region the refusal sentence publishes, and **only** when it is drawn.
+///
+/// [`REGION_DELETE`]'s negative twin: exactly one of the two is declared on any
+/// frame this section runs, so a driven check can tell *"the control was
+/// withheld and explained"* from *"the panel never opened"* — the second half
+/// being what [`TRACE_GATES`] proves. See `REGION_RENAME` for the rule.
+const REGION_DELETE_REFUSED: &str = "properties.form_field.delete_refused";
+
+/// **Would deleting the selected form field be refused right now?**
+///
+/// ★★★ THE ONE DERIVATION. Four readers, and the whole point of it being a
+/// function is that they cannot disagree:
+///
+/// | reader | what it does with the answer |
+/// |---|---|
+/// | [`section`] | withholds both delete buttons and draws a sentence in their place |
+/// | `crate::app::conditions` | publishes `selection.delete_permitted`, which withholds `format.delete` on the `canvas.field` menu |
+/// | `crate::canvas::keys` (via `crate::canvas::interact`) | declines rung 0 of the Delete ladder |
+/// | `crate::app::dispatch::format` | declines the `format.delete` arm's form-field branch |
+///
+/// # ★★★ It is the FORMS query, not the annotation one, and that was the defect
+///
+/// `crate::app::conditions` published `selection.delete_permitted` from
+/// `annotdelete::refuses_selected` alone, guarded by
+/// `doc.selected_field.is_none()`. With a field selected the guard is false, so
+/// the condition was set **unconditionally for every selected field on every
+/// document** — a gate that is a no-op by construction. The `canvas.field`
+/// menu carried no `visible_when` at all, and `canvas::keys`' rung 0 raised
+/// `DeleteWidget` with no gate and returned six lines above the annotation
+/// branch that does ask one.
+///
+/// ⇒ On an ordinary certified fillable form: right-click a widget, Delete is
+/// drawn live and undimmed, press it, the box stays, the selection vanishes,
+/// nothing is said, **and the sentence in this very panel that was correctly
+/// explaining the refusal goes blank with it.** A refused gesture that destroys
+/// its own explanation — the exact shape R83 exists to remove, reproduced one
+/// `/Subtype` along from the annotation fix that removed it.
+///
+/// `EditSession::deletion_refusal` is the right question and
+/// `annotation_deletion_refusal` is not, for the reason core's own doc comment
+/// gives about `fill_refusal`: *"a shell that reused `fill_refusal` to gate a
+/// delete control would offer deletion on a document that refuses it."* The
+/// same sentence holds with the annotation query substituted. They agree on a
+/// certified document today and are answers to different questions — an
+/// annotation gate additionally consults §12.5.3 Table 165's per-annotation
+/// `Locked` bit, which no form field has, and §12.8.2.2 Table 254 puts
+/// annotation editing on a different `/P` line from form-structure editing.
+///
+/// # ★★ `false` when nothing is selected, and the direction of the safe error
+///
+/// This answers *would the engine refuse?*, never *is there anything to
+/// delete?* — the second question is `selection.actionable`'s, and conflating
+/// them would make an empty selection look like a refusal. The false answer it
+/// must never give is `false`-when-refused; the false answer it must never give
+/// **either** is `true`-when-permitted, because a control withheld where it
+/// would have worked leaves the operator no gesture that reports it. Both
+/// directions are covered by asking the engine and nothing else: there is no
+/// local rule here to drift.
+///
+/// # Cost
+///
+/// A **pure query** — core's own words — reading the signature census and the
+/// trailer and mutating nothing, *"safe to call every frame from a UI"*. The
+/// `is_some()` short-circuit means a document with no field selected pays one
+/// `Option` test.
+#[must_use]
+pub fn refuses_delete(doc: &OpenDoc) -> bool {
+    doc.selected_field.is_some() && document_refuses_delete(doc)
+}
+
+/// **Would deleting ANY form field of this document be refused?** —
+/// [`refuses_delete`] with the selection question taken out of it.
+///
+/// ★★★ Not a second derivation: the **same** engine query at a different scope,
+/// and the scope split is written down rather than left to the reader because
+/// it is exactly the thing a caller gets wrong.
+///
+/// `EditSession::deletion_refusal` is a property of the **document** —
+/// `/Encrypt`, then the strict certification gate — and names no field. So
+/// there is nothing per-field to ask, and the two entry points differ only in
+/// whether they additionally require a selection:
+///
+/// | | asks | for |
+/// |---|---|---|
+/// | [`refuses_delete`] | *would deleting the **selected** field be refused?* | the four readers that offer a control **about a selection**, where "nothing selected" must read as `false` — an empty selection is nothing to refuse, and answering `true` there would take `format.delete` off the `canvas.object` menu for a reason about forms |
+/// | this | *does this **document** refuse form deletion?* | the two callers holding a field that is **not** (yet) `doc.selected_field` |
+///
+/// # ★★ The two callers, and why each genuinely cannot use the other
+///
+/// 1. **`crate::canvas::rightclick`**, deciding whether the `canvas.field`
+///    menu may draw Delete. `menus::attach` corrects two conditions locally
+///    because `PdfceApp::conditions()` ran at the **top of the frame**, before
+///    the right-click could move the selection — and `field_menu()` opens that
+///    menu for a widget merely **under the pointer**
+///    (`right_click_hits_a_field`), which on a first right-click is not yet
+///    selected. `refuses_delete` would answer `false` on that frame and the
+///    row would be drawn, for one frame, on a document that refuses it. R9
+///    says a permanently refused control renders nothing, and "for one frame"
+///    is not nothing.
+/// 2. **`crate::app::actions::forms::delete`**, which takes a field **by
+///    name** and can be reached with no selection at all — a chord that fired
+///    after the selection moved, an action queued a frame earlier — where
+///    `refuses_delete` would wave through the very press it exists to stop.
+///
+/// A **pure query**, core's own words: it reads the signature census and the
+/// trailer and mutates nothing, *"safe to call every frame from a UI"*.
+#[must_use]
+pub fn document_refuses_delete(doc: &OpenDoc) -> bool {
+    doc.session.deletion_refusal().is_some()
+}
 
 /// Draw the selected form field's properties, if one is selected.
 ///
@@ -188,8 +298,17 @@ pub fn section(
     // flatten additionally creates page content and carries a guard deletion
     // does not — two checks of three, which works until it does not, on
     // documents that are not exotic.
+    //
+    // ★★★ The delete half is asked through [`refuses_delete`] rather than
+    // through `doc.session.deletion_refusal()` inline, and that indirection is
+    // the fix rather than a tidy-up. It was inline here, and the three other
+    // doors to the same verb — the condition behind `format.delete`'s
+    // `visible_when`, the `canvas.field` menu, and the Delete key's rung 0 —
+    // asked either the WRONG query or none at all. A sentence derived here
+    // while a control is derived elsewhere is how a panel comes to explain a
+    // refusal beside a live button that performs it.
     let rename_refusal = doc.session.rename_refusal();
-    let delete_refusal = doc.session.deletion_refusal();
+    let delete_refused = refuses_delete(doc);
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed in the UI.
         // Written EVERY frame this section draws, refused or not — see
@@ -198,7 +317,7 @@ pub fn section(
         format!(
             "{TRACE_GATES} rename_refused={} delete_refused={}",
             u8::from(rename_refusal.is_some()),
-            u8::from(delete_refusal.is_some()),
+            u8::from(delete_refused),
         )
     });
 
@@ -241,7 +360,7 @@ pub fn section(
         actions,
     );
     ui.add_space(6.0);
-    delete_row(ui, field, &selected, delete_refusal.is_some(), actions);
+    delete_row(ui, field, &selected, delete_refused, actions);
     ui.add_space(6.0);
     // ★★ What is left out of reach, and it is now the WIDGET half rather than
     // the field half. See `text::panels::formfield::not_editable_note` for the
@@ -441,7 +560,18 @@ fn delete_row(
     actions: &mut Vec<Action>,
 ) {
     if refused {
-        ui.label(t::delete_refused());
+        // ★★★ A SENTENCE, never a silence — and it is published as a named
+        // region so the withholding is *provable* from outside the process.
+        //
+        // `REGION_DELETE` above is declared only when the button is drawn and
+        // this one only when it is not, so exactly one of the pair appears on
+        // any frame this section runs. That is what makes the harness's
+        // absence assertion admissible (`crate::checks`' rule 4): "no delete
+        // button" and "the panel never opened" are otherwise the same trace,
+        // and `TRACE_GATES` — written unconditionally a few lines up — is the
+        // third fact that tells them apart.
+        let sentence = ui.label(t::delete_refused());
+        crate::diag::ui_rect(REGION_DELETE_REFUSED, sentence.rect);
         return;
     }
     ui.horizontal(|ui| {
@@ -472,4 +602,90 @@ fn delete_row(
             );
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::state::{SelectedField, open_local_fixture};
+
+    /// The `/Sig` field both fixtures carry, merged with its widget on page 1.
+    ///
+    /// ★ Named by `/T` rather than discovered, because the whole value of the
+    /// fixture pair is that the two documents are identical apart from the
+    /// catalog's `/Perms` — a test that went looking for "a field" could find a
+    /// different one in each and report the difference as a gate difference.
+    /// See `tools/gen-certified-fixture.py`.
+    fn certifier() -> SelectedField {
+        SelectedField {
+            field: "Certifier".to_owned(),
+            widget: 0,
+            page: 0,
+        }
+    }
+
+    /// ★★★ **A certified document refuses to delete its form fields, and the
+    /// derivation says so.**
+    ///
+    /// The positive half. `fixtures/certified-comments.pdf` carries an enforced
+    /// certification — `/Perms << /DocMDP … >>` with `/P 2` — and §12.8.2.2
+    /// Table 257 permits *filling* such a form while forbidding changes to its
+    /// structure. Deleting a field is a structural change, so
+    /// `EditSession::deletion_refusal` must answer `Some`.
+    #[test]
+    fn a_certified_document_refuses_to_delete_a_selected_field() {
+        let mut doc = open_local_fixture("certified-comments.pdf");
+        doc.selected_field = Some(certifier());
+        assert!(
+            refuses_delete(&doc),
+            "the delete gate is open on a document carrying an enforced \
+             certification — either `deletion_refusal` is not being asked or its \
+             answer is being dropped, which is exactly the state that left four \
+             live Delete controls on a form nothing could change"
+        );
+    }
+
+    /// ★★★ **The uncertified twin permits it**, which is what makes the test
+    /// above evidence rather than a tautology.
+    ///
+    /// The two fixtures differ in **one dictionary** (`tools/gen-certified-fixture.py`
+    /// builds both from one function), so any difference between these two
+    /// assertions is caused by that dictionary and by nothing else.
+    ///
+    /// ⇒ This half matters more than it looks. A derivation that refused
+    /// unconditionally would satisfy every other test in this module and would
+    /// be a **worse** defect than the one being fixed: a control withheld where
+    /// it would have worked leaves the operator no gesture that reports it.
+    /// `threaded-comments.pdf` carries the same `/Type /Sig` as an ordinary
+    /// approval signature, and an approval signature is not an enforced
+    /// certification.
+    #[test]
+    fn an_uncertified_document_permits_deleting_a_selected_field() {
+        let mut doc = open_local_fixture("threaded-comments.pdf");
+        doc.selected_field = Some(certifier());
+        assert!(
+            !refuses_delete(&doc),
+            "the gate refused on the uncertified twin, which differs from the \
+             certified fixture only in the catalog's /Perms entry — so this build \
+             withholds Delete from every signed document"
+        );
+    }
+
+    /// ★★ **`false` when nothing is selected, on the document that refuses.**
+    ///
+    /// The derivation answers *would the engine refuse?* and never *is there
+    /// anything to delete?* — the second question is `selection.actionable`'s.
+    /// Without this the condition ladder in `crate::app::conditions` would take
+    /// the field arm's answer on a frame with no field selected, and
+    /// `format.delete` would vanish from the `canvas.object` menu on every
+    /// certified document for a reason about forms.
+    #[test]
+    fn no_field_selected_is_not_a_refusal() {
+        let doc = open_local_fixture("certified-comments.pdf");
+        assert!(doc.selected_field.is_none());
+        assert!(
+            !refuses_delete(&doc),
+            "an empty field selection is not a refusal; it is nothing to refuse"
+        );
+    }
 }

@@ -61,7 +61,7 @@
 //!
 //! | Phase | Does | Expected |
 //! |---|---|---|
-//! | F | Edit mode, View ▸ Forms | `form-groups refused=1`, and **no** `forms.groups.arm.*` region |
+//! | F | Edit mode, View ▸ Forms | `form-groups nodes>0 refused=1`, and **no** `forms.groups.arm.*` region — ★ the `nodes>0` half is the precondition this phase shipped without, and without it a section that drew **nothing** satisfied both assertions |
 //! | G | click a widget the canvas census names | `form-field-selected field=…` |
 //! | H | read the Properties pane's gate census | `form-field-gates rename_refused=1 delete_refused=1`, and **neither** `properties.form_field.rename` nor `properties.form_field.delete` declared |
 //!
@@ -493,6 +493,34 @@ fn drive_refusals(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option
             session.trace_path().display()
         )));
     };
+    // ★★★ THE PRECONDITION THIS PHASE WAS PASSING WITHOUT.
+    //
+    // `certified-p2-form.pdf`'s fields are **flat**, so `AcroForm::groups` is
+    // empty, so `groups::section` takes its early return and draws nothing at
+    // all — and both assertions below are then satisfied by a section that
+    // never ran: `refused` is whatever the census says, and `arms` is empty
+    // because there are no rows.
+    //
+    // ⇒ The phase reported PASS while testing nothing, which is this project's
+    // standing rule violated by the check written to enforce it: **a check that
+    // cannot fail is not evidence.** Step A asserts `nodes > 0` on its own
+    // fixture and this one did not, which is the asymmetry to look for.
+    //
+    // It SKIPs rather than fails, because the gap is the corpus and not the
+    // program: no fixture in either repository is both certified AND nested.
+    // Making one is the fix — `tools/gen-certified-fixture.py` builds the
+    // certified pair and `nested-form.pdf` has the shape; a file with both is a
+    // generator away, and until it exists this says so instead of pretending.
+    if seen.nodes == 0 {
+        return Err(Error::new(format!(
+            "`{CERTIFIED}` has no grouping nodes, so the Field-groups section takes its early \
+             return and this phase asserts nothing: a section that never drew reports \
+             `refused` from the census and offers no arm controls, which is exactly what a \
+             correct refusal looks like from outside. SKIPPED rather than passed. **No fixture \
+             in either corpus is both certified and nested** — that is the gap, and \
+             `tools/gen-certified-fixture.py` beside `nested-form.pdf`'s shape is the fix."
+        )));
+    }
     if !seen.refused {
         return Ok(Some(String::from(
             "the Field-groups section reported this /P 2 certified document as permitting \

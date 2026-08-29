@@ -29,6 +29,21 @@ use crate::canvas::clipboard::Refusal;
 pub const fn refusal(reason: Refusal) -> &'static str {
     match reason {
         Refusal::NothingSelected => "Nothing is selected. Click something on the page first.",
+        // ★★★ **The cut's delete half would be refused, so its copy half did
+        // not run either** — and the sentence comes from `annotdelete`'s
+        // catalog rather than being written again here.
+        //
+        // One fact, one wording, four surfaces: the Format tab withholds its
+        // Delete on it, the canvas menu withholds its own, the Properties panel
+        // draws this sentence beside the selection, and now `Ctrl+X` puts it on
+        // the status row. A second phrasing here would be the divergence
+        // `UnembedBlocker::reason` delegating to `Removability::reason` exists
+        // to prevent.
+        //
+        // ★ It does not say *"nothing was copied"*, though nothing was: the
+        // operator pressed cut, and what they need is the reason the document
+        // will not allow it, not an inventory of what did not happen.
+        Refusal::DeleteRefused(why) => why.line(),
         // ★★★ THIS SENTENCE WAS RETIRED ON 2026-08-20, AND IT WAS THE
         // OPERATOR'S OLDEST OPEN REQUEST.
         //

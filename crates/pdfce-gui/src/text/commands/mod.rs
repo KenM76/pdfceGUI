@@ -1053,14 +1053,41 @@ pub const fn format_select_form() -> CommandText {
 /// different act and invites the reading *"make it look different"*. What the
 /// operator wants is stated exactly by what happens: this page gets a copy.
 ///
-/// **"drawn on other pages too"** is the fact that makes the command make
-/// sense, and it is the fact nothing else on screen states. The Objects panel
-/// does not say a form is shared; the canvas cannot; the SHARED CONTENT
-/// disclosure says it only *after* an edit has already fanned out.
+/// **★★★ "if it is also drawn on other pages"** is a CONDITION, and until
+/// 2026-08-29 it was an assertion — *"This drawing is drawn on other pages
+/// too."* — stated unconditionally by a tooltip that had measured nothing.
+///
+/// That is the defect this clause was rewritten for, and it is worth being
+/// precise about why it was one. A tooltip is not decoration; it is a claim
+/// about the operator's own file, and this one was made before anything in the
+/// command's chain had asked how many times the form was invoked. On an
+/// ordinary one-page CAD sheet wrapped in a single form — the shape of this
+/// operator's own SolidWorks exports — it was simply **false**. And because it
+/// was identical either way, the operator who genuinely *did* have a
+/// thirty-six-sheet title block learned nothing from it: an unconditional
+/// sentence carries no information about the case it is unconditional over.
+///
+/// ⇒ **A control cannot assert a fact about a document it has not measured.**
+/// The tooltip's job is to say what the command *does* and under what condition
+/// it helps; the measurement is a whole-document page walk, it belongs on the
+/// press, and what it found is disclosed afterwards. See
+/// `crate::app::actions::xobject::fanout` for the walk and R9 for why it is not
+/// in a per-frame condition.
 ///
 /// **"changes here will not affect them"** is the reason to press it — the
 /// promise, in the operator's terms, and the only clause that distinguishes
 /// this command from `format.select_form` one row above.
+///
+/// **★★ "pdfce checks when you press, and says what it found"** is the clause
+/// that replaces the deleted assertion, and it does two jobs. It tells the
+/// operator where the answer to *"is it actually shared?"* comes from, which
+/// nothing else on screen states — the Objects panel does not say a form is
+/// shared, the canvas cannot, and the SHARED CONTENT disclosure says it only
+/// *after* an edit has already fanned out. And it sets the expectation that
+/// pressing this may **decline**: on a drawing nothing else draws,
+/// `crate::text::unshare::UnshareRefusal::NotShared` says so and changes
+/// nothing, which is a service rather than a failure and should not arrive as a
+/// surprise.
 ///
 /// **"Everything looks exactly the same afterwards"** is the clause an operator
 /// would otherwise report as a bug. The copy is byte-identical to the original
@@ -1082,8 +1109,9 @@ pub const fn format_select_form() -> CommandText {
 pub const fn format_unshare_form() -> CommandText {
     CommandText::new(
         "Give this page its own copy",
-        "This drawing is drawn on other pages too. Give this page its own copy so changes here \
-         will not affect them. Everything looks exactly the same afterwards.",
+        "If this drawing is also drawn on other pages, this gives the page its own copy so \
+         changes here will not affect them. pdfce checks when you press, and says what it found. \
+         Everything looks exactly the same afterwards.",
     )
 }
 

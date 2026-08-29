@@ -141,6 +141,15 @@ pub mod embed_bundled;
 pub mod embed_fonts;
 pub mod export_dxf;
 pub mod export_form_data;
+/// The same defect one `/Subtype` along: a certified document's FORM FIELDS.
+///
+/// ★★★ [`annot_delete_gate`]'s fix closed one surface of three and left the
+/// form-field door a no-op by construction — the condition's guard was false
+/// whenever a field was selected, the `canvas.field` menu carried no
+/// `visible_when` at all, and the Delete key's field rung asked nothing. This
+/// aims at the merged signature widget in the SAME fixture pair that check
+/// steers away from, and asserts the branch it avoids.
+pub mod field_delete_gate;
 /// **The first driven context menu in this project.** Its header records the
 /// gap it closed: 92 checks and no `Driver::right_click_at`, so a whole gesture
 /// class was outside R1's reach and left no failing test behind to say so.
@@ -230,9 +239,9 @@ pub mod ocr;
 pub mod os_fonts_setting;
 pub mod page_cache;
 pub mod page_ops;
-/// `the_context_menu_gives_this_page_its_own_copy_of_a_shared_form` — the
-/// driven proof that `EditSession::unshare_form` has an operator route, and
-/// that the route is **not** the ribbon.
+/// The **two** driven checks of *"give this page its own copy"*:
+/// `the_context_menu_gives_this_page_its_own_copy_of_a_shared_form` and
+/// `the_unshare_declines_when_nothing_else_draws_the_form`.
 ///
 /// ★★ Two things no other check in this file can claim. It is the first to
 /// **press a context-menu row** — until 2026-08-28 pdfce's menus published no
@@ -242,6 +251,17 @@ pub mod page_ops;
 /// byte-identical to the original, so a page that was unshared renders
 /// pixel-for-pixel as one that was not, and *"nothing appeared to happen"* is
 /// what a pass and every possible failure look like alike.
+///
+/// ★★★ **A pair rather than one check, since 2026-08-29, and the pairing is
+/// the point.** The command's two outcomes are decided by a property of the
+/// *file* — is this form drawn on any other page — so each case is a fixture,
+/// and a single check could only ever exercise one of them. The original
+/// exercised the wrong one: it was named `…_of_a_shared_form`, it was pinned to
+/// a document with exactly one invocation, and its pass note asserted that
+/// "every other invocation site" was byte-identical about a set that was empty.
+/// It measured nothing and passed. Whenever a behaviour is selected by the
+/// input document rather than by the gesture, the fixture IS the test, and one
+/// fixture is half of it.
 pub mod unshare_form;
 
 /// ★ `file.print` — the dialog that told every operator this build could not
@@ -636,6 +656,12 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // verdicts wants them together, and because a run in which the key
         // channel is broken should say so in the cheaper check first.
         Box::new(annot_delete_gate::ACertifiedDocumentWithholdsAnnotationDelete),
+        // The FORM-FIELD half of the same question, on the same fixture pair,
+        // immediately after the annotation half — a reader comparing two Delete
+        // verdicts on one certified document wants them together, and the two
+        // checks aim at the two objects that file carries for exactly that
+        // reason.
+        Box::new(field_delete_gate::ACertifiedDocumentWithholdsFieldDelete),
         Box::new(ribbon_captions::RibbonGroupCaptionsLegible),
         // Reads the trace only — no window is raised and no capture is taken,
         // so it costs nothing and cannot take the operator's focus. Placed
@@ -1006,6 +1032,19 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // deep hit test is reported once, by the check that owns it, instead of
         // twice with the second reading blaming the wrong file.
         Box::new(unshare_form::TheContextMenuGivesThisPageItsOwnCopyOfASharedForm),
+        // ★★★ Its pair, and it must stay adjacent to it. The two press the same
+        // row through the same five steps and differ only in the document they
+        // open — `shared-across-two-pages.pdf` against `page-sized-form.pdf` —
+        // so they are one behaviour's two halves, not two features. Reading the
+        // suite output, an author who sees only one of them run has been told
+        // that the other half of a branch is unmeasured, which is exactly the
+        // state that let a check named `…_of_a_shared_form` sit on an unshared
+        // fixture for a day.
+        //
+        // ★ It costs a second launch and a second window, deliberately: the
+        // condition under test is a property of the open file, so it cannot be
+        // reached by any further gesture within the first check's session.
+        Box::new(unshare_form::TheUnshareDeclinesWhenNothingElseDrawsTheForm),
         Box::new(ocr::OcrRecognisesAPageAndTheDocumentKeepsIt),
         Box::new(text_tool::TextToolSelectsAndMarksInEdit),
         // Last, because it is the only check that TYPES. Everything above

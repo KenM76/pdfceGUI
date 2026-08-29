@@ -353,6 +353,41 @@ pub(super) struct Keys<'a> {
     /// provide. Carrying the reason here would invite a second sentence in a
     /// second place, and two wordings of one fact is how they come to disagree.
     pub annot_delete_refused: bool,
+    /// **Whether the document refuses to delete the selected FORM FIELD**, from
+    /// `panels::properties::formfield::refuses_delete`.
+    ///
+    /// [`Self::annot_delete_refused`]'s twin for rung 0, and it is a separate
+    /// field rather than a widening of that one because the two are answers to
+    /// **different engine queries** — `EditSession::deletion_refusal` here,
+    /// `annotation_deletion_refusal` there. `refuses_delete`'s own doc argues
+    /// why borrowing one for the other is a silent failure waiting on a spec
+    /// nuance; the short form is that an annotation gate additionally consults
+    /// §12.5.3 Table 165's per-annotation `Locked` bit, which no form field
+    /// has.
+    ///
+    /// # ★★★ What its absence cost, and it is the day-before defect one rung up
+    ///
+    /// Rung 0 was added on 2026-08-28 with **no gate at all** — `caps.edit_content
+    /// && selected_field`, push `DeleteWidget`, `return` — and it returns six
+    /// lines above the annotation branch that *does* ask one. So the R83 work
+    /// that closed the annotation rung on 2026-08-29 walked straight past the
+    /// form rung sitting above it.
+    ///
+    /// On an ordinary certified fillable form the key raised `DeleteWidget`,
+    /// `delete_widget` refused into `actions::apply::vector_edit`'s `Err` arm —
+    /// a trace line and nothing to the operator — **and
+    /// `actions::forms::delete_widget` had already cleared
+    /// `doc.selected_field` before the call**, so the Properties panel's
+    /// sentence explaining the refusal went blank on the same frame. The box
+    /// stayed, the selection vanished, nothing was said.
+    ///
+    /// ★ `bool` rather than the refusal, for [`Self::annot_delete_refused`]'s
+    /// reason verbatim: this rung decides only whether to proceed, and the
+    /// wording is already on screen in
+    /// `panels::properties::formfield`'s delete row, drawn from the moment the
+    /// field was selected — which is the R83 half a keystroke cannot provide,
+    /// and which now survives the press.
+    pub field_delete_refused: bool,
     /// Whether Escape was already spent by a drag this frame.
     pub escape_consumed: bool,
 }
@@ -369,6 +404,7 @@ pub(super) fn canvas_keys(
         caps,
         selected_field,
         annot_delete_refused,
+        field_delete_refused,
         escape_consumed,
     } = keys;
     // ★ Claimant 0, and it is read BEFORE the D1 guard rather than after it.
@@ -694,6 +730,41 @@ pub(super) fn canvas_keys(
     if caps.edit_content
         && let Some(field) = selected_field
     {
+        // ★★★ **The gate, asked through the one function that also withholds
+        // the menu item and draws the sentence** —
+        // `panels::properties::formfield::refuses_delete`, arriving as
+        // [`Keys::field_delete_refused`] because this function takes no
+        // `&OpenDoc` and must not start.
+        //
+        // This rung had NO gate between 2026-08-28 and 2026-08-29 — it pushed
+        // the action on `caps.edit_content` alone and returned six lines above
+        // the annotation branch that does ask one. The R83 pass that closed
+        // the annotation rung read this one and did not see it, because a rung
+        // that asks nothing looks like a rung with nothing to ask.
+        //
+        // ★★ Declines to the TRACE, not to `app::status::decline`, and that is
+        // the same ruling the annotation rung below makes for the same reason:
+        // a key cannot be undrawn, so R9's remedy for a permanently
+        // unavailable capability has nowhere to render — but the sentence is
+        // **already on screen**, in the Properties panel's delete row, from the
+        // moment the field was selected. The operator was told before the
+        // press rather than after it, which is what R83 asks for, and the
+        // press no longer erases the telling.
+        //
+        // ⇒ Deliberately NOT `decline`: a decline reports *a gesture just
+        // failed* and must be repeatable, whereas this is a **standing property
+        // of the open document** — true from the moment it was opened, true
+        // whether or not anything was pressed.
+        if field_delete_refused {
+            crate::diag::trace(|| {
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "canvas-delete-declined field={} widget={} reason=field-delete-refused",
+                    field.field, field.widget
+                )
+            });
+            return;
+        }
         actions.push(Action::Field(
             crate::app::actions::forms::FieldAction::DeleteWidget {
                 field: field.field.clone(),

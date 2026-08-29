@@ -192,12 +192,50 @@ pub(in crate::app::actions) fn arm(doc: &mut OpenDoc, group: Option<String>) {
         ARMED.with_borrow_mut(|slot| *slot = None);
         crate::diag::trace(|| {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
-            "form-group-preview cleared=1".to_owned()
+            // ★★ `-cleared`, not the bare name, and the suffix is load-bearing
+            // for the same reason `check-trace-names` exists — one rung further
+            // out than that gate can see.
+            //
+            // The armed line four screens down is also `form-group-preview …`,
+            // and a harness reads a trace by its FIRST TOKEN. Today nothing
+            // presses Cancel, so `.last()` happens to find the armed line; add
+            // the cancel step this two-press protocol invites and it finds this
+            // one instead, `terminals` parses to 0 through `unwrap_or_default`,
+            // and the check fires *"the preview resolved and reported ZERO
+            // fields"* against a correct build.
+            //
+            // ⇒ `check-trace-names.py` compares module lines against **funnel
+            // labels** and never against each other, so this class is outside
+            // it. Named here rather than left as a latent trap.
+            "form-group-preview-cleared cleared=1".to_owned()
         });
         return;
     };
 
     let epoch = doc.edit_epoch;
+    // ★★★ **The render worker holds the other `Arc`, so this line is the whole
+    // difference between a preview and an inert button.**
+    //
+    // `RenderWorker` clones `doc.session` into its request (`app::state`), so
+    // `Arc::get_mut` fails for as long as a raster is in flight — which is after
+    // every scroll, zoom, page turn and mode change. Without this call, pressing
+    // *Delete group…* a moment after moving the view wrote one trace line and
+    // **nothing to the screen**: no block, no numbers, no sentence. Press again
+    // a second later and it worked.
+    //
+    // ⇒ This function's own doc comment four lines up calls that outcome *"the
+    // inert-control failure this project exists to remove"* — and then produced
+    // it, because it reported to the trace and to nothing else. It was the only
+    // production `Arc::get_mut` in the crate outside `vector_edit`, which takes
+    // this step as its **first statement** for exactly this reason.
+    //
+    // ★ A preview is a read and cancelling a raster for a read looks wasteful.
+    // It is not: the operator pressed a button, the raster restarts on the next
+    // frame from a cache that the preview does not invalidate, and the
+    // alternative is a control that works only when the page happens to be
+    // still. `vector_edit`'s own note on this call — *"the choke point"* —
+    // carries the argument.
+    doc.render_worker.cancel_and_wait();
     let Some(session) = std::sync::Arc::get_mut(&mut doc.session) else {
         crate::diag::trace(|| {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
