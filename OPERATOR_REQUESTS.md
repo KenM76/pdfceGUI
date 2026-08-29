@@ -80,6 +80,66 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O55 — ★★★ A fit should CENTRE, and a canvas resize should keep the fit until the operator leaves it
+
+**His words, 2026-08-28:**
+
+> *"I want the buttons that zoom to page, width, height etc when pressed to
+> center the page, or width, or height on the canvas window. if the canvas
+> window is resized the pdf should resize to match unless the person has
+> changed the zoom or panned around."*
+
+### ★★ Two asks, and only one of them is new — which matters for how to read it
+
+**(a) Centre on fit.** This is **O28 again**, in his words a second time:
+*"If I press the Fit width or fit page button the view should center to the
+width as well or center the page."* That shipped on 2026-08-24 —
+`canvas::fit::placement` and `geometry::fit_placement_offset` — and
+`a_fit_command_puts_the_page_on_screen` passes today.
+
+⇒ **A repeat request against shipped code is evidence about the code, not
+about him.** The check's name is the tell: it asserts the page is *on screen*,
+which is a weaker claim than *centred*, and the implementation matches the
+weaker claim — `fit_placement_offset` returns **0 on a pinned axis**, which is
+the page's own top-left, and leaves the unpinned axis wherever it was. For
+fit-page both axes are pinned and the centring margin does the rest; for
+**fit-width the vertical is not touched** and for **fit-height the horizontal
+is not**, so the thing he pressed the button for does not happen on two of the
+three.
+
+**(b) Re-fit on resize, unless zoomed or panned.** The first half already
+works: `FitMode` is a *live* mode and `ViewState::apply_fit` recomputes the
+zoom from the viewport every frame, so a dock resize or a window resize
+re-fits by construction.
+
+★★★ **The second half does not.** `set_zoom` drops out of the fit — so zooming
+leaves it, as he expects. **Panning does not.** `doc.last_scroll_offset` is
+written every frame from the scroll area's own state and nothing consults the
+fit, so an operator who fits, then pans to look at a corner, is still *in* fit
+mode — and the next resize throws their position away.
+
+⇒ That is the half worth having: it is the difference between a fit that is a
+**mode you are in** and one that is a **command you pressed**. His sentence
+draws the line exactly where the code does not: *"unless the person has changed
+the zoom or panned around."*
+
+### ★ What "centre" has to mean per axis, since it is not one rule
+
+| | horizontal | vertical |
+|---|---|---|
+| **Fit page** | centred | centred |
+| **Fit width** | fills, so centring is trivially satisfied | **centred** — currently left alone |
+| **Fit height** | **centred** — currently left alone | fills, trivially satisfied |
+
+★ On the axis a fit *fills*, there is nothing to decide. On the other axis
+there are two defensible answers — keep where you were, or centre — and he has
+now asked for centre twice.
+
+**Status:** ★ **ACCEPTED 2026-08-28**, ahead of the three unexplained sweep
+failures. Both halves are small; (b) is the one with the operator-visible bite.
+
+---
+
 ## O54 — ★★★ The highlight tool should follow text the way Acrobat's does, and paragraph reflow should be offered
 
 **His words, 2026-08-28:**

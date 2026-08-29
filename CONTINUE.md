@@ -101,6 +101,38 @@ fault was in how it was RUN:
 
 ⇒ **Do not read a sweep number without checking how the sweep was launched.**
 
+### ★★★ THE THREE STILL UNEXPLAINED — take these before anything else in the sweep
+
+Each has a **specific** first move; none needs a re-run to start.
+
+**1. `embedding_works_with_no_font_folder_at_all`** — the strongest candidate
+for a real defect, and it names its own suspect:
+
+> `embed-fonts-declined folders=0 detail=nothing-to-open` — **the exact state
+> O47 was answered to change.** The document names a font it does not carry
+> and pdfce ships fourteen faces, so a decline means the **bundled rung was
+> not reached**.
+
+⇒ Read `Library::scan_with(folders, true)` in `dialogs::embed`. If the `true`
+(use-bundled) argument is passed and still declines, the gap is in the engine's
+`resolve_for_embedding`; if `folders.is_empty()` short-circuits before the
+scan, it is ours and it is one line.
+
+**2. `the_format_tab_offers_font_controls_for_swept_text`** — O37's own
+complaint, back: a text object is selected and `properties.text.route` does not
+draw. Three candidates named in the failure itself; start with the guard that
+decides *"is this object text"*.
+
+**3. `dimension_groups_panel_makes_a_group`** — the arm ran, traced neither a
+decline nor an unimplemented line, and no panel appeared. ★ **The check's own
+message names the likeliest cause and it is the CHECK's problem**: the command
+is a **toggle**, so if the panel was already the active tab the click shut it.
+Assert the panel is closed first, or drive the toggle twice.
+
+★ `the_wheel_turns_pages_when_the_operator_asks_it_to` failed only on the
+`a1-titleblock` run and **passed on SW41177**; it needs the multi-page fixture
+(`four-pages.pdf`) and is not on this list.
+
 ### ★★ Of the 8 failures, 5 are proven NOT defects
 
 - Four geometry checks (`resize_scales_a_shape`, `rotate_handle`,
@@ -241,6 +273,12 @@ the same voice asks the operator to trust both equally.
    flush by measurement. Its generator prints the geometry the check quotes.
 
 ### What is next, in his likely order
+
+★★★ **O55 comes FIRST** — he asked for it directly and it is ahead of the
+sweep work: a fit must **centre**, and a **pan** must leave the fit so a later
+resize does not throw the operator's position away. `OPERATOR_REQUESTS.md` O55
+carries the per-axis table and the finding that (a) is O28 asked a second time.
+
 
 1. **A note on a SHAPE**, which is blocked and filed —
    `request_a_note_can_only_be_written_at_author_time.md`. The signed-and-dated
