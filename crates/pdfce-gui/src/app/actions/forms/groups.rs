@@ -277,7 +277,7 @@ pub(in crate::app::actions) fn arm(doc: &mut OpenDoc, group: Option<String>) {
                 format!("form-group-preview-refused epoch={epoch} detail={error}")
             });
             ARMED.with_borrow_mut(|slot| *slot = None);
-            super::super::record_note(epoch, t::field_group_preview_refused(&name));
+            crate::app::status::decline::record_field_group_preview_refused();
         }
     }
 }
@@ -341,12 +341,11 @@ pub(in crate::app::actions) fn delete(doc: &mut OpenDoc, group: &str) {
     // remove. Cleared for `delete_field`'s reason: a properties pane describing
     // a field that is gone is worse than an empty one.
     doc.selected_field = None;
-    let epoch = doc.edit_epoch;
     let name = group.to_owned();
     super::super::apply::vector_edit(doc, "delete-field-group", 0, 1, move |session| {
         let outcome = session.delete_field_group(&name);
         if outcome.is_err() {
-            super::super::record_note(epoch, t::field_group_delete_refused(&name));
+            crate::app::status::decline::record_field_group_delete_refused();
         }
         outcome.map(|report| {
             crate::diag::trace(|| {

@@ -536,6 +536,18 @@ pub(crate) enum Declined {
     /// [`crate::text::status::field_delete_declined_structural`] carries the
     /// full argument for every word the two do not share.
     FieldDeleteRefused,
+    /// **The field-group deletion PREVIEW refused**, so the operator was never
+    /// offered the confirmation.
+    ///
+    /// Its own variant rather than folded into [`Self::FieldGroupDeleteRefused`]
+    /// because they are different moments with different remedies: this one
+    /// means pdfce could not work out what the deletion would remove, and the
+    /// other means it worked that out, showed the operator, and was then
+    /// refused. An operator who reads the second after pressing the first
+    /// learns nothing about which half failed.
+    FieldGroupPreviewRefused,
+    /// **The field-group deletion refused**, after the operator confirmed it.
+    FieldGroupDeleteRefused,
     NothingToUndo,
     /// **`edit.redo` was invoked with an empty redo stack.**
     ///
@@ -654,7 +666,20 @@ impl Declined {
             // over the whole document, and putting it in the per-frame path
             // that decides whether a status line is still true would pay for it
             // sixty times a second to learn an answer that never moves.
-            Self::FlattenCertified | Self::FieldDeleteRefused => true,
+            // ★★ The two field-group declines are `true` for a DIFFERENT reason
+            // from their neighbours above, and the difference is worth the
+            // separate arm rather than an extra `|`.
+            //
+            // Those are true because the FILE cannot change under them. These
+            // are true because **nothing happened**: the preview refused or the
+            // deletion refused, so the epoch did not move, the form is as it
+            // was, and there is no state for a later frame to find the sentence
+            // stale against. What retires them is the operator's next act,
+            // which is what retires every decline.
+            Self::FlattenCertified
+            | Self::FieldDeleteRefused
+            | Self::FieldGroupPreviewRefused
+            | Self::FieldGroupDeleteRefused => true,
             // ★ Same ruling, third and fourth cases. A name is not going to
             // stop being taken, and a widget is not going to grow a `/T`,
             // between one frame and the next. Both are corrected by the
@@ -718,6 +743,19 @@ impl Declined {
             Self::ResizeNotRebuildable { uniform } => t::resize_not_rebuildable(uniform),
             Self::FlattenCertified => t::flatten_declined_certified(),
             Self::FieldDeleteRefused => t::field_delete_declined_structural(),
+            // ★ These two reach across to `text::forms::groups` rather than
+            // adding entries here, and that is the catalog rule honoured rather
+            // than bent: a string lives in `crate::text::…`, and the module
+            // that owns this surface's other twenty sentences is the one that
+            // owns these. `crate::text::status` is also two dozen lines from
+            // R2's ceiling, which is a reason to notice the seam and not a
+            // reason to choose it.
+            Self::FieldGroupPreviewRefused => {
+                crate::text::forms::groups::field_group_preview_declined()
+            }
+            Self::FieldGroupDeleteRefused => {
+                crate::text::forms::groups::field_group_delete_declined()
+            }
             Self::TextStyle(why) => why.line(),
             Self::Rotate(why) => why.line(),
             Self::Unshare(why) => why.line(),
@@ -861,6 +899,28 @@ pub(crate) fn record_flatten_certified() {
 /// and says nothing to the operator by its own recorded decision. R83's rule is
 /// not *gate the controls*; it is *a refusal must be a sentence*. See
 /// [`Declined::FieldDeleteRefused`].
+/// Record that a field-group deletion **preview** was refused.
+///
+/// ★★★ These two replace `record_note` calls, and the swap is the point.
+/// `record_note` renders under **`⚑ About your last edit:`**, which
+/// `crate::text::status`' own rule forbids for a decline — *"an operator who
+/// reads 'About your last edit' after a gesture that did nothing has been told
+/// a small lie confidently."* Nothing happened; the slot that says so is this
+/// one, and it wears `⊗`.
+///
+/// The sibling verb in the same commit — `unshare_form` — used the right
+/// channel from the start, which is what made the mismatch findable: two verbs
+/// shipped together, one wording its refusal as a disclosure and one not.
+pub(crate) fn record_field_group_preview_refused() {
+    LAST.with_borrow_mut(|slot| *slot = Some(Declined::FieldGroupPreviewRefused));
+}
+
+/// Record that a field-group deletion was refused after confirmation.
+/// See [`record_field_group_preview_refused`].
+pub(crate) fn record_field_group_delete_refused() {
+    LAST.with_borrow_mut(|slot| *slot = Some(Declined::FieldGroupDeleteRefused));
+}
+
 pub(crate) fn record_field_delete_refused() {
     LAST.with_borrow_mut(|slot| *slot = Some(Declined::FieldDeleteRefused));
 }

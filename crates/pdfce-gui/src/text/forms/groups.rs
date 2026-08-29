@@ -339,6 +339,39 @@ pub fn field_group_preview_refused(name: &str) -> String {
     )
 }
 
+/// **The preview refused** — the decline-channel wording, without the name.
+///
+/// # ★★★ Why there are two of these and why this one drops the group's name
+///
+/// The pair above went to `record_note`, which renders under **`⚑ About your
+/// last edit:`** — and `crate::text::status`' own rule forbids exactly that for
+/// a decline, in as many words: *"an operator who reads 'About your last edit'
+/// after a gesture that did nothing has been told a small lie confidently."*
+/// A decline gets `⊗` and its own lead-in, because nothing happened.
+///
+/// The correct channel is `app::status::decline`, whose `Declined` is **`Copy`**
+/// — a deliberate property, and one a `String` variant would take away. So the
+/// name goes, and the loss is small: the operator pressed a button on a named
+/// row, with the confirmation block naming that group still on screen. The
+/// sentence has to say what happened, not re-identify what they were looking at.
+///
+/// ⇒ The two above are kept rather than deleted, because they are still the
+/// right wording for a *disclosure* if this verb ever gains one, and because
+/// deleting them would erase the record of which channel was wrong.
+#[must_use]
+pub const fn field_group_preview_declined() -> &'static str {
+    "pdfce could not work out what deleting that field group would remove, so nothing was \
+     changed. The document is exactly as it was."
+}
+
+/// **The deletion refused, after the operator confirmed** — the decline-channel
+/// wording. See [`field_group_preview_declined`] for why the name is absent.
+#[must_use]
+pub const fn field_group_delete_declined() -> &'static str {
+    "That field group was not deleted \u{2014} pdfce declined the change and the form is \
+     unchanged. Nothing was removed."
+}
+
 /// **The deletion refused, after the operator confirmed.**
 ///
 /// ★★★ The one sentence on this surface that must never be a silence. The

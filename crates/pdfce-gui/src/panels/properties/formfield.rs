@@ -71,6 +71,28 @@
 //! arguable. And a sentence rather than a silence, because a panel that simply
 //! omits half its controls looks half-drawn.
 //!
+//! ## ★★★ …AND THIS PANEL WAS ONE DOOR OF FOUR (2026-08-29)
+//!
+//! The fix above closed the panel and claimed the rule. It was true here and
+//! nowhere else: the `canvas.field` context menu's Delete carried no
+//! `visible_when` at all, `canvas::keys`' Delete rung 0 asked nothing, and
+//! `app::conditions`' `selection.delete_permitted` was guarded by
+//! `doc.selected_field.is_none()` — **false whenever a field is selected**,
+//! so the gate was a no-op by construction on exactly the state it was written
+//! for.
+//!
+//! Worse, `app::actions::forms`' delete verbs cleared `doc.selected_field`
+//! *before* calling the engine, and this section is drawn from that field. So
+//! on an ordinary certified fillable form, pressing the Delete those three
+//! surfaces offered left the box in place, said nothing, **and blanked the
+//! sentence above** — a refused gesture that destroys its own explanation.
+//!
+//! ⇒ [`refuses_delete`] is now the single derivation all four doors read, and
+//! the verb clears the selection on success only
+//! (`app::actions::forms::delete`). The driven proof is
+//! `tools/ui-verify`'s `field_delete_gate`, which presses Delete on a
+//! certified form and asserts the sentence is **still on screen afterwards**.
+//!
 //! ## The rename box is a draft, not a live write
 //!
 //! Typing into a `TextEdit` bound straight to the field would rename on every
@@ -132,6 +154,13 @@ const REGION_DELETE_REFUSED: &str = "properties.form_field.delete_refused";
 /// | `crate::app::conditions` | publishes `selection.delete_permitted`, which withholds `format.delete` on the `canvas.field` menu |
 /// | `crate::canvas::keys` (via `crate::canvas::interact`) | declines rung 0 of the Delete ladder |
 /// | `crate::app::dispatch::format` | declines the `format.delete` arm's form-field branch |
+///
+/// ★ Two further readers ask [`document_refuses_delete`] instead, and only
+/// because they hold a field that is **not** `doc.selected_field`:
+/// `crate::canvas::rightclick`, correcting the menu's condition on the frame
+/// the right-click lands, and `crate::app::actions::forms::delete`, the verb
+/// itself. That entry point's doc carries why the scope split is real and not
+/// a second derivation.
 ///
 /// # ★★★ It is the FORMS query, not the annotation one, and that was the defect
 ///

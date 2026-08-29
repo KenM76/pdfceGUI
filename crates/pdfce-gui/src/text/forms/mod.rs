@@ -63,7 +63,7 @@ mod authoring;
 /// R2 seam [`authoring`] and [`tab_order`] were cut along, and for the same
 /// reason: a reviewer of one surface's wording should be reading a file that
 /// contains only that surface's wording.
-mod groups;
+pub mod groups;
 mod tab_order;
 
 pub use authoring::{

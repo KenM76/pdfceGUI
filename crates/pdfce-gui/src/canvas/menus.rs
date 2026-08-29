@@ -108,7 +108,7 @@ use egui_shell::HandlerToken;
 
 use crate::canvas::selection::{ClickHit, SelectionState};
 use crate::canvas::target::TargetId;
-use crate::shell::manifest::{SELECTION_ACTIONABLE, SELECTION_ANY};
+use crate::shell::manifest::{DELETE_PERMITTED, SELECTION_ACTIONABLE, SELECTION_ANY};
 use crate::shell::menus::{self, MenuHost};
 
 /// `egui::Memory` key for which canvas menu is open.
@@ -327,6 +327,7 @@ pub fn attach(
     page: usize,
     object: Option<TargetId>,
     field_selected: bool,
+    field_delete_permitted: bool,
     host: Option<&MenuHost<'_>>,
 ) -> Vec<HandlerToken> {
     // 1.
@@ -375,7 +376,7 @@ pub fn attach(
     }
 
     // 3.
-    // ★★ Both conditions, corrected on the same frame and for one reason.
+    // ★★ THREE conditions, corrected on the same frame and for one reason.
     // `PdfceApp::conditions()` ran at the top of the frame, before step 2 could
     // move the selection, so a first right-click on an object would otherwise
     // resolve `format.delete` disabled and the engine — correctly — would
@@ -383,19 +384,65 @@ pub fn attach(
     //
     // ★ `selection.actionable` is the wider of the two: it is also set for a
     // selected form field, which is not in `SelectionState`. Without it here,
-    // `canvas.field`'s two items would both resolve disabled and the menu would
-    // never open at all — the state `offers_anything` is built to prevent, met
-    // from the one direction it cannot see.
-    let conditions = host.with_conditions(&[
+    // `canvas.field`'s items would resolve disabled and the menu would never
+    // open at all — the state `offers_anything` is built to prevent, met from
+    // the one direction it cannot see.
+    //
+    // ★★ It used to say *"both items"*, and that stopped being true on
+    // 2026-08-29: `canvas.field`'s `format.delete` now carries
+    // `selection.delete_permitted` as its `visible_when`, so on a document
+    // whose form structure is frozen the menu offers `format.properties`
+    // alone — one item, still enough for `offers_anything`, and the Delete is
+    // ABSENT rather than greyed (R9).
+    //
+    // ★★★ And `selection.delete_permitted`, corrected for the SAME reason and
+    // on the same frame — added 2026-08-29, with the form half of R83.
+    //
+    // The frame-top condition set answers this from
+    // `panels::properties::formfield::refuses_delete`, which requires
+    // `doc.selected_field` to be set. But `rightclick::Click::field_menu` opens
+    // this menu for a widget merely **under the pointer**, so on a FIRST
+    // right-click over an unselected widget the frame-top answer was computed
+    // with no field selected — it read the annotation arm of the ladder, found
+    // nothing selected, and published *permitted*. The row would then be drawn
+    // over a certified form for one frame, which is precisely the *drawn and
+    // silently inert* state R9 and R83 exist to remove; "for one frame" is not
+    // "not at all", and it is the frame the pointer is already in.
+    //
+    // ⇒ The caller answers the DOCUMENT's half of the question
+    // (`formfield::document_refuses_delete` — no selection in it) and passes
+    // it in, exactly as it already does for `selection.actionable`. Three
+    // conditions, one reason: `PdfceApp::conditions()` ran before the click
+    // that decided what this menu is about.
+    //
+    // ★★★ **Applied ONLY to `canvas.field`, and the narrowness is the whole
+    // correctness argument.** `with_conditions` overrides a name for whatever
+    // menu is about to be drawn, and `canvas.object` carries the identical
+    // `visible_when` for a different subject: page content and annotations,
+    // gated by `annotation_deletion_refusal` and by
+    // `SelectionState::deletable_objects_on`. Overriding it there with the
+    // FORMS answer would hide Delete from every selected content object on any
+    // certified document — a control withheld where it would have worked,
+    // which this project holds to be the worse defect of the two, because the
+    // operator is left with no gesture that reports it.
+    //
+    // The menu is therefore read FIRST (step 4's `load`, hoisted), and the
+    // override is conditional on it. `load` is a memory read of what step 2
+    // just stored; reading it one statement earlier costs nothing.
+    let chosen = load(&ctx);
+    let mut overrides = vec![
         (SELECTION_ANY, !selection.is_empty()),
         (
             SELECTION_ACTIONABLE,
             !selection.is_empty() || field_selected,
         ),
-    ]);
+    ];
+    if matches!(chosen, CanvasMenu::Field) {
+        overrides.push((DELETE_PERMITTED, field_delete_permitted));
+    }
+    let conditions = host.with_conditions(&overrides);
 
     // 4.
-    let chosen = load(&ctx);
     let tokens = host.attach_with(response, chosen.context_id(), &conditions);
     if !tokens.is_empty() {
         crate::diag::trace_changed(MENU_SLOT, || {

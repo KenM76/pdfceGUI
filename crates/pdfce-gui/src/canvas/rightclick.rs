@@ -145,12 +145,35 @@ pub fn attach(click: Click<'_>) -> Vec<HandlerToken> {
         click.page_index,
     );
     let field_menu = click.field_menu();
+    // ★★★ The DOCUMENT's half of `selection.delete_permitted`, corrected here
+    // because the frame-top condition set could not have known.
+    //
+    // `field_menu()` above opens the field menu for a widget merely **under the
+    // pointer** — `right_click_hits_a_field`, the second disjunct — so on a
+    // first right-click over an unselected widget `doc.selected_field` was
+    // still `None` when `PdfceApp::conditions()` ran, and the published answer
+    // came from the annotation arm of that ladder rather than the forms one.
+    // Left stale, `format.delete` would be drawn on that frame over a certified
+    // form: the *drawn and silently inert* control R83 exists to remove.
+    //
+    // ★ `document_refuses_delete` and not `refuses_delete`, and the difference
+    // is the whole reason the scope-free entry point exists — see its doc.
+    // `EditSession::deletion_refusal` names no field, so the honest question
+    // about a widget that is not yet selected is the document's.
+    //
+    // ★ Computed unconditionally rather than behind `field_menu`: it is one
+    // `Option` test over a census the session already holds, `attach` reads it
+    // only inside its own `secondary_clicked` guard, and a `then()` here would
+    // make the value's meaning depend on which of two booleans was false.
+    let field_delete_permitted =
+        !crate::panels::properties::formfield::document_refuses_delete(click.doc);
     menus::attach(
         click.response,
         click.selection,
         click.page_index,
         object,
         field_menu,
+        field_delete_permitted,
         click.host,
     )
 }
