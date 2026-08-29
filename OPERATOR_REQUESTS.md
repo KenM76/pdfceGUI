@@ -80,6 +80,62 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O57 — ⬜ The grips swallow small objects, and half of it is still open
+
+**Not his report — found by a driven check on 2026-08-29**, and filed here
+because the remaining half is a design decision that is his to make.
+
+### What is wrong
+
+At a fitted zoom, a small object's own resize grips cover the whole of it, so
+there is nowhere left to press that means *move*. Measured: a **160 × 20 pt**
+form field at 29.55 % is **47.3 × 5.9 px**, and a mid-edge grip reaches 6 px in
+— so the centre of the field is inside its own North grip. Dragging it to move
+it committed a degenerate resize, which the engine refused by name:
+
+```
+resize-widget-commit … grip=North sy=-42.5314
+edit-widget-refused  … rectangle has no area
+```
+
+⇒ From his chair: **the field does not move, and nothing says why.** On an A1
+sheet at fit zoom this is every form field, every dimension label and every
+short markup.
+
+### The half that is fixed
+
+A mid-edge grip is now withheld when the box is thinner than **20 px across the
+perpendicular axis** — the axis that grip eats into. The existing rule only ever
+checked a grip against its *own* axis, so it stopped grips piling onto each
+other and never stopped one swallowing the body. Corners survive, because they
+are the grips a small box actually needs. Two tests, falsified.
+
+### ★★★ The half that is open, and it is his call
+
+On a box that is small in **both** axes, the four corner grips cover it too, and
+the body survives only in the gaps between their x-ranges. There is no threshold
+that fixes that, because the grips genuinely do not fit.
+
+**Every program in the class solves it the same way: when the box is too small
+to hold them, the grips are drawn OUTSIDE it.** Illustrator, Inkscape and Figma
+all do this. His standing tie-breaker is *"make it work the way other programs
+do"*, which points straight at it — but it is a change to the **painter** as
+well as the hit test, it changes what a selection looks like on every dense CAD
+sheet, and the rotate handle already sits outside and would need to move further
+out to stay clear.
+
+⇒ Not done unilaterally at 08:00 after a build. **The question for him:** should
+a selection too small for its grips draw them outside the box, as other editors
+do — accepting that a dense drawing at fit zoom will show grips overlapping
+neighbouring objects?
+
+**Status:** ⬜ **OPEN — half shipped, half is a question.** The shipped half is
+in `canvas::handles::MIN_BODY_STRIP_PX` with its measurement. Not driven: found
+by `widget_move`, whose own press had to be moved to a quarter of the box width
+to get past the grips at all — which is itself the report.
+
+---
+
 ## O56 — ★★★ "Confirm that you have built every editable surface into the GUI that has been implemented in pdfce"
 
 **His ask, 2026-08-28**, verbatim:

@@ -116,6 +116,41 @@ pub const GRIP_GRAB_SLACK_PX: f32 = 2.0;
 /// small box — so nothing is unreachable, there is simply less on screen.
 pub const MIN_MID_GRIP_EXTENT_PX: f32 = GRIP_SIZE_PX * 3.0;
 
+/// ★★★ The smallest box, **across** an axis, that still gets that axis's
+/// mid-edge grips — the rule that stops a grip swallowing the body.
+///
+/// # The defect this closes, measured
+///
+/// [`MIN_MID_GRIP_EXTENT_PX`] gates a mid-edge grip on its **own** axis, so it
+/// cannot pile onto its corner neighbours. Nothing gated it on the
+/// **perpendicular** one, and that is the axis a mid-edge grip eats into.
+///
+/// A form field of 160 × 20 pt at the operator's fitted 29.55 % is **47.3 × 5.9
+/// px**. The box is wide enough for North and South, so both are offered — and
+/// each reaches `GRIP_SIZE_PX / 2 + GRIP_GRAB_SLACK_PX` = **6 px** into a box
+/// that is 5.9 px tall. **Dead centre of the field is inside its own North
+/// grip.** An operator dragging a short field from the middle to move it gets a
+/// degenerate resize instead, which the engine then refuses by name:
+/// `resize-widget-commit … grip=North sy=-42.5314` → `edit-widget-refused …
+/// rectangle has no area`. Found by a driven check whose own press landed there.
+///
+/// # Why this number
+///
+/// Two opposing mid-edge grips consume `2 × 6 = 12 px` of the crossing axis, and
+/// a body worth aiming at needs at least a grip's width of its own. Below
+/// **20 px** across, the mid-edge pair is withheld and the corners — which are
+/// the grips that survive a small box, and the ones a resize actually wants —
+/// are all that is offered.
+///
+/// ⇒ ★★ This is a **partial** answer, and the rest is recorded rather than
+/// implied: on a box that is small in **both** axes the corner grips cover it
+/// too, and the body survives only in the gaps between their x-ranges. The
+/// conventional fix is the one Illustrator, Inkscape and Figma all take —
+/// **draw the grips outside the box when the box is too small to hold them** —
+/// and that is a change to the painter as well as the hit test.
+/// `OPERATOR_REQUESTS.md` carries it.
+pub const MIN_BODY_STRIP_PX: f32 = GRIP_SIZE_PX + 2.0 * (GRIP_SIZE_PX / 2.0 + GRIP_GRAB_SLACK_PX);
+
 /// One grip on the selection's bounding box.
 ///
 /// Named by compass point rather than by index, because an index would have
@@ -363,11 +398,21 @@ pub fn rotate_rect(bounds: Rect) -> Rect {
 pub fn grip_rects(bounds: Rect) -> Vec<(Grip, Rect)> {
     let wide = bounds.width() >= MIN_MID_GRIP_EXTENT_PX;
     let tall = bounds.height() >= MIN_MID_GRIP_EXTENT_PX;
+    // ★★★ TWO conditions per mid-edge grip, not one. See [`MIN_BODY_STRIP_PX`].
+    //
+    // Its own axis decides whether it would pile onto its corner neighbours;
+    // the **perpendicular** axis decides whether it would swallow the body. The
+    // second was missing, and a 160 × 20 pt form field at fit zoom is 5.9 px
+    // tall against a North grip that reaches 6 px in — so the centre of the
+    // field was inside its own grip and dragging it to move produced a
+    // degenerate resize.
+    let has_body_vertically = bounds.height() >= MIN_BODY_STRIP_PX;
+    let has_body_horizontally = bounds.width() >= MIN_BODY_STRIP_PX;
     Grip::RESIZE
         .into_iter()
         .filter(|g| match g {
-            Grip::North | Grip::South => wide,
-            Grip::East | Grip::West => tall,
+            Grip::North | Grip::South => wide && has_body_vertically,
+            Grip::East | Grip::West => tall && has_body_horizontally,
             _ => true,
         })
         .map(|g| {
@@ -594,9 +639,23 @@ mod tests {
     /// A box too narrow for a mid-edge grip drops it rather than piling it
     /// on top of the corners — but keeps every corner, so nothing becomes
     /// unreachable.
+    ///
+    /// ★ **The fixture was `10.0 × 200.0` until 2026-08-29 and is now
+    /// `22.0 × 200.0`**, because 10 px wide fails the *other* rule — see
+    /// [`MIN_BODY_STRIP_PX`]. At 10 px the East and West grips reach 6 px in
+    /// from each side and cover the box entirely, so withholding them is
+    /// correct and this test's `assert!(kinds.contains(&Grip::East))` was
+    /// asserting the defect.
+    ///
+    /// 22 keeps the property this test is actually about: below
+    /// `MIN_MID_GRIP_EXTENT_PX` (24) on the narrow axis, so North and South are
+    /// still dropped for piling onto the corners; above `MIN_BODY_STRIP_PX`
+    /// (20) across it, so a body survives and East and West are legitimately
+    /// offered. **Two rules, two thresholds, and a fixture between them is what
+    /// tests either one in isolation.**
     #[test]
     fn a_narrow_box_drops_its_mid_edge_grips_and_keeps_its_corners() {
-        let narrow = box_of(10.0, 200.0);
+        let narrow = box_of(22.0, 200.0);
         let kinds: Vec<Grip> = grip_rects(narrow).into_iter().map(|(g, _)| g).collect();
         assert!(!kinds.contains(&Grip::North));
         assert!(!kinds.contains(&Grip::South));
@@ -610,8 +669,11 @@ mod tests {
             assert!(kinds.contains(&corner), "{corner:?} must always be offered");
         }
 
-        // …and symmetrically for a short one.
-        let short = box_of(200.0, 10.0);
+        // …and symmetrically for a short one. ★ 22 rather than 10 for the same
+        // reason the fixture above changed: a 10 px-tall box cannot hold its
+        // North and South grips either, and this assertion is about the EAST
+        // grip being dropped for piling, not about the body rule.
+        let short = box_of(200.0, 22.0);
         let kinds: Vec<Grip> = grip_rects(short).into_iter().map(|(g, _)| g).collect();
         assert!(!kinds.contains(&Grip::East));
         assert!(kinds.contains(&Grip::North));
@@ -790,5 +852,64 @@ mod tests {
         // …and the same press on the handle finds nothing when the set does not
         // offer it, which is the widget's case. One predicate, both answers.
         assert_eq!(grip_at(b, handle, GripSet::scale_only()), None);
+    }
+}
+
+#[cfg(test)]
+mod body_strip_tests {
+    use super::*;
+
+    /// ★★★ **The centre of a short, wide selection is the BODY, not a grip.**
+    ///
+    /// The measured case: a 160 × 20 pt form field at the operator's fitted
+    /// 29.55 % zoom is 47.3 × 5.9 px. Before this rule, dead centre answered
+    /// `Grip::North` — so dragging the field to move it committed a degenerate
+    /// resize the engine then refused, and the operator's field did not move
+    /// and did not say why.
+    ///
+    /// ★ The numbers are the real ones from `widget-move.trace.txt` rather than
+    /// round ones, because the defect is a threshold and a rounded fixture can
+    /// sit on the comfortable side of it without anybody noticing.
+    #[test]
+    fn the_centre_of_a_short_field_is_the_body() {
+        let field = Rect::from_min_size(Pos2::new(849.0, 957.3), Vec2::new(47.3, 5.9));
+        assert_eq!(
+            grip_at(field, field.center(), GripSet::all()),
+            Some(Grip::Move),
+            "the centre of a 5.9 px-tall box was inside its own North grip"
+        );
+    }
+
+    /// ★★ …and the mid-edge grips are WITHHELD there rather than merely losing
+    /// the hit test.
+    ///
+    /// Asserted separately because the two are different promises: one is about
+    /// where a press lands, the other about what the operator is shown. A grip
+    /// painted where it cannot be aimed is the affordance R9 forbids, and the
+    /// painter reads this same list.
+    #[test]
+    fn a_short_box_is_offered_corners_only() {
+        let field = Rect::from_min_size(Pos2::new(849.0, 957.3), Vec2::new(47.3, 5.9));
+        let offered: Vec<Grip> = grip_rects(field).into_iter().map(|(g, _)| g).collect();
+        assert!(
+            !offered.contains(&Grip::North) && !offered.contains(&Grip::South),
+            "mid-edge grips survived on a box thinner than they are: {offered:?}"
+        );
+        assert!(
+            offered.contains(&Grip::NorthWest) && offered.contains(&Grip::SouthEast),
+            "the corners must survive — they are the grips a small box still needs: {offered:?}"
+        );
+    }
+
+    /// ★ A comfortable box is unchanged, which is what says the rule is a floor
+    /// and not a redesign.
+    #[test]
+    fn a_comfortable_box_still_gets_all_eight() {
+        let roomy = Rect::from_min_size(Pos2::new(100.0, 200.0), Vec2::new(300.0, 200.0));
+        assert_eq!(grip_rects(roomy).len(), 8);
+        assert_eq!(
+            grip_at(roomy, roomy.center(), GripSet::all()),
+            Some(Grip::Move)
+        );
     }
 }
