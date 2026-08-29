@@ -4,8 +4,8 @@
 
 **Clean tree. 18/18 gates. 1,899 + 421 + 144 tests, 0 failing. 95 driven checks,
 the newest three unrun. Re-measure before quoting.** Engine `1c292bc`.
-**Published**: `OneDrive\pdfceGUI2` is the newest — the O51 scale switches.
-`pdfceGUI1` is the build before it (field menu, Edit ▸ Objects).
+**Published**: `OneDrive\pdfceGUI1` is the newest — **O55**, the fit that
+survives a resize. `pdfceGUI2` is the build before it (O51 scale switches).
 
 ### ★★★ WHAT TO DO FIRST: he is at the machine, so DO NOT run `ui-verify`
 
@@ -82,6 +82,27 @@ today, the second door found something the first had been hiding.
 selection a right-click raises is applied at the end of the frame and egui
 opens the popup *on* the click, so a state read shows the previous field's menu
 for ever. Do not "simplify" it.
+
+### ★★★ O55 SHIPPED, AND THE OBVIOUS IMPLEMENTATION IS A TRAP
+
+A fit now re-places when the **viewport** changes, and a **pan** leaves the fit.
+Both driven; the pan half **falsified** — remove `set_fit(None)` from
+`canvas::offset`'s pan arm and it reports dead-centre margins.
+
+★★★ **Do not "simplify" it to re-place every frame.** That was written, built
+and run: under Fit page both axes are pinned, so the placement returns the
+page's origin every frame and **the wheel cannot scroll at all** — a continuous
+document becomes unnavigable. `a_fit_command_puts_the_page_on_screen`'s own
+precondition caught it by refusing to proceed.
+
+★★ **The wheel must KEEP the fit and a pan must LEAVE it.** The two checks
+assert opposite outcomes for the two gestures on purpose, so a build that
+treats all view movement alike fails one of them whichever way it goes.
+
+★ `sys::resize_window` is new. **No check had ever resized a window**, so a
+fit's behaviour across one was outside R1's reach entirely — the second
+gesture-class hole found in one day, after the secondary click. Still missing:
+a **middle-button** drag.
 
 ### ★★★ THE FIRST REAL SWEEP: 70 / 8 / 18, AND FOUR ENVIRONMENTAL FAULTS BEFORE IT
 
@@ -274,10 +295,7 @@ the same voice asks the operator to trust both equally.
 
 ### What is next, in his likely order
 
-★★★ **O55 comes FIRST** — he asked for it directly and it is ahead of the
-sweep work: a fit must **centre**, and a **pan** must leave the fit so a later
-resize does not throw the operator's position away. `OPERATOR_REQUESTS.md` O55
-carries the per-axis table and the finding that (a) is O28 asked a second time.
+★ **O55 is DONE** — see the section above. The list below is what remains.
 
 
 1. **A note on a SHAPE**, which is blocked and filed —
