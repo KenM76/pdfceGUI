@@ -133,9 +133,15 @@ use crate::sys::vk;
 const INVOKE: &str = "mode.edit,file.properties";
 /// The certified fixture. See the module header and
 /// `tools/gen-certified-fixture.py`.
-const CERTIFIED: &str = "../../../fixtures/certified-comments.pdf";
+///
+/// ★★★ **Relative to `CARGO_MANIFEST_DIR`, which is `tools/ui-verify`** — two
+/// levels up, not three. See [`super::annot_delete_gate`]'s note on the same
+/// constant: this file inherited the wrong depth from it, and both resolved to
+/// a `D:/Dev/fixtures/` that does not exist, so both SKIPPED on every run while
+/// telling the reader to run a generator that writes somewhere else.
+const CERTIFIED: &str = "../../fixtures/certified-comments.pdf";
 /// The same document with the certification removed.
-const ORDINARY: &str = "../../../fixtures/threaded-comments.pdf";
+const ORDINARY: &str = "../../fixtures/threaded-comments.pdf";
 /// The line `canvas::forms` writes when a click selects a form field.
 const SELECT_EVENT: &str = "form-field-selected";
 /// ★★★ The per-frame census `panels::properties::formfield` writes.

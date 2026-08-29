@@ -405,6 +405,24 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     session.settle(8);
     driver.click_at(at)?;
     session.settle(12);
+    // ★★★ THE PRECONDITION IS READ FIRST, and the order is the whole point.
+    //
+    // Until 2026-08-29 the `selected=1` assertion below stood AHEAD of this
+    // one, so a run in which the `V` never arrived — the case this SKIP exists
+    // to name, and one `scale_switch` has measured at zero arrivals in six —
+    // drew a second rectangle instead of selecting the first, reported
+    // `selected=0`, and went red saying *"the canvas selected the shape and the
+    // Comments panel did not find it"* about a canvas that had selected
+    // nothing. A guard placed after the assertion it guards is not a guard.
+    if session.trace()?.events(SELECTED).count() == 0 {
+        return Err(Error::new(format!(
+            "the click on the shape produced no `{SELECTED}` line, so nothing is selected and a \
+             copy would have nothing to act on. The Select tool is armed with `V`, which is a \
+             CHORD — and a chord with a dock panel open is not a reliable harness primitive \
+             (`scale_switch` measured a bare key arriving zero times in six). SKIPPED rather \
+             than failed: this is the step before the one under test."
+        )));
+    }
     // ★★★ The panel FOUND the annotation the canvas selected.
     //
     // This is the second half of the interaction `pdfce-core` describes — *draw
@@ -419,15 +437,6 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     {
         return Ok(Some(format!(
             "the canvas selected the shape and the Comments panel did not find it: `{line}`. The panel reads `doc.selection.annot()` and matches it against the rows it drew, so `selected=0` here means either the click selected something else — the trace's `annot-select` line says which — or the row's `id` and the selection's disagree, which on a listing built from the same session should be impossible."
-        )));
-    }
-    if session.trace()?.events(SELECTED).count() == 0 {
-        return Err(Error::new(format!(
-            "the click on the shape produced no `{SELECTED}` line, so nothing is selected and a \
-             copy would have nothing to act on. The Select tool is armed with `V`, which is a \
-             CHORD — and a chord with a dock panel open is not a reliable harness primitive \
-             (`scale_switch` measured a bare key arriving zero times in six). SKIPPED rather \
-             than failed: this is the step before the one under test."
         )));
     }
     driver.press_chord(&[vk::CONTROL], vk::C)?;

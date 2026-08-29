@@ -1,5 +1,73 @@
 # CONTINUE — handoff
 
+## 2026-08-29 (overnight, later) — the checks were audited too, and three of eleven could not pass
+
+**Read this before quoting a check count.** Eleven driven checks were written in
+two days and **none has ever run**. An audit asking one question per check —
+*"can this go red on the build it was written to catch?"* — found:
+
+| verdict | count |
+|---|---|
+| **SOUND** | 8 (+4 one-line edits verified) |
+| **CANNOT PASS** | **3** |
+| **VACUOUS** | 1 — and it was vacuous *because of the fix applied to it four hours earlier* |
+
+### ★★★ Two checks were aimed at a directory that does not exist
+
+`field_delete_gate` and `annot_delete_gate` both pinned
+`"../../../fixtures/certified-comments.pdf"`. `CARGO_MANIFEST_DIR` for the
+harness is `tools/ui-verify`, so three levels up is **`D:\Dev\fixtures\`** —
+not a directory. `reflow`, `text_edit` and `signature_save` all use two.
+
+Every run hit the `pdf.exists()` guard and reported **SKIP** — with a message
+telling the reader to run `tools/gen-certified-fixture.py`, which writes into
+`fixtures/` in *this* repo, so following the advice could never clear it.
+
+⇒ **Two checks, a permanent SKIP, counted as coverage**, guarding the R83 delete
+gates — the very defect class the same session had just spent hours closing.
+
+### ★★★ `bookmark_edit` drove neither gesture its subject needs
+
+Two independent defects in one check. It **never clicked a row** — and the
+Selected-bookmark block only exists once a row is clicked, so it took its
+*"THE SELECTED-BOOKMARK BLOCK NEVER APPEARED"* branch on every build, including
+a correct one. The file even carried the comment *"Fall through to the row click
+below."* **There was no row click below.** And it **never committed the rename**:
+it typed six letters and read the trace, while the commit needs the button or
+Enter.
+
+★ It also lacked the `chars=` assertion its own header calls *"the whole
+oracle"* — so a rename that re-committed the existing title would have passed
+everything else.
+
+### ★★★ AND THE FIX APPLIED FOUR HOURS EARLIER CUT THE WRONG HALF
+
+`structural_refusals_are_sentences_not_controls` was **vacuous**; it was made to
+SKIP when the fixture has no grouping nodes; `certified-p2-form.pdf`'s fields are
+flat — so it **SKIPped unconditionally**. Zero coverage, still counted.
+
+The check's own `defect()` is about the Rename box and both Delete buttons on the
+Properties pane, and the fixture is exactly right for that. Only the *arm-control
+absence* needed the nested shape. ⇒ **The precondition belonged on one assertion,
+not on the phase.** Guarding the whole phase turned a check that tested some of
+its subject into one that tested none of it.
+
+★★ That is the lesson of this session and it is aimed at me: **a fix written
+without running the thing is a hypothesis.** The SKIP looked obviously right,
+was argued at length in a doc comment, and made the coverage worse.
+
+### ⬜ Still unexercised, said rather than hidden
+
+- No fixture in either corpus is **both certified and nested**, so the R9
+  arm-withholding assertion has nothing to run on. `gen-certified-fixture.py`
+  beside `nested-form.pdf`'s shape is the fix.
+- `bookmark_edit` asserts the committed name's *length* changed, not that it is
+  6: `Ctrl+A` over a dock is the primitive `scale_switch` measured arriving
+  **zero times in six**, and a failed select-all leaves a legitimately-renamed
+  `TITLEDETAIL`.
+
+---
+
 ## 2026-08-29 (overnight) — the review of the audit's own work, and it found worse than the audit did
 
 **Read this before trusting anything in the section below it.** Six surfaces

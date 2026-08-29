@@ -54,14 +54,14 @@
 //! | A | View ▸ Forms, then open the Field-groups header | `form-groups nodes=2 refused=0` |
 //! | B | read the per-row census | one `form-group-row` per node, none armed |
 //! | C | press the root node's **Delete group…** | `form-group-preview terminals=3 nodes=2`, and the row reports `armed=1` |
-//! | D | press **Delete 3 fields** | `delete-field-group-applied terminals=3`, at a new epoch |
+//! | D | press **Delete 3 fields** | `delete-field-group-applied terminals=3 widgets=3 nodes=2` |
 //! | E | re-read the census | `nodes=0` — the subtree and both grouping nodes are gone |
 //!
 //! ## `structural_refusals_are_sentences_not_controls` — `certified-p2-form.pdf`
 //!
 //! | Phase | Does | Expected |
 //! |---|---|---|
-//! | F | Edit mode, View ▸ Forms | `form-groups nodes>0 refused=1`, and **no** `forms.groups.arm.*` region — ★ the `nodes>0` half is the precondition this phase shipped without, and without it a section that drew **nothing** satisfied both assertions |
+//! | F | Edit mode, View ▸ Forms | `form-groups refused=1`; and where the fixture has grouping nodes, **no** `forms.groups.arm.*` region |
 //! | G | click a widget the canvas census names | `form-field-selected field=…` |
 //! | H | read the Properties pane's gate census | `form-field-gates rename_refused=1 delete_refused=1`, and **neither** `properties.form_field.rename` nor `properties.form_field.delete` declared |
 //!
@@ -69,6 +69,19 @@
 //! failed to draw the Properties section would produce the same missing
 //! regions, and the `form-field-gates` line — written unconditionally, refused
 //! or not — is what tells the two apart.
+//!
+//! ★★★ **The arm half of F is CONDITIONAL, and the rest of the check is not.**
+//! `certified-p2-form.pdf`'s fields are flat, so `groups::section` takes its
+//! early return and offers no arm controls for a reason that is not the
+//! refusal — an absence with nothing behind it, which this phase originally
+//! asserted anyway and passed on. Between 2026-08-29 and this note the remedy
+//! was a SKIP of the whole check, and that was the wrong half to cut: `refused`
+//! is traced ABOVE the early return, so it is real evidence on a flat form, and
+//! phases G and H — the Rename box and both Delete buttons, which are what this
+//! check's `defect()` actually names — need only a certified document with a
+//! widget. Skipping out on the group section left the check reporting SKIP on
+//! every run: zero coverage, counted as a check. The arm assertion alone is now
+//! conditional, and it says in the report when it did not run.
 
 use crate::checks::driving::{
     SHELL_DIAG_ENV, click_mode_segment, declared, declared_names, declared_or_in_overflow, list,
@@ -410,9 +423,15 @@ fn drive_groups(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<S
              the preview exists to prevent."
         )));
     }
+    // ★ `widgets=` and `nodes=`, not `epoch=`: `delete-field-group-applied`
+    // carries the three counts and no epoch — the epoch lives on the funnel's
+    // own `delete-field-group` line, which this check deliberately does not
+    // read. Asking for a key the line does not carry printed "at epoch " with
+    // nothing after it, which reads as an epoch of zero.
     report.note(format!(
-        "{removed} field(s) removed at epoch {}",
-        applied.get("epoch").unwrap_or_default()
+        "{removed} field(s) removed, with {} widget(s) and {} grouping node(s)",
+        applied.get("widgets").unwrap_or_default(),
+        applied.get("nodes").unwrap_or_default()
     ));
 
     // --- E: and the listing agrees -----------------------------------------
@@ -493,34 +512,13 @@ fn drive_refusals(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option
             session.trace_path().display()
         )));
     };
-    // ★★★ THE PRECONDITION THIS PHASE WAS PASSING WITHOUT.
-    //
-    // `certified-p2-form.pdf`'s fields are **flat**, so `AcroForm::groups` is
-    // empty, so `groups::section` takes its early return and draws nothing at
-    // all — and both assertions below are then satisfied by a section that
-    // never ran: `refused` is whatever the census says, and `arms` is empty
-    // because there are no rows.
-    //
-    // ⇒ The phase reported PASS while testing nothing, which is this project's
-    // standing rule violated by the check written to enforce it: **a check that
-    // cannot fail is not evidence.** Step A asserts `nodes > 0` on its own
-    // fixture and this one did not, which is the asymmetry to look for.
-    //
-    // It SKIPs rather than fails, because the gap is the corpus and not the
-    // program: no fixture in either repository is both certified AND nested.
-    // Making one is the fix — `tools/gen-certified-fixture.py` builds the
-    // certified pair and `nested-form.pdf` has the shape; a file with both is a
-    // generator away, and until it exists this says so instead of pretending.
-    if seen.nodes == 0 {
-        return Err(Error::new(format!(
-            "`{CERTIFIED}` has no grouping nodes, so the Field-groups section takes its early \
-             return and this phase asserts nothing: a section that never drew reports \
-             `refused` from the census and offers no arm controls, which is exactly what a \
-             correct refusal looks like from outside. SKIPPED rather than passed. **No fixture \
-             in either corpus is both certified and nested** — that is the gap, and \
-             `tools/gen-certified-fixture.py` beside `nested-form.pdf`'s shape is the fix."
-        )));
-    }
+    // ★★ `refused` is asserted on EVERY fixture, nodes or no nodes, and that is
+    // sound rather than convenient: `groups::section` calls
+    // `deletion_refusal()` and traces the census **above** its
+    // `form.groups.is_empty()` early return, so this line is the document's own
+    // answer to the gate question on a file whose form is flat. A build that
+    // stopped asking, or that asked the /P-aware FILL gate instead, reports
+    // `refused=0` here and goes red.
     if !seen.refused {
         return Ok(Some(String::from(
             "the Field-groups section reported this /P 2 certified document as permitting \
@@ -530,18 +528,51 @@ fn drive_refusals(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option
              tell the two gates apart.",
         )));
     }
-    let arms = live_names(&trace, ui_rect, REGION_ARM);
-    if !arms.is_empty() {
-        return Ok(Some(format!(
-            "the section knows the document refuses and drew {} arm control(s) anyway: {}. R9: \
-             a permanently-refused capability renders nothing and says why in prose — a greyed \
-             button implies a state the operator could argue their way out of, which a \
-             certification signature is not.",
-            arms.len(),
-            list(&arms)
-        )));
+    // ★★★ THE ASSERTION THIS PHASE WAS PASSING WITHOUT, and it is the ARM half
+    // alone.
+    //
+    // `certified-p2-form.pdf`'s fields are **flat** (`FullName`, `Subscribe` —
+    // no dots), so `AcroForm::groups` is empty, so `groups::section` takes its
+    // early return and lays out nothing. `arms` is then empty because there are
+    // no rows, not because the refusal withheld them — the check would be
+    // reporting R9 upheld by a section that never drew.
+    //
+    // ⇒ So the arm assertion is made only when there was something to withhold.
+    // The gap is the corpus and not the program: **no fixture in either
+    // repository is both certified AND nested.** `tools/gen-certified-fixture.py`
+    // builds the certified pair and `nested-form.pdf` has the shape; a file with
+    // both is a generator away.
+    //
+    // ★★ What it does NOT do any more is skip the whole check. Phases G and H
+    // are this check's named subject — its `defect()` is about the Rename box
+    // and both Delete buttons on the Properties pane — and they need a
+    // certified document with a WIDGET, which this fixture is. Skipping out
+    // here on the strength of the group section took the two assertions the
+    // audit actually found with it, and left the check reporting SKIP on every
+    // run: zero coverage, counted as a check.
+    if seen.nodes == 0 {
+        report.note(format!(
+            "★ the arm-control absence is NOT exercised on this run: `{CERTIFIED}` has no \
+             grouping nodes, so the Field-groups section takes its early return and offers no \
+             arm controls for a reason that is not the refusal. No fixture in either corpus is \
+             both certified and nested; `tools/gen-certified-fixture.py` beside \
+             `nested-form.pdf`'s shape is the fix. The gate census above and phases G and H \
+             below are unaffected — they need a certified document with a widget, which this is."
+        ));
+    } else {
+        let arms = live_names(&trace, ui_rect, REGION_ARM);
+        if !arms.is_empty() {
+            return Ok(Some(format!(
+                "the section knows the document refuses and drew {} arm control(s) anyway: {}. \
+                 R9: a permanently-refused capability renders nothing and says why in prose — a \
+                 greyed button implies a state the operator could argue their way out of, which \
+                 a certification signature is not.",
+                arms.len(),
+                list(&arms)
+            )));
+        }
+        report.note("the Field-groups section refused and offered no control");
     }
-    report.note("the Field-groups section refused and offered no control");
 
     // --- G: select a field the canvas draws --------------------------------
     let page: PageGeometry = match ctx.page_size {

@@ -42,7 +42,7 @@
 //! The title itself is deliberately **not** asserted from the trace: the panel
 //! traces the LENGTH of a bookmark name and not its text, because a bookmark's
 //! name is the operator's own words about their drawing and the trace is a file
-//! a harness keeps. `chars=` moving from 5 to 9 is the evidence available, and
+//! a harness keeps. `chars=` moving from 5 to 6 is the evidence available, and
 //! it is enough to distinguish the two builds that matter.
 //!
 //! # ★★★ The delete oracle is the COUNT, and the reason is the engine's
@@ -64,8 +64,25 @@
 //! | Phase | Does | Expected |
 //! |---|---|---|
 //! | A | open the panel, type a title, press Add | `add-bookmark`, and `items=1` |
-//! | B | click the row, retype the name, press Rename | `bookmark-rename chars=9`, `rename-bookmark`, and `items` **unchanged** |
+//! | B | click the row, retype the name, press **Enter** | `bookmark-rename chars=6`, `rename-bookmark`, and `items` **unchanged** |
 //! | C | press Remove | `bookmark-delete descendants=0`, `delete-bookmark`, and `items=0` |
+//!
+//! ★★★ **Two of those three gestures were missing until 2026-08-29, and without
+//! them this check could not pass on any build.** It went from the Add press
+//! straight to reading `bookmarks.rename` — on a comment saying *"fall through
+//! to the row click below"*, and there was no row click below — and then typed
+//! six letters and read the trace without committing them. `BookmarksUi`'s
+//! selection is set only by a row click, and `edit::rename_row` raises its
+//! action only on the button or on Enter, so both halves reported a working
+//! panel as broken.
+//!
+//! ★ Enter, not the Rename button: that button publishes no `ui_rect` region,
+//! so there is no coordinate for a harness to aim at. `edit::rename_row` commits
+//! on either, and its own header commits to the keystroke.
+//!
+//! ★ The row publishes no region either — it is a frameless `Button` in a
+//! `ScrollArea` — so the aim comes from the `bookmark-row … rect=` line the
+//! panel traces per row. See [`ROW`].
 
 use crate::checks::driving::{SHELL_DIAG_ENV, click_mode_segment, declared, declared_names, list};
 use crate::checks::{Check, CheckContext};
@@ -89,6 +106,21 @@ const RENAME_BOX: &str = "bookmarks.rename";
 const DELETE_BUTTON: &str = "bookmarks.delete";
 /// The panel's per-frame census.
 const CENSUS: &str = "bookmarks-panel";
+/// ★★★ **One line per outline row drawn, carrying that row's own rectangle.**
+///
+/// This is how the row is aimed at, and it is not a `ui_rect` region because a
+/// row is not one: `panels::bookmarks::rows` draws a frameless `Button` per
+/// item inside a `ScrollArea` and traces
+/// `bookmark-row level=… title=… page=… enabled=… rect=…` from the same
+/// `Response`. `rect` is `egui::Rect`'s `Debug`, so `TraceLine::get_rect` reads
+/// it and `WindowFrame::declared_center` converts it exactly as it converts a
+/// declared region — same space, same origin, same frame.
+///
+/// ★ `.last()` is the most recently drawn row of the most recently drawn
+/// frame. This check authors exactly one bookmark before it aims, so there is
+/// one row and the choice does not arise; a check that authored several would
+/// have to filter on `title=` instead.
+const ROW: &str = "bookmark-row";
 /// The panel's line for a rename press.
 const RENAME_PRESSED: &str = "bookmark-rename";
 /// The panel's line for a delete press, carrying the subtree size it promised.
@@ -226,20 +258,65 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     }
     report.note(format!("set-up: the outline holds {after_add} item(s)"));
 
-    // --- B: click the row, rename it ----------------------------------------
+    // --- B: click the row, then rename it -----------------------------------
     //
     // ★ The rename block appears only once a row is SELECTED, and the click
     // that selects it is the same click that navigates — the panel's own
     // decision, because a bookmark click means "take me there" first and always.
     // So there is no separate select gesture to drive: the row is the control.
+    //
+    // ★★★ AND THE ROW HAS TO BE CLICKED. Until 2026-08-29 this check went
+    // straight from the Add press to reading `bookmarks.rename`, on a comment
+    // saying "fall through to the row click below" — and there was no row click
+    // below. `BookmarksUi::selected` is set in exactly one place,
+    // `panels::bookmarks::show`'s `if let Some(id) = picked`, and `picked` comes
+    // only from a row's `Response::clicked`. Authoring a bookmark does NOT
+    // select it: the add row leaves the selection alone deliberately, because
+    // what it means there is *the parent for the next add*, and `Move to top
+    // level` clears it. So `bookmarks.rename` was never declared, the branch
+    // below always taken, and this check could not pass on any build — it was
+    // reporting THE SELECTED-BOOKMARK BLOCK NEVER APPEARED about a panel
+    // behaving exactly as its own module header says it does.
+    let trace = session.trace()?;
+    let Some(row) = trace.last(ROW) else {
+        return Err(Error::new(format!(
+            "the panel counted {after_add} item(s) and traced no `{ROW}` line, so the outline \
+             was read and no row was drawn. There is nothing to click and therefore nothing to \
+             select, which is `bookmark_can_be_written`'s surface rather than this one's. \
+             SKIPPED. Trace: {}.",
+            session.trace_path().display()
+        )));
+    };
+    // ★ A row whose destination pdfce could not resolve is drawn DISABLED, and
+    // a disabled `Button` never reports a click — so it can never be selected
+    // and the rename block can never appear for it. That is correct behaviour
+    // and it would read here as the defect, so it is a SKIP with the reason.
+    if row.get("enabled") != Some("true") {
+        return Err(Error::new(format!(
+            "the only bookmark row is DISABLED: `{}`. A row is enabled only when its \
+             destination resolves to a page, and a disabled `egui::Button` reports no click — \
+             so no click can select it and the Selected-bookmark block cannot appear. The \
+             bookmark this check authors carries the current page, so reaching this means the \
+             add row wrote no destination. SKIPPED: that is `bookmark_can_be_written`'s \
+             subject.",
+            row.raw
+        )));
+    }
+    let row_rect = row.get_rect("rect").ok_or_else(|| {
+        Error::new(format!(
+            "the `{ROW}` line carries no parsable `rect=`: `{}`. Without it there is no \
+             coordinate for the row and the selection cannot be made.",
+            row.raw
+        ))
+    })?;
+    driver.click_at(session.frame()?.declared_center(row_rect))?;
+    session.settle(20);
+
     let trace = session.trace()?;
     let Some(rename_box) = declared(&trace, ui_rect, RENAME_BOX) else {
-        // The row has not been clicked yet, which is expected on the first
-        // pass — the block is keyed on a selection the authoring click does not
-        // make. Fall through to the row click below.
         let names = declared_names(&trace, ui_rect, "bookmarks");
         report.note(format!(
-            "no `{RENAME_BOX}` before a row is clicked, which is the panel's own rule. Regions: {}",
+            "no `{RENAME_BOX}` after the row was clicked. Regions: {}",
             list(&names)
         ));
         return Ok(Some(format!(
@@ -261,6 +338,21 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         driver.press(key)?;
     }
     session.settle(10);
+    // ★★★ AND THEN COMMIT IT. Typing into the field only moves the DRAFT:
+    // `panels::bookmarks::edit::rename_row` raises the action on
+    // `button.clicked() || (response.lost_focus() && Enter)`, so a check that
+    // typed and then read the trace would find nothing however well the feature
+    // worked. This check did exactly that until 2026-08-29.
+    //
+    // ★ Enter rather than the button, and not by preference: the Rename button
+    // publishes **no `ui_rect` region** — only the field does (`REGION_RENAME`)
+    // and only the Remove does (`REGION_DELETE`) — so there is no coordinate to
+    // aim at, and Enter is the one route a harness has. That module's own
+    // header commits to the keystroke in as many words ("Enter commits …
+    // checking only the button would make that keystroke do nothing"), which is
+    // what makes it safe to pin a check to.
+    driver.press(vk::ENTER)?;
+    session.settle(20);
 
     let trace = session.trace()?;
     let Some(pressed) = trace.events(RENAME_PRESSED).last() else {
@@ -277,6 +369,48 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         )));
     };
     report.note(format!("the panel raised the rename: `{}`", pressed.raw));
+    // ★★ The oracle this module's header names and the code did not have. The
+    // panel traces the LENGTH of the name and never its text, so the one thing
+    // a trace can say about *which* name was committed is that it is not the
+    // length of the one already there. A rename that raised the existing title
+    // back at the document is a no-op wearing a success line, and every
+    // assertion below — the funnel line, the unchanged count — holds for it.
+    //
+    // ★ Asserted as "different from five", not as "exactly six": Ctrl+A is a
+    // chord, this panel is a dock, and `scale_switch` measured a chord over a
+    // dock arriving zero times in six. A failed select-all leaves
+    // `TITLEDETAIL` — eleven characters, a name genuinely committed from
+    // genuinely delivered keystrokes — and failing on that would be reporting
+    // the harness as a defect in the panel.
+    match pressed.get_usize("chars") {
+        Some(n) if n != TITLE_KEYS.len() => {
+            report.note(format!(
+                "★ the committed name is {n} character(s) long, against the {} it was authored \
+                 with — so a different name reached the verb",
+                TITLE_KEYS.len()
+            ));
+        }
+        Some(n) => {
+            return Ok(Some(format!(
+                "THE RENAME COMMITTED A NAME OF THE ORIGINAL LENGTH: `{}` reports chars={n}, and \
+                 the bookmark was authored with {} character(s). The panel traces the length and \
+                 never the text — a bookmark's name is the operator's own words about their \
+                 drawing — so this is as close as the trace gets to 'the same name went back in', \
+                 and that is a no-op wearing a success line: the funnel writes its line, the count \
+                 does not move, and every assertion below this one passes.",
+                pressed.raw,
+                TITLE_KEYS.len()
+            )));
+        }
+        None => {
+            return Ok(Some(format!(
+                "the rename was raised and its line carries no readable `chars=`: `{}`. That \
+                 field is the only evidence available for WHICH name was committed, so without \
+                 it this check cannot tell a rename from a re-commit of the same title.",
+                pressed.raw
+            )));
+        }
+    }
     if trace.events(RENAMED).count() == 0 {
         return Ok(Some(format!(
             "the panel raised `{}` and no `{RENAMED}` line followed, so the action reached no \

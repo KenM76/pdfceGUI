@@ -95,9 +95,19 @@ use crate::sys::vk;
 const INVOKE: &str = "mode.review,file.properties";
 /// The certified fixture. See the module header and
 /// `tools/gen-certified-fixture.py`.
-const CERTIFIED: &str = "../../../fixtures/certified-comments.pdf";
+///
+/// ★★★ **Relative to `CARGO_MANIFEST_DIR`, which is `tools/ui-verify`** — so
+/// two levels up, not three. Written as `../../../fixtures/…` when this check
+/// was authored, which resolves to `D:/Dev/fixtures/…`: a directory that does
+/// not exist and never will. The `pdf.exists()` guard below turned that into a
+/// SKIP whose message told the reader to run the generator, and the generator
+/// writes to `fixtures/` in *this* repository — so the check could not pass on
+/// any build, and its reason for not passing pointed at a fix that could not
+/// work. `reflow`, `text_edit` and `signature_save` all use `../../fixtures/`;
+/// that is the convention, and this is the only file that departed from it.
+const CERTIFIED: &str = "../../fixtures/certified-comments.pdf";
 /// The same document with the certification removed.
-const ORDINARY: &str = "../../../fixtures/threaded-comments.pdf";
+const ORDINARY: &str = "../../fixtures/threaded-comments.pdf";
 /// The line the canvas writes when a click selects an annotation.
 const SELECT_EVENT: &str = "annot-select";
 /// ★★★ The per-frame census `panels::properties::annotdelete` writes.
