@@ -458,6 +458,21 @@ fn spec(mode_id: &str) -> ModeSpec {
                     // tabs are all "asked for, not offered". See Review's arm
                     // for why this panel is mounted at all.
                     Panel::DimensionGroups.command_id(),
+                    // ★ Attachments, after Dimension groups, and in **Edit
+                    // alone**. Both facts follow from the same rule the two
+                    // above it follow rather than from a new judgment:
+                    //
+                    // *Where* — the end of the "asked for, not offered" stack,
+                    // because a tabbed stack draws only its active tab, and a
+                    // document's embedded files are not what anybody opens Edit
+                    // mode to look at.
+                    //
+                    // *Only here* — its toggle is `edit.attachments`, on the
+                    // Edit tab, and Read and Review are not shown that tab. A
+                    // mode that mounted this panel could not reopen it after
+                    // closing it, which is the trap `crate::panels::Panel::Forms`
+                    // had to move off Edit to escape.
+                    Panel::Attachments.command_id(),
                 ],
             ],
             left_width: NAVIGATOR_WIDTH,

@@ -244,6 +244,7 @@
                     caption: "Insert",
                     items: [
                         Command(id: "edit.insert_image", size: Large),
+                        Command(id: "edit.attachments"),
                     ],
                     collapse: 4,
                 ),

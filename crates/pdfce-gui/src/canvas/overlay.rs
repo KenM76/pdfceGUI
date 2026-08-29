@@ -161,6 +161,7 @@ pub fn draw_selection(
     visuals: &Visuals,
     mapping: &PageMapping,
     selection: &SelectionState,
+    offer: crate::canvas::handles::GripSet,
 ) {
     if selection.is_empty() {
         return;
@@ -181,17 +182,36 @@ pub fn draw_selection(
     // first slice by name. Drawing eight handles around a stamp that cannot be
     // resized is the "visible control, silently inert" failure this project
     // keeps finding, in its most literal form.
-    // ★★★ The eight grips around a markup annotation, painted here so the
-    // predicate that paints them is the one that hit-tests them (H7).
+    // ★★★ The grips around a selected annotation, painted here so the predicate
+    // that paints them is the one that hit-tests them (H7).
     //
-    // `pressing::look` hands `GripSet::scale_only()` for exactly this
-    // selection, and `draw_grips` draws the eight squares and no rotate stem —
-    // pdfce can scale an annotation (`resize_annotation`) and cannot turn one.
+    // ★★★ **`offer` IS THAT PREDICATE, AND IT IS NOW PASSED IN RATHER THAN
+    // RE-DERIVED HERE — 2026-08-28.**
     //
-    // ⇒ A handle painted and not hit-tested is the "visible control, silently
-    // inert" failure; one hit-tested and not painted is worse — an invisible
-    // target that steals a press. The rule is one predicate, and this is the
-    // painting half of it.
+    // Until this change the condition below was written out locally: *"draw the
+    // eight if the kind is `Markup` and it is not locked"*, which happened to
+    // agree with what `pressing::grabbable` decided, in a second place, in
+    // different words. That was survivable while every annotation offered the
+    // same set. It stopped being survivable the moment three annotation kinds
+    // offered three different sets:
+    //
+    // | selected | painted | hit-tested |
+    // |---|---|---|
+    // | markup | eight squares **and** the circle | `GripSet::all()` |
+    // | ce dimension | the circle **only** | `GripSet::rotate_only()` |
+    // | form field | eight squares only | `GripSet::scale_only()` |
+    //
+    // A local re-derivation of that table would be a second copy of it, and the
+    // day the two copies disagree the symptom is either a handle nobody can
+    // grab or — worse — an invisible target that steals the press aimed at what
+    // is under it. `handles::GripSet`'s own header records the 2026-08-20
+    // incident that made this rule: a dimension's vertex handles were painted
+    // from the selection and hit-tested behind a capability the mode did not
+    // have, so they were visible and untouchable in the very mode that authors
+    // dimensions.
+    //
+    // ⇒ One value, one decision, two consumers. `canvas::painting` asks
+    // `pressing::grabbable` once and hands the answer to both.
     if let Some(annot) = selection.annot() {
         let screen =
             visible_outline_rect(mapping.rect_to_screen(annot.outline), MIN_OUTLINE_EXTENT_PX);
@@ -202,14 +222,17 @@ pub fn draw_selection(
         // harness that has it cannot disagree with the application about where
         // they are.
         crate::diag::ui_rect(SELECTION_OUTLINE_REGION, screen);
-        // ★ A ce dimension is deliberately excluded: its extent IS its
-        // measurement, so pdfce has no verb that scales one and
-        // `pressing::look` hands it no grip set. Painting eight squares around
-        // it would be eight controls that do nothing.
-        if annot.target.kind == crate::canvas::selection::AnnotKind::Markup && !annot.target.locked
-        {
-            draw_grips(painter, visuals, screen);
-        }
+        // ★★ Whatever `offer` says, and nothing else. A **ce dimension** gets
+        // the rotate handle and none of the eight — its extent IS its
+        // measurement, so pdfce has no verb that scales one and declines to
+        // grow one; a rotation is an isometry, so the number is identical
+        // either side of it and turning one is a legitimate drafting
+        // operation. A **locked** annotation (§12.5.3 bit 8) and every
+        // annotation kind this shell cannot address get `GripSet::default()`
+        // — no box at all from `grabbable`, so nothing is painted and nothing
+        // is grabbable. **R9**: rendering nothing is the honest answer for a
+        // capability that does not exist.
+        draw_grips(painter, visuals, screen, offer);
         return;
     }
 
@@ -236,16 +259,20 @@ pub fn draw_selection(
         // it, so a harness that has this rect has every grip and cannot
         // disagree with the application about where they are.
         crate::diag::ui_rect(SELECTION_OUTLINE_REGION, box_);
-        // ★ Drawn only at the Object rung, matching `handles::grip_at`'s
-        // `offer_resize`. The two must agree: a handle that is painted and not
-        // hit-tested is the "visible control, silently inert" failure this
-        // project keeps finding, and a handle that is hit-tested and not
-        // painted is worse — an invisible target that steals the press aimed at
-        // the anchor underneath it, which is exactly the defect that made this
-        // rule necessary.
-        if selection.level() == crate::canvas::selection::SelectionLevel::Object {
-            draw_grips(painter, visuals, box_);
-        }
+        // ★★ The SAME `offer` the hit test was given, which for page content is
+        // `GripSet::all()` at the Object rung and `GripSet::default()` at every
+        // inner one — the identical condition this line used to spell out as
+        // `selection.level() == SelectionLevel::Object`.
+        //
+        // Converted on 2026-08-28 with the annotation branch above, and for the
+        // stronger version of the same reason: two spellings of one predicate
+        // are one refactor away from disagreeing, and when they disagree a
+        // handle is either painted and not hit-tested — the "visible control,
+        // silently inert" failure — or hit-tested and not painted, which is
+        // worse, because it is an invisible target that steals the press aimed
+        // at the anchor underneath it. That second case is the defect that made
+        // this rule necessary in the first place.
+        draw_grips(painter, visuals, box_, offer);
     }
 }
 
@@ -523,22 +550,45 @@ pub const SELECTED_ANCHOR_REGION: &str = "canvas.selected-anchor"; // ui-text-ex
 /// rect would miss the grips on exactly the objects that needed the widening.
 pub const SELECTION_OUTLINE_REGION: &str = "canvas.selection-outline"; // ui-text-exempt: trace region name, never displayed
 
-/// Paint the eight resize grips around a screen-space box.
+/// Paint the grips `offer` says a screen-space box has.
 ///
 /// Filled with the theme's window background and stroked in the selection
 /// colour: a filled square reads as a handle at any zoom and against any page
 /// content, where an outline-only square disappears over dense linework —
 /// which is precisely the document class pdfce is for.
-pub fn draw_grips(painter: &Painter, visuals: &Visuals, bounds: Rect) {
+///
+/// # ★★★ `offer` is the hit test's own value, and that is the contract
+///
+/// It is [`crate::canvas::pressing::grabbable`]'s answer, passed straight
+/// through — **never a predicate recomputed here**. Rule H7, and it is the
+/// difference between two representations of one decision and one:
+///
+/// * a handle painted and **not** hit-tested is the *"visible control, silently
+///   inert"* failure this project spends its time removing;
+/// * a handle hit-tested and **not** painted is worse — an invisible target
+///   that steals the press aimed at whatever is under it.
+///
+/// Since 2026-08-28 the two flags genuinely differ per selection — a ce
+/// dimension turns and does not scale, a form field's box scales and does not
+/// turn — so this function can no longer treat *"there is a box"* as *"there
+/// are nine handles"*. It draws exactly what it was told.
+pub fn draw_grips(
+    painter: &Painter,
+    visuals: &Visuals,
+    bounds: Rect,
+    offer: crate::canvas::handles::GripSet,
+) {
     let stroke = Stroke::new(1.0, visuals.selection.stroke.color);
-    for (_, rect) in handles::grip_rects(bounds) {
-        painter.rect(
-            rect,
-            CornerRadius::ZERO,
-            visuals.window_fill,
-            stroke,
-            StrokeKind::Middle,
-        );
+    if offer.resize {
+        for (_, rect) in handles::grip_rects(bounds) {
+            painter.rect(
+                rect,
+                CornerRadius::ZERO,
+                visuals.window_fill,
+                stroke,
+                StrokeKind::Middle,
+            );
+        }
     }
     // ★★ …and the rotate handle, which is a CIRCLE ON A STEM and not a ninth
     // square.
@@ -549,21 +599,54 @@ pub fn draw_grips(painter: &Painter, visuals: &Visuals, bounds: Rect) {
     // handle belongs to this box; without it the circle reads as an unrelated
     // dot floating over the page.
     //
-    // Drawn from the same `bounds` and the same predicate as the eight above,
-    // in the same call, so "painted" and "grabbable" cannot drift apart (H7).
-    let handle = handles::rotate_rect(bounds);
-    let centre = handle.center();
-    painter.line_segment(
-        [egui::pos2(centre.x, bounds.top()), centre],
-        Stroke::new(1.0, visuals.selection.stroke.color),
-    );
-    painter.circle(
-        centre,
-        handles::GRIP_SIZE_PX / 2.0,
-        visuals.window_fill,
-        stroke,
-    );
+    // ★★★ Gated **separately** from the eight, which is the whole reason
+    // `GripSet` has two fields. On a selected **ce dimension** this is the only
+    // thing drawn: there are no squares at all, because there is no verb that
+    // scales one and `pdfce-core` has declined to build one — *"either the
+    // displayed value stays fixed while the geometry grows, so the dimension
+    // lies about the drawing; or both change, so nothing was measured"*. A lone
+    // circle on a stem over a dimension is therefore the correct picture rather
+    // than an incomplete one.
+    if offer.rotate {
+        let handle = handles::rotate_rect(bounds);
+        let centre = handle.center();
+        painter.line_segment(
+            [egui::pos2(centre.x, bounds.top()), centre],
+            Stroke::new(1.0, visuals.selection.stroke.color),
+        );
+        painter.circle(
+            centre,
+            handles::GRIP_SIZE_PX / 2.0,
+            visuals.window_fill,
+            stroke,
+        );
+        // ★★ **Published so a driven check can aim at the ninth handle.**
+        //
+        // The eight are derivable from `SELECTION_OUTLINE_REGION` — they sit on
+        // its corners and edge midpoints — and the rotate handle is **not**: it
+        // is offset by `ROTATE_STEM_PX`, a number the harness would have to
+        // duplicate and could get wrong silently. `checks/rotate.rs` mirrors
+        // that constant today and says in its own comment that it *"does not
+        // aim at this number directly"*; this region is what lets a check stop
+        // mirroring it at all.
+        //
+        // ★ It is published only when the handle is actually drawn, so a check
+        // reading it is reading the application's own statement that the
+        // affordance exists — not a rectangle where one would be if the
+        // selection had a rotate verb.
+        crate::diag::ui_rect(ROTATE_HANDLE_REGION, handle);
+    }
 }
+
+/// The region the **rotate handle** publishes when it is drawn.
+///
+/// ★ Distinct from [`SELECTION_OUTLINE_REGION`] because the handle is the one
+/// affordance that cannot be derived from the outline: it sits on a stem
+/// outside the box. Its presence in a trace is also the honest answer to *"does
+/// this selection offer a rotation at all?"* — which is a question a driven
+/// check has to be able to ask about a **form field**, where the answer must be
+/// no.
+pub const ROTATE_HANDLE_REGION: &str = "canvas.rotate-handle"; // ui-text-exempt: trace region name, never displayed
 
 /// Paint the **move ghost**: the selection's outlines, displaced by an
 /// in-flight drag.
@@ -661,6 +744,29 @@ pub fn draw_move_ghost(
 /// `rotating::angle`, and the rotation is `rotating::rotate_about` — the same
 /// function that module's own test pins against the measured bearing. The
 /// commit negates once, at the page crossing; see `rotating::drag`.
+///
+/// # ★★★ An ANNOTATION's ghost is drawn by this same function — 2026-08-28
+///
+/// …unlike the **move** ghost, which `canvas::painting` carries in a separate
+/// `annot_ghost` slot. The asymmetry is deliberate and is about the arithmetic
+/// rather than about tidiness:
+///
+/// * a move ghost is a **translated rectangle**, and `annotdrag` computes it in
+///   canvas space as part of deciding whether the move is eligible at all — so
+///   the value already exists and carrying it is free;
+/// * a rotate ghost is **four corners turned about a centre**, and that is the
+///   identical calculation whether the corners came from a content outline or
+///   from an annotation's `/Rect`. Two functions would be one function written
+///   twice, and the second copy is where a preview and a commit come to
+///   disagree about which way round something went.
+///
+/// ★★ The annotation case **returns early**, mirroring `draw_selection`'s own
+/// structure one screen up. An annotation selection and a content selection are
+/// mutually exclusive by construction (`SelectionState` enforces it in one
+/// place), so the early return is a statement of that invariant rather than a
+/// precedence: `selection.outlines()` is empty behind an annotation anyway, and
+/// falling through would have drawn nothing — silently, which is how a missing
+/// preview reads as *"the drag stopped tracking"*.
 pub fn draw_rotate_ghost(
     painter: &Painter,
     visuals: &Visuals,
@@ -670,8 +776,13 @@ pub fn draw_rotate_ghost(
     radians: f32,
 ) {
     let stroke = Stroke::new(1.5, ghost(visuals.selection.stroke.color));
-    for (_, page_rect) in selection.outlines() {
-        let screen = mapping.rect_to_screen(*page_rect);
+    // ★ The quadrilateral, not the rotated bounding box. Drawing the box would
+    // show the operator a shape that GREW as they turned it — which is a
+    // preview of something the release does not do, and doubly misleading here:
+    // an annotation's `/Rect` really does grow on commit (§12.5.2 requires it
+    // upright), and previewing that growth would suggest the artwork grows too.
+    // It does not; only the rectangle around it does.
+    let quad = |screen: Rect| {
         let corners = [
             screen.left_top(),
             screen.right_top(),
@@ -682,6 +793,16 @@ pub fn draw_rotate_ghost(
         for i in 0..4 {
             painter.line_segment([corners[i], corners[(i + 1) % 4]], stroke);
         }
+    };
+    if let Some(annot) = selection.annot() {
+        quad(visible_outline_rect(
+            mapping.rect_to_screen(annot.outline),
+            MIN_OUTLINE_EXTENT_PX,
+        ));
+        return;
+    }
+    for (_, page_rect) in selection.outlines() {
+        quad(mapping.rect_to_screen(*page_rect));
     }
 }
 

@@ -7,7 +7,8 @@
 //!
 //! | Module | Panel |
 //! |---|---|
-//! | `mod.rs` (this file) | the three **document-structure** panels — Bookmarks, Layers, Signatures — plus [`byte_size`], which two areas share |
+//! | `mod.rs` (this file) | the three **document-structure** panels — Bookmarks, Layers, Signatures — plus [`byte_size`], which several areas share |
+//! | [`attachments`] | the Attachments panel — the files a document carries inside itself, and the four verbs opposite them |
 //! | [`comments`] | the Comments panel — every annotation on the document, what each one is, and the five disclosures a row can carry |
 //! | [`fonts`] | the Fonts panel's inventory report |
 //! | [`objects`] | the Objects panel, and the wording of every [`crate::panels::objects::summary::ObjectSummary`] fact |
@@ -59,6 +60,16 @@
 //!   below were amended at salvage for exactly this reason, and each says so
 //!   in its own doc comment rather than being quietly reworded.
 
+/// ★ The Attachments panel — the whole files a document carries inside itself
+/// (§7.11.4.1), and the four verbs opposite them.
+///
+/// Its own header carries the three sentences that are **not optional** on this
+/// feature, each one an obligation `pdfce-core` states in its own doc comment:
+/// that removing an attachment does not erase its bytes under an incremental
+/// save, that an embedded file may be encrypted inside an otherwise unencrypted
+/// document, and that the name pdfce writes to disk is not always the name the
+/// document shows.
+pub mod attachments;
 pub mod comments;
 /// The ce-dimension properties section — the bottom tier of the style cascade
 /// made reachable, with the tier each value came from named beside it.

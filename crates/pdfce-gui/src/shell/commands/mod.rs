@@ -246,7 +246,12 @@ mod tests {
         // so the space a deletion freed is actually reclaimed.
         // ★ 122 → 123 on 2026-08-28: `edit.reflow_block` (O54b), the
         // paragraph re-wrap `pdfce-core` has carried since Pass 91.
-        assert_eq!(registry().len(), 123);
+        // ★ 123 → 124 on 2026-08-28: `edit.attachments`, the Attachments panel
+        // — `attach_file`, `detach_file`, `list_attachments` and
+        // `extract_attachment` had existed in `pdfce-core` with no command, no
+        // menu item and no panel, which is a capability that does not exist as
+        // far as the operator is concerned.
+        assert_eq!(registry().len(), 124);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -319,8 +324,15 @@ mod tests {
         // glyph to borrow — Word gives it a menu line, not a picture. A
         // home-made pilcrow-with-arrows would be a symbol nobody has been
         // taught. The label says it and the tooltip qualifies it.
+        // ★ 19 → 20 on 2026-08-28: `edit.attachments` refuses a glyph, and it is
+        // the third registration in a row to reach the same judgment by the same
+        // route. The conventional icon for this is a paperclip;
+        // `icons/assets/PROVENANCE.md` makes that directory the operator's own
+        // work, so the alternative is not "draw one" but "ask him for one", and
+        // a home-made paperclip beside hand-drawn art is the mismatch a
+        // borrowed icon set exists to avoid. The label is the word Acrobat uses.
         assert_eq!(
-            refused, 19,
+            refused, 20,
             "commands with no icon, each argued at its registration"
         );
         // Each refusal is argued at its own registration and listed in the

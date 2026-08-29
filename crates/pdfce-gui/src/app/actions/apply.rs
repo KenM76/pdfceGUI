@@ -602,6 +602,20 @@ impl PdfceApp {
                 uniform,
                 modifiers,
             }) => super::annots::resize(doc, id, anchor, (sx, sy), uniform, modifiers),
+            // ★ Two rotation arms, not one with a kind flag: the engine refuses
+            // a ce dimension from the annotation verb by name. See
+            // `super::annots::rotate_dimension`.
+            Action::Annot(crate::app::actions::annot::AnnotAction::Rotate {
+                id,
+                pivot,
+                degrees,
+            }) => super::annots::rotate(doc, id, pivot, degrees),
+            Action::Annot(crate::app::actions::annot::AnnotAction::RotateDimension {
+                dimension,
+                annot,
+                pivot,
+                degrees,
+            }) => super::annots::rotate_dimension(doc, dimension, annot, pivot, degrees),
             Action::Annot(crate::app::actions::annot::AnnotAction::Delete { page, id }) => {
                 super::annots::delete(doc, page, id);
             }
@@ -1107,7 +1121,12 @@ impl PdfceApp {
             // the picks, a reorder remaps them, a rotation leaves them alone.
             // Those three answers to one edit are the whole subject over there,
             // and they were the only part of it living here.
-            Action::Page(action) => super::pages::apply(doc, &mut self.panels, action),
+            // ★ The separation policy travels from the settings store, which
+            // this scope can see and `pages::apply` cannot. See `pages::delete`
+            // for the promise it was until 2026-08-28.
+            Action::Page(action) => {
+                super::pages::apply(doc, &mut self.panels, action, self.settings.separations);
+            }
             // One line, like its neighbours: the whole of this verb — its two
             // correctable refusals, its three unreachable ones and the three
             // conditional clauses of its disclosure — is `super::forms`, whose
@@ -1151,6 +1170,16 @@ impl PdfceApp {
             // quantities whose SIGN carries open-or-closed (§12.3.3), which is
             // why none of them describes itself by diffing a count.
             Action::Bookmark(action) => super::bookmarks::apply(doc, action),
+            // ★ The attachment family — attach, remove, save one out.
+            //
+            // One line, like its neighbours. What its module carries and this
+            // arm must not restate: all three open a native file dialog, so the
+            // picker lives in the APPLY phase rather than in the widget that
+            // asked for it; two of the three mutate and go through
+            // `vector_edit`, and `SaveCopy` deliberately does not, because it
+            // changes nothing and bumping the epoch for it would retire a
+            // disclosure that is still true.
+            Action::Attachment(action) => super::attachments::apply(doc, action),
             // ★ **Undo and redo**, through the same [`vector_edit`] funnel every
             // other document change goes through — which is the whole of why
             // these two arms are one line each. See [`history_step`].

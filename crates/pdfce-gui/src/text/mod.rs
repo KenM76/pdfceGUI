@@ -58,6 +58,7 @@
 //! | [`panels`] | every string the dock's panel bodies show — Bookmarks, Layers, Signatures, Fonts, Objects, Properties |
 //! | [`print`] | the print dialog — three tabs, the preview, the device refusals, and the commit button whose label carries the clip count |
 //! | [`redact`] | marking, review, and the apply report. **The strictest wording rules in the catalog** — the one surface where a comfortable sentence is a security defect, and the only one entitled to the word *verified* |
+//! | [`rotating`] | the ninth handle — four refusals and two disclosures, including the one the engine commissioned by name about a dimension's axis lock |
 //! | [`status`] | the status bar — the render-notes disclosure, the fit/zoom mirrors, and the editable page box |
 //!
 //! The split between `ribbon` and `commands` follows the seam in the data
@@ -216,6 +217,20 @@ pub mod resizing;
 /// The ribbon's structural strings: tab labels and questions, group
 /// captions, mode labels. Consumed by `crate::shell::manifest`.
 pub mod ribbon;
+/// ★ Every sentence the **ninth handle** shows — four refusals and two
+/// disclosures, for `crate::canvas::rotating` and the two rotation verbs.
+///
+/// The sibling of [`resizing`], and its header carries the one thing worth
+/// knowing before reading either: a rotation is an **isometry**, so it has no
+/// stroke-scaling question, no distortion warning and no options type — which
+/// is why this catalog is half the size of its neighbour despite covering three
+/// kinds of target rather than one.
+///
+/// ★★ It carries the disclosure `pdfce-core` asked for by name: a `Linear` ce
+/// dimension's axis lock cannot survive a rotation, and *"an operator whose
+/// dimension silently stopped being axis-locked will find out later and blame
+/// something else."*
+pub mod rotating;
 /// Every word the Set-scale dialog shows. The hardest job in this catalog:
 /// explaining what a ratio is measured *against*, when the honest answer for a
 /// PDF is 1/72 inch and nobody's intuition is in those.

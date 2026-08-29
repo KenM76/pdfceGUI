@@ -101,10 +101,39 @@ pub(super) fn tab() -> Tab {
             //
             // `Shape ⌄` is **N**.
             // ---------------------------------------------------------------
+            // ★★ **`RIBBON_IA.md` names Attachments nowhere**, and this is the
+            // group it lands in. Recorded here rather than in a commit message,
+            // because a placement the IA did not make is the one a later reader
+            // will want the argument for.
+            //
+            // §5.2's Panels row lists Pages, Objects, Bookmarks, Layers,
+            // Signatures, Comments and Forms; §5.1's Document band holds
+            // Properties and Fonts; no section of that document mentions an
+            // embedded file. So the tab was chosen by the rule §5.13 states
+            // after it had decided three tabs in a row — *a command refused in
+            // a mode where the operator plainly needs it is evidence that the
+            // command's tab is wrong* — read in the direction it also runs:
+            //
+            // Read is shown `file` and `view` alone. Putting this on either
+            // would give a **reading stance** a control that embeds and removes
+            // whole files. That is `crate::panels::Panel::Redact`'s argument
+            // exactly, and Redact is the closest thing this IA has to a
+            // precedent for a panel whose subject is what the document
+            // permanently carries.
+            //
+            // ★ **Insert rather than a new group**, and the group's own caption
+            // is what makes it fit: this band is *"new content onto an existing
+            // page"* for the image and *"something that was not in this
+            // document before"* for the attachment. The distinction — an
+            // embedded file is document-level and on no page at all — is real,
+            // and it is stated where an operator meets it, in the panel's own
+            // rows. A one-command group of its own would be improvising a
+            // ribbon band the IA does not have, which is a larger invention
+            // than borrowing a caption.
             group(
                 "insert",
                 ribbon::group_edit_insert(),
-                [large("edit.insert_image")],
+                [large("edit.insert_image"), command("edit.attachments")],
             ),
             // ★★ **Clipboard is BACK, 2026-08-19** — and the note below, which
             // explains why it was deleted, is kept because its reasoning was

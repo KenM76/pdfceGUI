@@ -80,6 +80,68 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O56 — ★★★ "Confirm that you have built every editable surface into the GUI that has been implemented in pdfce"
+
+**His ask, 2026-08-28**, verbatim:
+
+> *"confirm that you have built every editable surface into the GUI that has
+> been implemented in pdfce. continue and loop until the handoff items and these
+> other things are done."*
+
+### ★★★ It could not be answered from this project's own documents, and that is the finding
+
+`FEATURES.md` says what the GUI does. `NO_SURFACE.md` lists compiled-in values
+with no control. `GUI_ROADMAP.md` says what is planned. **None of the three is
+keyed on the engine's verb list**, so none of them could answer *"is there a
+verb `pdfce-core` implements that nothing in this shell calls?"*
+
+⇒ The answer required an instrument, and the instrument is the durable half of
+this row: **`tools/verb-coverage.py`** parses `impl EditSession` out of
+`edit.rs`, takes every `pub fn`, and greps this crate for each name. The
+register it feeds is **`EDITABLE_SURFACES.md`**, which carries a reason per
+miss and is re-derivable rather than trusted.
+
+**157 verbs. 22 named nowhere.** Half of those are session queries or alternate
+spellings of a verb this shell calls in another form; the rest were real.
+
+### What the sweep found, and the pattern in it
+
+| Gap | What it was |
+|---|---|
+| `set_markup_note` / `clear_markup_note` | The Comments panel could not write one word onto any annotation. Shipped in answer to **this shell's own request** four days earlier |
+| `add_markup_with` | Markup could not be authored translucent. Shipped in answer to **this shell's own request** |
+| `set_outline_title` / `delete_outline_item` | Bookmarks could be created and never changed |
+| `set_quad_point_order` | ★★★ **A live defect** — a setting he can change that was honoured by nothing |
+| `delete_pages_with` | ★★★ The same, one file along: his separation policy never reached the verb |
+| `rotate_annotation` / `rotate_dimension` | No rotate gesture for annotations or ce dimensions |
+| `attach_file` / `detach_file` | File attachments had no surface at all |
+| `unshare_form`, `copy_annotations`, `delete_field_group`, `field_defaults` | Still open — see the register |
+
+★★ **Three of the first four were capabilities the engine shipped because this
+shell asked for them, and then never consumed.** *A reply arriving is not a
+capability landing.* That is the lesson and it is why the instrument exists
+rather than a promise to remember.
+
+★★★ **The two settings defects are the ones worth his attention**, because
+they are the kind he would report as *"I changed that and nothing happened"*:
+`quad_point_order` and `separations` were both persisted, validated, drawn in
+the Settings window, and consulted by nothing. `app::settings` exists precisely
+to prevent that class and a `syn` check enforces it — **and both were invisible
+to it**, because the check is keyed on option *constructors* and these two
+arrive through a *setter on a session* and a *parameter on a verb*. A guard
+shaped around one delivery mechanism cannot see a second one.
+
+**Status:** ★ **PARTIALLY SHIPPED, and the row stays open until every gap in
+`EDITABLE_SURFACES.md` is either wired or carries a dated reason.** Shipped
+2026-08-28: the note editor, author-time opacity, bookmark rename and delete,
+both settings fixes, the instrument and the register.
+
+★ **NOT DRIVEN.** `a_note_can_be_written_onto_a_shape_that_exists` and
+`a_bookmark_can_be_renamed_and_removed` are written and have never run — the
+machine was his. Every driven claim in this row is owed a sweep.
+
+---
+
 ## O55 — ★★★ A fit should CENTRE, and a canvas resize should keep the fit until the operator leaves it
 
 **His words, 2026-08-28:**

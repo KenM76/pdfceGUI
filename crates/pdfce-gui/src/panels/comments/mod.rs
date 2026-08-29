@@ -631,6 +631,44 @@ fn note_controls(
     }
 }
 
+/// ★★★ **Whether this annotation already carries a byline that is not ours to
+/// move** — the one decision in this panel with a consequence in the file.
+///
+/// `true` means the `SetNote` action sends **no `/T` at all**, and
+/// `pdfce-core` leaves an omitted key untouched. `false` means the operator's
+/// name from Settings > Comments is written, or nothing is if that name is
+/// blank, which is a supported choice meaning *comment anonymously*.
+///
+/// # Why this is a function rather than three words at its call site
+///
+/// Because it is the mistake the engine warned about **by name** when it
+/// shipped the verb, and it is invisible from every other angle:
+///
+/// > An implementation writing all three keys unconditionally would silently
+/// > strip the author and date on every correction, leaving a review comment
+/// > from nobody, dated never, looking exactly like a note somebody else had
+/// > mangled.
+///
+/// A `Ui` cannot be driven in a unit test in this crate, so an expression
+/// buried in [`editor`] would be reachable only by `tools/ui-verify` — and a
+/// driven check can assert that *a* note was written far more easily than it
+/// can assert that a `/T` was **not**. Pulled out, the rule has a name, a
+/// suite, and one caller that also feeds the sentence the operator reads.
+///
+/// # ★ Whitespace counts as absent
+///
+/// A `/T` of `"  "` is a byline nobody wrote — the commonest way for one to
+/// exist is a producer writing an empty string — and preserving it would leave
+/// a comment credited to a space. Trimmed, so *"has an author"* means the same
+/// thing here as it does in the row's own byline, which is drawn by
+/// [`t::comment_row_byline`] under the same rule.
+fn keeps_author(comment: &CommentRow) -> bool {
+    comment
+        .author
+        .as_deref()
+        .is_some_and(|author| !author.trim().is_empty())
+}
+
 /// The open editor: the box, the hint, the signature disclosure and the three
 /// controls.
 ///
@@ -676,13 +714,10 @@ fn editor(
             .weak(),
     );
 
-    // Whose name ends up on it. `keep_author` is the same question, and the two
-    // are computed from one expression on purpose: a disclosure that could
-    // disagree with the action it describes is worse than no disclosure.
-    let keep_author = comment
-        .author
-        .as_deref()
-        .is_some_and(|a| !a.trim().is_empty());
+    // Whose name ends up on it. The disclosure and the action's flag come from
+    // ONE function on purpose: a sentence that could disagree with the edit it
+    // describes is worse than no sentence.
+    let keep_author = keeps_author(comment);
     let signature = match comment.author.as_deref() {
         Some(author) if keep_author => t::comment_row_note_signature_kept(author.trim()),
         _ => t::comment_row_note_signature().to_owned(),
@@ -783,6 +818,69 @@ fn trace(doc: &OpenDoc, listing: &Listing) {
 mod tests {
     use super::*;
     use crate::panels::Panel;
+
+    /// A row with the author this test is about and nothing else that matters.
+    ///
+    /// Built by hand rather than by `model::collect`, because the subject is a
+    /// decision about **one field** and collecting a row would make the test
+    /// depend on a document, an annotation and a walk — three things that can
+    /// fail for reasons this assertion is not about.
+    fn row_by(author: Option<&str>) -> CommentRow {
+        CommentRow {
+            page_index: 0,
+            id: Some(pdfce_core::object::ObjId {
+                num: 7,
+                generation: 0,
+            }),
+            subtype: "Square".to_owned(),
+            is_ce_dimension: false,
+            note: Note::Absent,
+            author: author.map(str::to_owned),
+            modified: None,
+            suppressed: false,
+            appearance_unresolved: false,
+            relation: None,
+        }
+    }
+
+    /// ★★★ **Correcting somebody else's typo must not re-attribute their
+    /// comment.**
+    ///
+    /// The mistake `pdfce-core` warned about by name when it shipped
+    /// `set_markup_note`: writing all three keys unconditionally *"would
+    /// silently strip the author and date on every correction, leaving a review
+    /// comment from nobody, dated never, looking exactly like a note somebody
+    /// else had mangled."*
+    ///
+    /// `true` here means the action sends **no `/T`**, which is what leaves the
+    /// existing one alone.
+    #[test]
+    fn a_note_with_an_author_keeps_it() {
+        assert!(keeps_author(&row_by(Some("Ken Mantle"))));
+    }
+
+    /// The other half, and it is the half that makes the first one mean
+    /// something: a shape this shell drew has no byline, so a note written onto
+    /// it is **ours to sign**.
+    ///
+    /// Asserting only the preservation case would pass on an implementation
+    /// that never writes `/T` at all — every comment anonymous, which is the
+    /// same defect wearing the other value.
+    #[test]
+    fn a_note_with_no_author_is_ours_to_sign() {
+        assert!(!keeps_author(&row_by(None)));
+    }
+
+    /// ★ Whitespace is absent. A producer writing `/T ()` or `/T ( )` leaves a
+    /// byline nobody wrote, and preserving it would credit the comment to a
+    /// space — while the row's own byline, which trims the same way, would show
+    /// nothing at all. Two surfaces, one rule.
+    #[test]
+    fn a_blank_author_is_no_author() {
+        assert!(!keeps_author(&row_by(Some(""))));
+        assert!(!keeps_author(&row_by(Some("   "))));
+    }
+
     use crate::shell::{commands, manifest};
     use egui_shell::CommandRegistry;
     use std::collections::BTreeSet;

@@ -6,6 +6,7 @@
 //!
 //! | Panel | Ribbon command | Salvaged from |
 //! |---|---|---|
+//! | [`attachments`] | `edit.attachments` — **new**; see that variant for the tab argument | **new** — no old-shell surface existed |
 //! | [`bookmarks`] | `view.panel_bookmarks` | `panels_structure.rs` |
 //! | [`layers`] | `view.panel_layers` | `panels_structure.rs` |
 //! | [`signatures`] | `view.panel_signatures` | `panels_structure.rs` |
@@ -152,6 +153,7 @@ use crate::app::state::OpenDoc;
 use crate::shell::menus::MenuHost;
 use egui_shell::HandlerToken;
 
+pub mod attachments;
 pub mod bookmarks;
 pub mod comments;
 pub mod dimension_groups;
@@ -268,6 +270,30 @@ pub enum Panel {
     /// and Edit both can. The same argument, in the same words, is why there
     /// is no `view.panel_redact`.
     DimensionGroups,
+    /// The whole files this document carries inside itself (§7.11.4.1).
+    ///
+    /// ★★ **The sixth panel whose command is not on View ▸ Panels**, and the
+    /// only one `RIBBON_IA.md` names nowhere at all — it lists no Attachments
+    /// control on any tab, in any group. So the placement is argued rather than
+    /// read off, and the argument is [`Self::Redact`]'s, applied to the same
+    /// question:
+    ///
+    /// Read is shown `file` and `view` alone. A `view.panel_attachments` — or a
+    /// `file.attachments` beside Fonts and Properties, which is where the
+    /// *reading* half of this panel would otherwise belong — would put a
+    /// surface that **embeds and removes whole files** in front of a reading
+    /// stance. `edit.attachments` on the Edit tab makes the mode taxonomy do
+    /// that work with no capability flag and no gate of its own, which is the
+    /// property that decided Redact and is the closest defensible precedent
+    /// this IA has.
+    ///
+    /// ★ The cost is stated rather than hidden: Acrobat *Reader* lists
+    /// attachments and saves them out, and this build's Read mode cannot. The
+    /// day that matters, the fix is a second panel — a listing with no verbs —
+    /// and not a second id for this one, because P1 gives a command one tab and
+    /// a panel with authoring controls does not belong on a reading stance's
+    /// ribbon.
+    Attachments,
     /// What the pointer does, which tool is armed, and where each tool lives.
     ///
     /// ★★ **The only panel in this taxonomy whose subject is the OPERATOR
@@ -295,7 +321,8 @@ impl Panel {
     /// is added — so [`tests::the_panel_catalog_is_complete`] pins its
     /// length against a match that the compiler *does* check, which is the
     /// only way to make a hand-written catalog self-defending.
-    pub const ALL: [Self; 12] = [
+    pub const ALL: [Self; 13] = [
+        Self::Attachments,
         Self::Bookmarks,
         Self::Layers,
         Self::Signatures,
@@ -333,6 +360,15 @@ impl Panel {
     #[must_use]
     pub fn command_id(self) -> &'static str {
         match self {
+            // ★ **The sixth panel whose command is not on View ▸ Panels**, and
+            // the only one `RIBBON_IA.md` places nowhere: §5.2's Panels row
+            // names Pages, Objects, Bookmarks, Layers, Signatures, Comments and
+            // Forms, and no section of that document mentions attachments at
+            // all. The variant's own doc carries the argument for Edit, which
+            // is `Self::Redact`'s applied to the same question — a surface that
+            // embeds and removes whole files must not be reachable from a
+            // reading stance, and Read is shown `file` and `view` alone.
+            Self::Attachments => "edit.attachments",
             Self::Bookmarks => "view.panel_bookmarks",
             Self::Layers => "view.panel_layers",
             Self::Signatures => "view.panel_signatures",
@@ -514,6 +550,7 @@ impl Panel {
         };
         state.sync(doc);
         match self {
+            Self::Attachments => attachments::body(ui, doc, state, actions),
             Self::Bookmarks => bookmarks::body(ui, doc, state, actions),
             Self::Layers => layers::body(ui, doc, state, actions),
             Self::Signatures => signatures::body(ui, doc, state, actions),
@@ -712,6 +749,16 @@ pub struct PanelsState {
     /// a second file names a different object there, and a bookmark would be
     /// filed under whatever happens to hold that number.
     bookmarks: bookmarks::BookmarksUi,
+    /// ★ The Attachments panel's half-typed description.
+    ///
+    /// Here for [`Self::properties`]' reason, and the hazard is the same one
+    /// stated more sharply: `attach_file` takes a description **at attach
+    /// time** and no verb edits one afterwards, so a draft carried into a
+    /// second document would be written permanently into that file's `/Desc`
+    /// by the next attach, describing one operator's spreadsheet with another
+    /// document's note. [`Self::forget_document`] resets this struct whole,
+    /// which is what makes that unrepresentable rather than merely avoided.
+    attachments: attachments::AttachmentsUi,
     /// The dimension-groups panel's selected row, its half-typed names and its
     /// pending *Set scale…* request.
     ///
@@ -1018,6 +1065,15 @@ impl PanelsState {
         &mut self.bookmarks
     }
 
+    /// The Attachments panel's authoring state — the optional description.
+    ///
+    /// Same shape as [`Self::bookmarks_mut`]: the body is handed
+    /// `&mut PanelsState` and reaches its own state through an accessor, so the
+    /// field stays private and no other panel can write it.
+    pub fn attachments_mut(&mut self) -> &mut attachments::AttachmentsUi {
+        &mut self.attachments
+    }
+
     /// **The pages the operator has picked in the Pages panel.**
     ///
     /// ★ Read-only, and this is the accessor a `pages.*` dispatch arm must
@@ -1236,6 +1292,7 @@ mod tests {
                 Panel::Redact => 9,
                 Panel::DimensionGroups => 10,
                 Panel::Tool => 11,
+                Panel::Attachments => 12,
             }
         }
         let mut ordinals: Vec<usize> = Panel::ALL.iter().copied().map(ordinal).collect();

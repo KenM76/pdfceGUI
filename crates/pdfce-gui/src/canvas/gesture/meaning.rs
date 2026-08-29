@@ -103,6 +103,42 @@ pub enum DimensionPress {
     Body,
 }
 
+/// **Which family the selected annotation under a rotate handle belongs to.**
+///
+/// ★★★ Carried as a *variant* rather than as a bool, for
+/// `canvas::selection::annot::AnnotKind`'s own stated reason and for a second
+/// one this function needs: the two families are **gated by different
+/// capabilities**, and a bool would have to be paired with a second bool
+/// saying which gate to ask.
+///
+/// | | verb | capability | why that one |
+/// |---|---|---|---|
+/// | [`Self::Markup`] | `rotate_annotation` | `author_markup` | markup is authored in **Review**, where `edit_content` is false — an operator who has just drawn a shape there and wants to turn it is in the mode the content branch does not run in |
+/// | [`Self::CeDimension`] | `rotate_dimension` | `author_measure` | turning a dimension is a **measure** edit: it writes the sidecar and one annotation and touches no page content. The same ruling the vertex drag already ships under, and for the same reason — a mode that may author a dimension may adjust the one it just authored |
+///
+/// ★★ Resolved by [`crate::canvas::pressing`] while it has the document and the
+/// mapping in hand, so this module stays free of geometry — the same division
+/// `grip`, `handle` and [`DimensionPress`] already follow. **It is `Some` only
+/// when the press origin is actually on the handle**, because it is derived
+/// from the very `grip` this function reads, through the very `GripSet` the
+/// painter uses. One predicate; see [`crate::canvas::handles::GripSet`] H7.
+///
+/// ⇒ That last property is the guard against **the hazard this canvas has
+/// produced four times**: a working gesture aimed at the wrong verb. The most
+/// recent was a `covers()` that tested the selection's *move box* alone — and
+/// the rotate handle sits OUTSIDE that box, so a press on it selected the
+/// object underneath and the rotate became a select-and-move. Nothing here asks
+/// a second question about where the pointer is; it asks
+/// `handles::grip_at`, which is the function the gesture machine asks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RotatableAnnot {
+    /// Ordinary markup — a shape, a note, a stamp, a text markup.
+    Markup,
+    /// A **ce dimension**: a `/Line` with `/IT /LineDimension` and a sidecar
+    /// record.
+    CeDimension,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DragKind {
     /// The press was on empty paper, or on unselected content: rubber-band,
@@ -466,6 +502,9 @@ pub struct Press {
     pub handle: Option<(usize, pdfce_core::vector::Handle)>,
     /// What a press on a selected ce dimension landed on.
     pub dimension: Option<DimensionPress>,
+    /// **The selected annotation whose rotate handle this press is on**, if it
+    /// is on one. See [`RotatableAnnot`].
+    pub annot_rotate: Option<RotatableAnnot>,
     /// Whether it landed inside a selected **markup** annotation's box.
     pub markup_body: bool,
     /// Whether it landed inside the selected **form field's** box.
@@ -481,6 +520,7 @@ pub fn press_kind(press: Press, caps: Capabilities) -> PressMeaning {
         grip,
         handle,
         dimension,
+        annot_rotate,
         markup_body,
         widget_body,
         zoom_armed,
@@ -704,6 +744,66 @@ pub fn press_kind(press: Press, caps: Capabilities) -> PressMeaning {
         } else {
             DragKind::TextSelect
         })
+    // ★★★ **THE ROTATE HANDLE OF A SELECTED ANNOTATION, AND IT IS THE HIGHEST
+    // OF THE THREE ANNOTATION RUNGS.** 2026-08-28, `Pass 155.0` + `Pass 159.0`.
+    //
+    // ## Why it is a rung of its own rather than an arm of the two below
+    //
+    // Because **neither of the two below can see it**, and that is a geometric
+    // fact rather than an oversight:
+    //
+    // * the dimension rung reads `dimension`, which `pressing` resolves from
+    //   `dimdrag::vertex_at` and from the dimension's own `/Rect`. The rotate
+    //   handle sits `ROTATE_STEM_PX` ABOVE that rect, so both answer `None`;
+    // * the markup rung reads `markup_body`, which is `grab_box().contains(p)`
+    //   over that same `/Rect`. The handle is outside it, so it is `false`.
+    //
+    // ⇒ A press on the handle therefore fell all the way through to
+    // `caps.edit_content` — which is **false in Review**, the mode markup and
+    // measurements are authored in. The handle would have been painted, been
+    // grabbable, and produced nothing in the one mode that draws the things it
+    // turns.
+    //
+    // ## ★★★ And in Edit it would have been WORSE than nothing
+    //
+    // In Edit `caps.edit_content` is true, so the press would have reached the
+    // content branch's `(None, Some(Grip::Rotate)) => DragKind::Rotate` arm —
+    // and `canvas::rotating` would then have rotated **the page content
+    // selection**, which is empty beside an annotation selection… or, on the
+    // build where it was not, some other object entirely.
+    //
+    // That is **the hazard this canvas has produced four times**: a working
+    // gesture aimed at the wrong verb, which never looks broken from a chair
+    // because *something moves*. The most recent instance is recorded in
+    // `canvas::presspick`: `covers()` tested the selection's move box alone,
+    // the rotate handle sits outside that box, so a press on it selected the
+    // object underneath and the rotate became a select-and-move.
+    //
+    // ## Placement, stated rather than relied upon
+    //
+    // Above the dimension rung. It could not matter today — the handle is
+    // outside every box those rungs test, so no press can satisfy two of them —
+    // and it is stated anyway, because the day `dimdrag::grab_box` grows to
+    // include the stem (a plausible change: it would make the whole affordance
+    // one rectangle) a silent reordering would turn every rotate into a body
+    // move. An ordering that is a *statement* survives that; one that is a
+    // coincidence does not.
+    //
+    // ## The two capability gates, and why they are not one
+    //
+    // `author_markup` for a markup, `author_measure` for a ce dimension — the
+    // same split the two rungs below already make, adopted rather than
+    // re-derived. See [`RotatableAnnot`] for the table. A single gate would
+    // have to be the union or the intersection, and both are wrong: the union
+    // offers a dimension rotation in a mode that may not author measurements,
+    // and the intersection withholds a markup rotation in Review.
+    } else if grip == Some(Grip::Rotate)
+        && annot_rotate.is_some_and(|kind| match kind {
+            RotatableAnnot::Markup => caps.author_markup,
+            RotatableAnnot::CeDimension => caps.author_measure,
+        })
+    {
+        Some(DragKind::Rotate)
     // ★★★ **A SELECTED CE DIMENSION GETS ITS OWN RUNG, ABOVE `edit_content`.**
     //
     // 2026-08-20, and the placement is the whole of what this rung does.

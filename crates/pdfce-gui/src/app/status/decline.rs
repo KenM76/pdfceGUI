@@ -243,6 +243,47 @@ pub(crate) enum Declined {
     /// would be right, and retiring on it alone would let the sentence vanish
     /// while the operator was reading it.
     TextStyle(crate::text::status::TextStyleRefusal),
+    /// **A rotation did not happen** — the ninth handle, 2026-08-28.
+    ///
+    /// The payload is [`crate::text::rotating::RotateRefusal`], modelled on
+    /// [`Self::TextStyle`]'s and for the identical reasons: a `Copy` enum keeps
+    /// this type `Copy` and [`Declined::line`] `&'static str`, and it keeps the
+    /// engine's own prose off the status bar.
+    ///
+    /// # ★★★ Why this variant exists for a gesture that should never refuse
+    ///
+    /// Because **this project's founding defect shape is a grip that is
+    /// dragged, released, and does nothing with no explanation** — and a rotate
+    /// handle is the newest grip on the canvas. Two of the four refusals it can
+    /// carry describe routing failures that cannot happen while the routing
+    /// holds (`canvas::rotating` matches on `AnnotKind`, and a widget is never
+    /// an annotation selection at all). That is the argument for wording them,
+    /// not against: a routing bug with a sentence is a bug report, and one
+    /// without is a handle that does nothing.
+    ///
+    /// ★ The genuinely reachable case is a **certified** document, and it is
+    /// the one an operator cannot possibly guess at — a signed drawing looks
+    /// exactly like an unsigned one on the canvas.
+    ///
+    /// # ★★ Recorded from three places, which is unusual and is correct
+    ///
+    /// `canvas::rotating` records [`RotateRefusal::NoDimensionRecord`] before
+    /// any verb is called, because that condition is a **query** the shell can
+    /// answer itself — the same placement `record_flatten_certified` uses.
+    /// `app::actions::annots::{rotate, rotate_dimension}` record the other
+    /// three from **inside** the `vector_edit` closure, because whether the
+    /// engine will refuse is not knowable before the call — the same placement
+    /// `record_resize_not_rebuildable` uses, and for the reason its own docs
+    /// give.
+    ///
+    /// # Retired by the operator's next act
+    ///
+    /// [`Self::still_true`] answers `true` unconditionally, with `TextStyle`
+    /// and the others whose state cannot change between two frames: a document
+    /// does not stop being signed, and a sidecar does not grow a record, while
+    /// the operator reads the status bar. What retires it is their next
+    /// command, which [`retire`] catches.
+    Rotate(crate::text::rotating::RotateRefusal),
     /// **The Settings window's Save wrote nothing.**
     ///
     /// # ★ Why this is not [`Self::SaveFailed`], although both are failed writes
@@ -554,6 +595,13 @@ impl Declined {
             // restyle refusal stop being a true report of what happened when
             // the operator pressed the control. `retire` ends it.
             Self::TextStyle(_) => true,
+            // ★ Same ruling again, and each of the four refusals earns it
+            // separately: a document does not stop being signed, a sidecar does
+            // not grow a record, and a routing bug does not fix itself, between
+            // one frame and the next. The remedy is always something the
+            // operator *does* — and doing it is a command, which `retire`
+            // catches.
+            Self::Rotate(_) => true,
         }
     }
 
@@ -578,6 +626,7 @@ impl Declined {
             Self::ResizeNotRebuildable { uniform } => t::resize_not_rebuildable(uniform),
             Self::FlattenCertified => t::flatten_declined_certified(),
             Self::TextStyle(why) => why.line(),
+            Self::Rotate(why) => why.line(),
         }
     }
 }
@@ -709,6 +758,29 @@ pub(crate) fn record_flatten_certified() {
 /// reason.
 pub(crate) fn record_resize_not_rebuildable(uniform: bool) {
     LAST.with_borrow_mut(|slot| *slot = Some(Declined::ResizeNotRebuildable { uniform }));
+}
+
+/// Record that a **rotation** did not happen, and why.
+///
+/// ★★★ The whole point of the function, stated for whoever adds the next
+/// refusal to `RotateRefusal`: **a refusal must be a sentence, never a
+/// silence.** A rotate handle that is dragged, released, and does nothing with
+/// no explanation is this project's founding defect shape, and it is exactly
+/// what the eight resize grips did for the whole life of this shell.
+///
+/// ★★ Called from **two positions**, deliberately, and the split is the same
+/// one this module already draws twice:
+///
+/// | caller | when | precedent |
+/// |---|---|---|
+/// | `canvas::rotating` | before any verb, for `NoDimensionRecord` — a condition the shell can **query** | [`record_flatten_certified`] |
+/// | `app::actions::annots` | inside the `vector_edit` closure, for what the **engine** returns | [`record_resize_not_rebuildable`] |
+///
+/// A shell-side condition raised from the apply phase would put the same rule
+/// in two places; an engine-side one raised from the dispatcher would be a
+/// guess about a call that has not happened yet.
+pub(crate) fn record_rotate(why: crate::text::rotating::RotateRefusal) {
+    LAST.with_borrow_mut(|slot| *slot = Some(Declined::Rotate(why)));
 }
 
 pub(crate) fn record_push_button_inert() {

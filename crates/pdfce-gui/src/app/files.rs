@@ -135,6 +135,26 @@ const DIAG_IMAGE_PATH: &str = "PDFCE_DIAG_IMAGE_PATH"; // ui-text-exempt: an env
 
 pub const DIAG_OPEN_PATH: &str = "PDFCE_DIAG_OPEN_PATH"; // ui-text-exempt: an environment variable name, never displayed
 
+/// The seam that answers the **attach a file** picker.
+///
+/// A fourth source variable rather than a shared one, on the argument
+/// [`pick_insert_source`] spells out for the second and this module's header
+/// states as a standing instruction: one seam answering two pickers makes a
+/// run that opens a document and then attaches a spreadsheet to it unwritable,
+/// which is precisely the run a driven check of this feature has to be.
+pub const DIAG_ATTACH_PATH: &str = "PDFCE_DIAG_ATTACH_PATH"; // ui-text-exempt: an environment variable name, never displayed
+
+/// The seam that answers the **save an attachment out** dialog.
+///
+/// ★ Separate from [`DIAG_SAVE_PATH`], and this is the sharpest instance of the
+/// rule rather than a routine application of it. [`pick_save_path`]'s own doc
+/// records that its seam is *shared* by its two callers, so a check driving
+/// both in one session gets one file. Attaching and saving out are the two
+/// halves of the round trip a check of this feature exists to prove — attach a
+/// known file, save it back, compare the bytes — and that check is
+/// unwritable if the save seam is the one the document-save also reads.
+pub const DIAG_ATTACHMENT_SAVE_PATH: &str = "PDFCE_DIAG_ATTACHMENT_SAVE_PATH"; // ui-text-exempt: an environment variable name, never displayed
+
 /// The harness seam for [`pick_form_data_source`].
 ///
 /// Its own variable rather than sharing [`DIAG_OPEN_PATH`], for the reason
@@ -422,6 +442,95 @@ pub fn pick_form_data_source() -> Picked {
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
         format!("form-data-picked source=native answer={answer:?}")
+    });
+    answer
+}
+
+/// **Ask which file to embed in the document** (ISO 32000-1 §7.11.4.1).
+///
+/// # ★★ Why this picker offers no format filter at all
+///
+/// Every other file picker in this module narrows what it shows, and each of
+/// them is right to: an image picker that offered `.dll` would have moved a
+/// refusal from a dialog the operator can dismiss to one they have to read.
+///
+/// **This verb refuses nothing.** `EditSession::attach_file` takes
+/// `bytes: &[u8]` and writes them into an embedded file stream without
+/// interpreting them — a PDF may legitimately carry a spreadsheet, a CAD
+/// model, a zip, a photograph or a text file, and the whole point of the
+/// feature is that the document is a container. A filter here would be this
+/// shell inventing a restriction the engine does not have, and the operator
+/// would have to know to select *All files* to defeat it.
+///
+/// So [`crate::text::files::filter_all`] alone, and it is the only entry rather
+/// than the last one — a single-entry filter list is what tells the operator
+/// the dialog is not hiding anything.
+#[must_use]
+pub fn pick_attachment_source() -> Picked {
+    if let Some(answer) = from_env(std::env::var_os(DIAG_ATTACH_PATH)) {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            format!("attach-picked source=env answer={answer:?}")
+        });
+        return answer;
+    }
+    let answer = rfd::FileDialog::new()
+        .set_title(crate::text::panels::attachments::attach_dialog_title())
+        .add_filter(crate::text::files::filter_all(), &["*"])
+        .pick_file()
+        .map_or(Picked::Cancelled, Picked::Path);
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed.
+        format!("attach-picked source=native answer={answer:?}")
+    });
+    answer
+}
+
+/// **Ask where to write one attachment out.**
+///
+/// # ★ Why this is not [`pick_save_path`] with a different title
+///
+/// Two differences, and both would be defects if this reused that function:
+///
+/// 1. **The filter.** [`native_save`] adds a hard-coded PDF filter, because its
+///    two callers are both writing PDFs. An attachment is whatever the document
+///    put in it, and a save dialog that offered to append `.pdf` to somebody's
+///    spreadsheet would be actively wrong.
+/// 2. **The seam.** See [`DIAG_ATTACHMENT_SAVE_PATH`]: the round-trip check
+///    this feature needs — attach a known file, save it back, compare — cannot
+///    be written if this dialog answers to the same variable the document save
+///    does.
+///
+/// `suggested` is the **sanitised** name joined to a directory, never the raw
+/// name from the document. The caller owns that, and
+/// `crate::app::actions::attachments` carries the argument for why: a name in a
+/// PDF is attacker-controlled and unconstrained, and handing one to a save
+/// dialog is handing it to the filesystem.
+///
+/// Honours [`pick_save_path`]'s frame-timing requirement — the caller is
+/// `PdfceApp::apply`, which is step 3, after every panel and dialog has closed.
+#[must_use]
+pub fn pick_attachment_target(suggested: &std::path::Path) -> Picked {
+    if let Some(answer) = from_env(std::env::var_os(DIAG_ATTACHMENT_SAVE_PATH)) {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            format!("attachment-save-picked source=env answer={answer:?}")
+        });
+        return answer;
+    }
+    let mut dialog = rfd::FileDialog::new()
+        .set_title(crate::text::panels::attachments::save_dialog_title())
+        .add_filter(crate::text::files::filter_all(), &["*"]);
+    if let Some(dir) = suggested.parent().filter(|d| !d.as_os_str().is_empty()) {
+        dialog = dialog.set_directory(dir);
+    }
+    if let Some(name) = suggested.file_name() {
+        dialog = dialog.set_file_name(name.to_string_lossy());
+    }
+    let answer = dialog.save_file().map_or(Picked::Cancelled, Picked::Path);
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed.
+        format!("attachment-save-picked source=native answer={answer:?}")
     });
     answer
 }

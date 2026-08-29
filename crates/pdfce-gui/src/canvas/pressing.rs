@@ -83,10 +83,25 @@ pub struct Grabbable {
 ///
 /// | selected | box | grips |
 /// |---|---|---|
-/// | a **ce dimension** | its `/Rect` | none — its extent IS its measurement, so pdfce has no verb that scales one |
-/// | a **markup** annotation | its `/Rect` | the eight scale grips; `resize_annotation` exists and no rotate verb does |
-/// | a **form field's** box | the widget's rect | the same eight, through `edit_widget(… with_rect)` |
+/// | a **ce dimension** | its `/Rect` | the **rotate handle alone** — `rotate_dimension` turns one and no verb scales one, and none ever will |
+/// | a **markup** annotation | its `/Rect` | everything — `resize_annotation` scales it and `rotate_annotation` turns it |
+/// | a **form field's** box | the widget's rect | the eight scale grips, through `edit_widget(… with_rect)`; a widget's rotation is `/MK /R` and is not built |
 /// | page **content** | the selection's union | everything, and only at the Object rung |
+///
+/// ## ★★★ The last two rows were ONE row until 2026-08-28, and splitting them
+/// was the whole of the wiring
+///
+/// A markup annotation and a form field's box shared a branch — `grab_box(…)
+/// .or_else(widgetdrag::grab_box)` — because they offered the identical grip
+/// set. They no longer do: `rotate_annotation` shipped on `Pass 155.0` and
+/// nothing rotates a widget, so an `or_else` that answered `scale_only()` for
+/// both would have left a markup with no rotate handle for the same reason a
+/// widget has none — **which is not the same reason at all**, and the code
+/// would have said it was.
+///
+/// ⇒ The dimension row moved the other way in the same change: from *no grips*
+/// to *the ninth only*. Two rows, two directions, one day. See
+/// [`handles::GripSet`]'s own header for the table of verbs behind them.
 #[must_use]
 pub fn grabbable(
     ctx: &egui::Context,
@@ -95,14 +110,54 @@ pub fn grabbable(
     selection: &SelectionState,
 ) -> Grabbable {
     if let Some(bounds) = dimdrag::grab_box(doc, map, selection) {
+        // ★★ The rotate handle and NOT the eight. A ce dimension's extent is
+        // its measurement, so `pdfce-core` declines a scale by name and says it
+        // will keep declining it; a rotation is an isometry, so the measured
+        // value is identical either side of it by construction and turning one
+        // is a legitimate drafting operation.
+        //
+        // ★ `dimdrag::grab_box` is the gate, unchanged, and it answers `Some`
+        // only for a kind whose *placement* drag can finish — Linear and
+        // Perimeter. An **angular** or **circular** dimension therefore gets no
+        // box and so no rotate handle either, although `rotate_dimension` would
+        // accept one. That is this shell's gap rather than the engine's, and it
+        // is inherited deliberately rather than patched around: widening the
+        // box here would offer a MOVE gesture on a kind whose move cannot
+        // commit, which is the "visible control, silently inert" failure
+        // swapped for a different one. Filed as owed, not hidden.
         return Grabbable {
             bounds: Some(bounds),
-            offer: handles::GripSet::default(),
+            offer: handles::GripSet::rotate_only(),
         };
     }
-    if let Some(bounds) =
-        annotdrag::grab_box(map, selection).or_else(|| widgetdrag::grab_box(ctx, doc, map))
-    {
+    if let Some(bounds) = annotdrag::grab_box(map, selection) {
+        // ★★★ Everything, as of 2026-08-28. `resize_annotation` scales a markup
+        // and `rotate_annotation` turns one, and the second is BETTER behaved
+        // than the first rather than worse: a rotation composes into the
+        // `/Matrix` a producer already wrote (§12.5.5 step (a)), so it works on
+        // a stamp Acrobat made, where a resize has to refuse artwork pdfce did
+        // not draw. There is no distortion question and no confirmation step.
+        //
+        // ★ `annotdrag::grab_box` answers `None` for a **locked** annotation
+        // (§12.5.3 bit 8) and for a ce dimension, so neither reaches this arm —
+        // a locked markup is offered no handles at all rather than nine that
+        // the file forbids.
+        return Grabbable {
+            bounds: Some(bounds),
+            offer: handles::GripSet::all(),
+        };
+    }
+    if let Some(bounds) = widgetdrag::grab_box(ctx, doc, map) {
+        // ★★ The eight and NOT the ninth, and the asymmetry is §12.5.6.19's.
+        // A widget's rotation is `/MK /R` — a quantised 0/90/180/270
+        // *declaration* the field's appearance generator reads, not a
+        // free-angle transform — and it is not built. `rotate_annotation`
+        // refuses a widget by name and points at a verb that does not exist
+        // yet.
+        //
+        // ⇒ **R9**: nothing is painted and nothing is hit-tested. A ninth
+        // handle here would be a control that declines on release, which is the
+        // defect this project exists to remove wearing the costume of a fix.
         return Grabbable {
             bounds: Some(bounds),
             offer: handles::GripSet::scale_only(),
@@ -203,6 +258,49 @@ pub fn look(
         .zip(origin)
         .and_then(|(bounds, p)| handles::grip_at(bounds, p, offer));
 
+    // ★★★ **THE ANNOTATION UNDER THE ROTATE HANDLE, AND IT IS DERIVED FROM
+    // `grip` RATHER THAN FROM A SECOND HIT TEST.**
+    //
+    // This is the whole guard against the failure this canvas has produced four
+    // times — *a working gesture aimed at the wrong verb*, which never looks
+    // broken from a chair because something moves. The most recent instance
+    // (`canvas::presspick`) is exactly this shape: `covers()` asked its own
+    // question about where the pointer was, tested the selection's **move box**
+    // alone, and the rotate handle sits OUTSIDE that box — so a press on the
+    // handle selected the object underneath and the rotate became a
+    // select-and-move.
+    //
+    // ⇒ **Nothing here asks a second question.** `grip` above came from
+    // `handles::grip_at`, over `grabbable`'s box, with `grabbable`'s `GripSet`
+    // — the same function, the same box and the same predicate the painter uses
+    // (H7). If the handle was painted, this is `Some`; if it was not, this is
+    // `None`. There is no third answer for the two to disagree about.
+    //
+    // ★★ And `grip` reads **`press_origin`**, not the current pointer, because
+    // `origin` above does. That is this module's header rule and it is
+    // load-bearing here in particular: egui does not call an interaction a drag
+    // until the pointer has travelled a threshold, so by the frame it says so
+    // the pointer is already ~20 pt from an 8 pt handle. A build that read the
+    // live pointer would find `None` on every real rotate drag and the gesture
+    // would fall through — to a marquee, which CLEARS the selection the
+    // operator was trying to turn.
+    //
+    // ★ The kind is carried through rather than re-derived downstream, so
+    // `gesture::press_kind` routes on a variant the compiler makes it handle:
+    // a markup goes to `rotate_annotation` and a ce dimension to
+    // `rotate_dimension`, and the engine refuses the first verb a dimension by
+    // name. `canvas::selection::annot::AnnotKind`'s header states why that
+    // distinction lives in the type.
+    let annot_rotate = (grip == Some(Grip::Rotate))
+        .then(|| selection.annot())
+        .flatten()
+        .map(|annot| match annot.target.kind {
+            crate::canvas::selection::AnnotKind::Markup => gesture::RotatableAnnot::Markup,
+            crate::canvas::selection::AnnotKind::CeDimension => {
+                gesture::RotatableAnnot::CeDimension
+            }
+        });
+
     // The provider is asked for only at an inner rung — `handledrag::visible`
     // returns empty above it — so the ordinary case pays one `entered_object()`
     // and one `subpath` check.
@@ -269,6 +367,7 @@ pub fn look(
             grip,
             handle,
             dimension,
+            annot_rotate,
             markup_body,
             widget_body,
             zoom_armed: zoom::region_zoom_armed(ctx),

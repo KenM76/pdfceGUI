@@ -941,6 +941,20 @@ pub(super) fn all() -> Vec<Command> {
         command("edit.insert_image", t::edit_insert_image(), 410)
             .with_icon("insert-image")
             .enabled_when("doc.pages"),
+        // ★ **No icon**, and the refusal is argued rather than inherited. The
+        // conventional glyph for this is a paperclip; `icons/assets/PROVENANCE.md`
+        // makes that directory the operator's own work, so the alternative to
+        // shipping none is not "draw one" but "ask him for one" — the same
+        // judgment `file.save_compacted` and `edit.reflow_block` reached. A
+        // home-made paperclip beside four hand-drawn glyphs is the mismatch a
+        // borrowed icon set exists to avoid, and the label says it plainly.
+        //
+        // ★ `doc.open`, not `doc.pages`, and the difference is real: a
+        // document-level attachment lives in the catalogue and belongs to no
+        // page, so a document with an empty page tree can still carry files and
+        // still be attached to. Gating on pages would hide the panel for the one
+        // document whose attachments are all it has.
+        command("edit.attachments", t::edit_attachments(), 411).enabled_when("doc.open"),
         // `edit.copy_page_text` and `edit.copy_document_text` were here, tokens
         // 420 and 421. They are now `file.copy_page_text` and
         // `file.copy_document_text` in File ▸ Export — operator decision,

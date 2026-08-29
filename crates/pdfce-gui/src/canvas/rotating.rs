@@ -46,6 +46,71 @@
 //! a private convention the operator has to learn, which is
 //! `handles.md` H2's stated failure mode.
 //!
+//! ## ★★★ THREE DESTINATIONS SHARE THIS ONE GESTURE — 2026-08-28
+//!
+//! The header above describes a rotation of **page content**, which is what
+//! this module did on the day it was written. `pdfce-core` `Pass 155.0` and
+//! `Pass 159.0` then shipped rotation for the annotation family and for ce
+//! dimensions, and this module became the decision point for all three:
+//!
+//! | selected | verb | operand | refused by |
+//! |---|---|---|---|
+//! | page **content** | `transform_objects` | paint-order indices + a `Matrix` | — |
+//! | a **markup** annotation | `rotate_annotation` | `ObjId` + pivot + degrees | — |
+//! | a **ce dimension** | `rotate_dimension` | `DimensionId` + pivot + degrees | `rotate_annotation`, **by name** |
+//! | a **form field's** box | *none* | — | `rotate_annotation`, **by name** (`/MK /R`, unbuilt) |
+//!
+//! **Everything above the branch is shared and must be**: the bearing between
+//! two rays from the box's centre, the 15° snap, the wrap that stops a drag
+//! past 180° spinning a whole turn, the travel threshold and the single
+//! screen→page negation are one gesture whatever is under it. What differs is
+//! one call. `canvas::resizing` cuts the identical seam in the identical place
+//! and a reader who has understood one has understood both.
+//!
+//! ★★ The three operands are the **same shape** — a fixed point and a scalar —
+//! because the engine chose it that way on this shell's request: *"the same
+//! anchor+factors shape as move and resize, so your grip code needs no third
+//! convention."* So [`commit_annotation`] is a routing decision rather than a
+//! second arithmetic.
+//!
+//! ## ★★★ Why the box comes from `pressing::grabbable` and not `overlay::grip_box`
+//!
+//! [`Frame::bounds`] is filled by `canvas::interact` from
+//! `crate::canvas::pressing::grabbable`, and that is **the single line the
+//! annotation rotation hangs on**.
+//!
+//! `overlay::grip_box` derives its answer from the selection's cached *content*
+//! outlines, which `select_annot` clears — an annotation is not content and has
+//! nothing decomposed to cache. Over a selected markup or dimension it answers
+//! `None`, so `bounds` would be `None`, so this function would return at its
+//! first line and **the entire gesture would be a no-op with nothing said
+//! anywhere.**
+//!
+//! ⇒ `grabbable` is also the function `pressing::look` hit-tests against and the
+//! function `canvas::painting` paints from. **One box: what the operator can
+//! see, what they can grab, and what turns.** That is rule H7, and it is the
+//! guard against the failure this canvas has produced four times — a working
+//! gesture aimed at the wrong verb, which never looks broken from a chair
+//! because something moves. The most recent instance is recorded in
+//! `canvas::presspick`: `covers()` tested the selection's move box alone, the
+//! rotate handle sits *outside* that box, and a press on it selected the object
+//! underneath, so the rotate became a select-and-move.
+//!
+//! ## ★★ No options type, for any of the three, and that is a property of the
+//! operation rather than an omission
+//!
+//! A rotation is an **isometry**: every length is preserved, including the
+//! drawn stroke width. So there is no `scale_stroke_width` question here and no
+//! `allow_appearance_distortion` — `resize_annotation` has both and needs them,
+//! because §12.5.5's placement matrix scales artwork *after* stroking. Rotation
+//! composes into the appearance's own `/Matrix` instead, so **a foreign
+//! appearance rotates correctly** where it cannot be resized.
+//!
+//! ⇒ `pdfce-core` drew the UI consequence and this module is built on it: *"if
+//! your grip UI offers rotate and resize together, **rotate needs no
+//! confirmation step and no distortion warning.** Resize does."* There is no
+//! Tool-row switch for this gesture and no dialog in front of it.
+//!
 //! ## conventions: drag-moves
 //!
 //! Corpus: `ui-conventions/drag-moves.md`. The handle rows are answered by
@@ -69,8 +134,16 @@
 //!   apply. There is no point under the pointer to preserve — the pointer is
 //!   holding a *bearing*, and the handle stays on its stem at the top of the
 //!   box because that is where the box's top is.
-//! - D9 disclosure: WAIVED — a rotation changes no value pdfce authored, and
-//!   the new orientation is visible.
+//! - D9 disclosure: waived for page **content**, and NOT waived for the two
+//!   annotation destinations — see `crate::text::rotating`'s header for the
+//!   table of what is disclosed and what deliberately is not. Two things are
+//!   owed: an annotation's `/Rect` grows at any angle that is not a quarter
+//!   turn (§12.5.2 requires it upright), and **this shell draws its selection
+//!   outline from `/Rect`**, so the operator watches a box swell around artwork
+//!   that did not; and a `Linear` ce dimension's axis lock cannot survive a
+//!   rotation, which the engine relaxes and asks us to say — *"an operator
+//!   whose dimension silently stopped being axis-locked will find out later and
+//!   blame something else."*
 
 use egui::{Pos2, Vec2};
 
@@ -218,6 +291,7 @@ pub fn drag(
         constrain,
         map,
         page,
+        dimension,
     } = frame;
     let bounds = bounds?;
     // ★ The pivot is the CENTRE, taken from `Grip::pivot` rather than from
@@ -253,6 +327,25 @@ pub fn drag(
     // order, through the same two functions — screen → canvas → PDF user space.
     let pdf = crate::viewer::canvas_to_pdf_space(map.to_page(centre), page)?;
     let pivot = pdfce_core::vector::Point::new(f64::from(pdf.x), f64::from(pdf.y));
+    // ★★★ AN ANNOTATION TAKES A DIFFERENT VERB, and the branch is here — after
+    // the angle and the pivot, before the content action.
+    //
+    // The same seam `canvas::resizing` cuts, in the same place, for the same
+    // reason: **everything above this line is shared and must be.** The bearing
+    // between two rays, the centre it is measured from, the 15° snap, the wrap
+    // that stops a drag past 180° spinning a whole turn, the travel threshold
+    // and the screen→page conversion are one gesture whatever is under it. What
+    // differs is which verb the angle is handed to.
+    //
+    // ★★ And the operand shape is the SAME for all three — pivot plus a scalar
+    // angle — because the engine chose it that way deliberately: *"the same
+    // anchor+factors shape as move and resize, so your grip code needs no third
+    // convention."* This branch is therefore a **routing decision** rather than
+    // a second arithmetic, exactly as the resize's is.
+    if let Some(annot) = selection.annot() {
+        commit_annotation(annot, dimension, pivot, theta, actions);
+        return None;
+    }
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
         //
@@ -307,6 +400,190 @@ pub struct Frame<'a> {
     pub map: Option<&'a crate::canvas::mapping::PageMapping>,
     /// The page itself, for the canvas → PDF hop.
     pub page: Option<&'a pdfce_core::page_tree::Page>,
+    /// **The selected ce dimension's sidecar record id**, when the selection is
+    /// one.
+    ///
+    /// ★★★ Carried rather than looked up, exactly as
+    /// [`crate::canvas::resizing::Frame::selected_field`] is, and for a
+    /// stronger version of that field's reason.
+    ///
+    /// `rotate_dimension` addresses the **sidecar record**, not the annotation:
+    /// the selection carries an `ObjId` and the record carries a `DimensionId`,
+    /// and the sidecar stores the mapping one way only (`record.annot`), so the
+    /// reverse lookup is a scan over the document's dimensions. That scan needs
+    /// `&OpenDoc`, which this module deliberately does not take — everything in
+    /// it is a pure function of its [`Frame`], which is what lets the whole
+    /// gesture be unit-tested without a window or a document.
+    ///
+    /// ★★ Resolving it in the **gesture** rather than in the apply arm is also
+    /// what lets a rotation with no record behind it **decline in words**. An
+    /// action raised with no operand would reach the engine, be refused, and —
+    /// on the generic arm — say nothing at all. See [`drag`]'s commit path.
+    ///
+    /// `None` for a markup annotation, for page content, and for a ce dimension
+    /// whose record could not be resolved. The first two never read it.
+    pub dimension: Option<pdfce_core::dimension::DimensionId>,
+}
+
+/// **Raise the right rotation verb for a selected annotation.**
+///
+/// ★★★ The routing, in one `match` the compiler checks — which is the whole
+/// reason `canvas::selection::annot::AnnotKind` is an enum rather than an
+/// `is_ce_dimension: bool` on the target. Its header states the rule this
+/// function is the newest instance of: *"a bool is a fact a caller may forget
+/// to read, while a variant is one the compiler makes them handle."*
+///
+/// # ★★★ The two verbs are NOT interchangeable, and the engine refuses to let
+/// them be
+///
+/// `rotate_annotation` returns `AnnotationMoveWrongVerb` for a ce dimension and
+/// points at `rotate_dimension`, with the reason attached: *"a ce dimension's
+/// orientation is part of its measurement, so turning it must re-measure rather
+/// than spin a rectangle."*
+///
+/// A dimension is a `/Line` with `/IT /LineDimension` and a record in the
+/// document's `/PieceInfo` sidecar. Handing one to the annotation verb would
+/// turn its `/Rect` and its baked `/AP` and leave the **sidecar geometry** —
+/// the thing the displayed number is derived from — where it was, so the
+/// dimension would draw at one angle and measure along another.
+///
+/// ⇒ `pdfce-core` refuses that by name and this shell routes rather than
+/// forces. The refusal stays as the backstop; this is what stops it being
+/// reached.
+///
+/// # ★★ A widget cannot arrive here at all, and that is the R9 answer
+///
+/// `rotate_annotation` also refuses a **widget** by name — a widget's rotation
+/// is `/MK /R` (§12.5.6.19 Table 189), a quantised 0/90/180/270 *declaration*
+/// the field's appearance generator reads rather than a free-angle transform,
+/// and it is not built.
+///
+/// There is no arm for it because there is no path to one:
+/// `canvas::selection::annot` excludes `/Widget` from annotation selection
+/// outright (the form surface owns those presses), so a widget is a
+/// `doc.selected_field` rather than a `selection.annot()`, and
+/// `pressing::grabbable` hands that selection `GripSet::scale_only()` — **no
+/// rotate handle is painted and none is hit-tested.** R9: render nothing rather
+/// than draw a handle that refuses.
+fn commit_annotation(
+    annot: &crate::canvas::selection::AnnotSelection,
+    dimension: Option<pdfce_core::dimension::DimensionId>,
+    pivot: pdfce_core::vector::Point,
+    theta: f32,
+    actions: &mut Vec<crate::app::actions::Action>,
+) {
+    // ★★ NEGATED here, on the same line of reasoning as the content commit
+    // below and at the same point in the flow: `angle` measures in SCREEN
+    // space, where y runs down, and `rotate_annotation` takes degrees
+    // ANTICLOCKWISE in PDF user space, where y runs up. One negation, at the
+    // one crossing. See this module's header.
+    //
+    // ★ Degrees rather than radians, because that is what both verbs take —
+    // and unlike the content path, which builds a `Matrix::rotate(radians)`,
+    // there is no matrix here to hide the unit in. The conversion is explicit
+    // so a reader can check it against the trace, which also reports degrees.
+    let degrees = f64::from((-theta).to_degrees());
+    match annot.target.kind {
+        crate::canvas::selection::AnnotKind::Markup => {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                //
+                // ★ It carries the ANGLE and the PIVOT — what a wrong build
+                // gets wrong. A build that turned the other way, or pivoted
+                // about a corner instead of the centre, is `rotate-annot-commit`
+                // otherwise, and both are perfectly good rotations that look
+                // entirely deliberate to anybody who did not watch the pointer.
+                format!(
+                    "rotate-annot-commit id={} deg={degrees:.2} px={:.2} py={:.2}",
+                    annot.target.id.num, pivot.x, pivot.y
+                )
+            });
+            actions.push(crate::app::actions::Action::Annot(
+                crate::app::actions::annot::AnnotAction::Rotate {
+                    id: annot.target.id,
+                    pivot: (pivot.x, pivot.y),
+                    degrees,
+                },
+            ));
+        }
+        crate::canvas::selection::AnnotKind::CeDimension => {
+            // ★★★ **A REFUSAL MUST BE A SENTENCE, NEVER A SILENCE.**
+            //
+            // Without this arm a dimension whose sidecar record could not be
+            // resolved would produce the exact defect this project was started
+            // to remove: the operator drags the handle, watches the ghost turn,
+            // lets go, and the dimension snaps back with nothing said anywhere.
+            //
+            // ★ It is a refusal the SHELL can answer — a query, not something
+            // only the engine knows — so it is worded here rather than from the
+            // apply phase.
+            //
+            // ★★★ **Through `record_note`, not through
+            // `app::status::decline`,** and the difference is a module boundary
+            // that is deliberate rather than incidental. `app::status::decline`
+            // is `pub(super)` inside `crate::app`, with its own argument
+            // attached: *"a decline is written by the one dispatcher and read
+            // by the one bar."* The canvas is outside that boundary, and
+            // `canvas::resizing::decline` — the sibling gesture, refusing the
+            // sibling way — already takes the route this takes.
+            //
+            // ⇒ So the two rotation channels are split by WHO KNOWS: a
+            // condition the gesture can see goes on the note channel from here,
+            // and the three the engine returns go on the decline channel from
+            // `app::actions::annots`, inside the boundary. One sentence
+            // catalog, `crate::text::rotating`, serves both.
+            //
+            // ★ **Epoch zero**, exactly as `resizing::decline` uses and for its
+            // stated reason: a refusal changed nothing, so there is no edit for
+            // it to be about, and `record_note` keys on the epoch so a
+            // disclosure retires when the document moves past it. Passing the
+            // live epoch would leave this sentence on screen through every
+            // subsequent edit.
+            //
+            // ★★ Unreachable while `pressing::grabbable` holds:
+            // `dimdrag::grab_box` answers `Some` only for a dimension
+            // `dimdrag::selected` resolved, which is where this id comes from.
+            // It is worded anyway, for `crate::text::rotating::RotateRefusal`'s
+            // stated reason — a routing bug with a sentence is a bug report,
+            // and one without is a handle that does nothing.
+            let Some(dimension) = dimension else {
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed.
+                    format!(
+                        "rotate-declined reason=no-dimension-record annot={}",
+                        annot.target.id.num
+                    )
+                });
+                crate::app::actions::record_note(
+                    0,
+                    crate::text::rotating::RotateRefusal::NoDimensionRecord
+                        .line()
+                        .to_owned(),
+                );
+                return;
+            };
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                //
+                // ★ It carries BOTH ids. A wrong build here is one that
+                // resolved the reverse lookup to a different record — a
+                // perfectly good rotation of the wrong dimension — and the two
+                // numbers side by side are the only place that is visible.
+                format!(
+                    "rotate-dim-commit dim={} annot={} deg={degrees:.2} px={:.2} py={:.2}",
+                    dimension.0, annot.target.id.num, pivot.x, pivot.y
+                )
+            });
+            actions.push(crate::app::actions::Action::Annot(
+                crate::app::actions::annot::AnnotAction::RotateDimension {
+                    dimension,
+                    annot: annot.target.id,
+                    pivot: (pivot.x, pivot.y),
+                    degrees,
+                },
+            ));
+        }
+    }
 }
 
 #[cfg(test)]

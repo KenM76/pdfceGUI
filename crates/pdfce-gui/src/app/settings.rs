@@ -96,6 +96,12 @@ pub trait SettingsExt {
     fn render_options(&self) -> RenderOptions;
     /// Writing, configured.
     fn save_options(&self) -> SaveOptions;
+    /// ★★★ **A new editing session, configured** — the fourth funnel, and the
+    /// one whose absence was a live defect for the whole life of this shell.
+    ///
+    /// See the implementation for what it applies and for the finding that
+    /// produced it.
+    fn open_session(&self, doc: pdfce_core::document::Document) -> pdfce_core::edit::EditSession;
 }
 
 impl SettingsExt for Settings {
@@ -133,6 +139,61 @@ impl SettingsExt for Settings {
         options.unmappable_code = self.unmappable_code;
         options.actual_text = self.actual_text;
         options
+    }
+
+    /// ★★★ **Every editing session in the application starts here.**
+    ///
+    /// # The finding this exists for, and it is the defect this module was
+    /// written to prevent — one channel later
+    ///
+    /// This module's header enumerates the three **option structs** that
+    /// silently discard the operator's configuration, and
+    /// [`tests::no_call_site_builds_its_own_options`] parses every file in the
+    /// crate to keep them funnelled. All of that was correct and all of it was
+    /// blind to a fourth channel: a setting applied by a **method on the
+    /// session** rather than by a field on an options struct.
+    ///
+    /// `Settings::quad_point_order` is one such. `EditSession::new(doc)` takes
+    /// the engine's default; nothing here called `set_quad_point_order`; so an
+    /// operator who chose *counterclockwise* in Settings > Saving got reading
+    /// order in every markup annotation this shell has ever authored. The
+    /// engine had already found the same defect on its own side and shipped
+    /// the setter to fix it, with the sentence this shell should have read:
+    ///
+    /// > **A setting is a promise.** Storing one that does nothing breaks it
+    /// > silently, which is worse than not offering the choice.
+    ///
+    /// ⇒ ★★ The lesson is about the SHAPE of the guard, not about this field.
+    /// A funnel keyed on *constructors* cannot see a setting delivered by a
+    /// setter, and the check that enforced it reported green throughout. The
+    /// check now forbids `EditSession::new` outside this file for exactly that
+    /// reason — see its own doc comment.
+    ///
+    /// # What it applies, and what it deliberately does not
+    ///
+    /// **`quad_point_order`, and nothing else**, because that is the only
+    /// member of `Settings` with a session-level setter. Measured rather than
+    /// assumed: `grep "pub const fn set_\|pub fn set_"` over
+    /// `pdfce-core/src/edit.rs` returns fifteen setters and fourteen of them
+    /// take an operand from the operator's gesture rather than from the
+    /// configuration.
+    ///
+    /// # ★ What the setting actually changes, so the disclosure can be honest
+    ///
+    /// Only the `/QuadPoints` **array**. The baked `/AP` appearance stream is
+    /// byte-identical under both orders, so no reader that honours the
+    /// appearance can tell — it changes what a consumer that re-derives
+    /// geometry from `/QuadPoints` sees, which is exactly the population
+    /// §12.5.6.10's ambiguity is about. Getting it wrong draws a bow-tie.
+    ///
+    /// Existing annotations are **not** rewritten: this governs what the
+    /// session authors from now on. A preference change is not an edit, and
+    /// sweeping a document because a setting moved is the unrequested
+    /// normalisation `ARCHITECTURE.md` §5 forbids.
+    fn open_session(&self, doc: pdfce_core::document::Document) -> pdfce_core::edit::EditSession {
+        let mut session = pdfce_core::edit::EditSession::new(doc);
+        session.set_quad_point_order(self.quad_point_order);
+        session
     }
 
     /// Every rasterisation in the application starts here.
@@ -292,6 +353,46 @@ mod tests {
         s
     }
 
+    /// ★★★ **The session funnel applies the operator's quad-point order.**
+    ///
+    /// The regression test for the fourth channel — the one the check that
+    /// guards this module could not see, because it is a *setter on a session*
+    /// rather than a field on an options struct. Until 2026-08-28 every session
+    /// this shell opened took the engine's default and an operator who chose
+    /// counterclockwise got reading order in every markup they ever drew.
+    ///
+    /// ★★ It asserts **both** values, and that is not symmetry for its own
+    /// sake. Asserting only `Counterclockwise` would pass on an implementation
+    /// that hard-coded it, which is the same defect wearing the other value;
+    /// asserting only the default would pass on the broken build this replaced.
+    /// The pair is what makes it a test of the *wire* rather than of a value.
+    ///
+    /// ★ The document is the blank template rather than a fixture from disk,
+    /// because the subject is the session's configuration and not its content —
+    /// and a test that read a file would fail for reasons that have nothing to
+    /// do with what it asserts.
+    #[test]
+    fn the_session_funnel_applies_the_operators_quad_point_order() {
+        use pdfce_core::settings::QuadPointOrder;
+
+        for order in [
+            QuadPointOrder::ReadingOrder,
+            QuadPointOrder::Counterclockwise,
+        ] {
+            let mut settings = Settings::default();
+            settings.quad_point_order = order;
+            let (doc, _pages) = crate::app::blank::document().expect("the template parses");
+            let session = settings.open_session(doc);
+            assert_eq!(
+                session.quad_point_order(),
+                order,
+                "the session took the engine's default instead of the operator's choice — \
+                 which is what `EditSession::new` at a call site does, and why the funnel check \
+                 forbids it"
+            );
+        }
+    }
+
     /// ★ **The regression test for the defect this module exists to prevent.**
     ///
     /// Nine of thirteen settings in the old shell were persisted, shown, edited
@@ -418,6 +519,28 @@ mod tests {
     /// - **`#[cfg(test)]` modules anywhere** — a test pinning the engine's own
     ///   default behaviour must be able to name it, or it is testing the
     ///   operator's configuration instead of the engine's contract.
+    ///
+    /// # ★★★ The fourth constructor, and the finding that added it
+    ///
+    /// `EditSession::new` joined the list on 2026-08-28. It is not an options
+    /// struct, which is precisely why it was missed: this check was written
+    /// around the three **option constructors** named in the module header, and
+    /// a setting delivered by a *setter on the session* — `quad_point_order`
+    /// through `EditSession::set_quad_point_order` — is invisible to that
+    /// shape. The result was an operator choice, persisted, validated, shown in
+    /// a window, and honoured by nothing, with this check reporting green for
+    /// the whole life of the shell.
+    ///
+    /// ⇒ The lesson is not about the field. **A guard shaped around one
+    /// delivery mechanism cannot see a second one**, and the way to find the
+    /// second is to ask what the engine offers rather than to re-read the
+    /// guard. `tools/verb-coverage.py` is the instrument that asks that
+    /// question mechanically, and it is what surfaced this.
+    ///
+    /// `app/blank.rs` is exempt for its existing reason extended: its session
+    /// rewrites a 443-byte template whose bytes are discarded in the same
+    /// statement, and it authors no annotation, so no `/QuadPoints` array
+    /// exists for the order to govern.
     #[test]
     fn no_call_site_builds_its_own_options() {
         use syn::visit::Visit;
@@ -428,6 +551,16 @@ mod tests {
             ("RenderOptions", "default"),
             ("SaveOptions", "default"),
             ("SaveOptions", "identity"),
+            // ★★★ The fourth entry, added 2026-08-28, and the one that says
+            // what the first three could not: a setting can be delivered by a
+            // SETTER on a session as well as by a field on an options struct,
+            // and a check keyed on constructors is blind to it.
+            //
+            // `EditSession::new` takes the engine's defaults, so every session
+            // opened through it discarded `Settings::quad_point_order` — for
+            // the whole life of this shell, with this very check green
+            // throughout. `SettingsExt::open_session` is the funnel.
+            ("EditSession", "new"),
         ];
 
         struct Finder {
@@ -442,6 +575,28 @@ mod tests {
                 });
                 if !is_test_mod {
                     syn::visit::visit_item_mod(self, node);
+                }
+            }
+
+            /// ★ Skip a `#[cfg(test)]` **function**, for the module rule's
+            /// reason and not as a widening of it.
+            ///
+            /// A test-gated free function compiles to nothing in a release
+            /// build, exactly as a test-gated module does, and this crate has
+            /// two of them — `app::state::open_fixture` and its sibling — which
+            /// exist so a dozen test modules share one way of opening a
+            /// fixture. They were found by this check the moment
+            /// `EditSession::new` joined the forbidden list, which is the check
+            /// working: the *reason* they are allowed is the one already
+            /// written for modules, and it had simply never been reachable
+            /// before, because no forbidden constructor had ever appeared
+            /// outside a `mod tests`.
+            fn visit_item_fn(&mut self, node: &'ast syn::ItemFn) {
+                let is_test_only = node.attrs.iter().any(|a| {
+                    a.path().is_ident("cfg") && a.to_token_stream_string().contains("test")
+                });
+                if !is_test_only {
+                    syn::visit::visit_item_fn(self, node);
                 }
             }
 

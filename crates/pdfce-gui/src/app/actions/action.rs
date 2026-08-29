@@ -657,6 +657,24 @@ pub enum Action {
     ///   open-or-closed** (§12.3.3), which is why no verb in the family
     ///   describes itself by diffing a count.
     Bookmark(super::bookmarks::BookmarkAction),
+    /// ★★ **Everything whose subject is a whole FILE living inside the
+    /// document** — attach, remove, and save one out (§7.11.4.1).
+    ///
+    /// A sub-enum from the day it was written, under **R2** and this file's own
+    /// rule: a family that arrives with three verbs at once has grown before
+    /// anybody had to measure it.
+    ///
+    /// Its header carries the two things a reader must not have to rediscover:
+    ///
+    /// * **All three open a native file dialog**, so all three are `Action`s
+    ///   for `super::write`'s reason as well as the funnel's — a modal OS window
+    ///   must not open inside a layout pass.
+    /// * **Nothing any of them does appears on the page.** An embedded file is
+    ///   reached from the catalogue and is drawn nowhere, so every one of them
+    ///   owes a sentence to `crate::app::status` — the exact inverse of
+    ///   [`Self::Bookmark`]'s rename, which owes none because the row the
+    ///   operator is looking at already says what happened.
+    Attachment(super::attachments::AttachmentAction),
     /// ★★★ **Re-shape the page's own text** — a reflow today, and the caret
     /// and restyle commits when they follow.
     ///

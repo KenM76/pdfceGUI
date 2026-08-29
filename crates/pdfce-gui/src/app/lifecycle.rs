@@ -41,11 +41,11 @@
 use std::path::PathBuf;
 
 use pdfce_core::document::{DocError, Document};
-use pdfce_core::edit::EditSession;
 use pdfce_core::xref::XrefErrorKind;
 
 use crate::app::PdfceApp;
 use crate::app::blank;
+use crate::app::settings::SettingsExt;
 use crate::app::state::{OpenDoc, Status};
 use crate::viewer;
 
@@ -79,7 +79,16 @@ impl PdfceApp {
         let incoming = match Document::load(&path) {
             Ok(doc) => match pdfce_core::page_tree::pages(&doc) {
                 Ok(pages) => {
-                    Status::Open(Box::new(OpenDoc::new(path, EditSession::new(doc), pages)))
+                    // ★ `open_session`, not `EditSession::new` — the settings
+                    // funnel. A bare `new` takes the engine's defaults and
+                    // silently discards the operator's `quad_point_order`,
+                    // which is what it did here until 2026-08-28.
+                    // `app::settings`' fourth funnel carries the argument.
+                    Status::Open(Box::new(OpenDoc::new(
+                        path,
+                        self.settings.open_session(doc),
+                        pages,
+                    )))
                 }
                 // The header and cross-reference table were fine and the
                 // page tree is not. That is a damaged file, not an
@@ -215,7 +224,8 @@ impl PdfceApp {
         let incoming = match made {
             Ok((doc, pages)) => Status::Open(Box::new(OpenDoc::created(
                 name,
-                EditSession::new(doc),
+                // The funnel, as on the open path above.
+                self.settings.open_session(doc),
                 pages,
             ))),
             Err(message) => Status::Failed {

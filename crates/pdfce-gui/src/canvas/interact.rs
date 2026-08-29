@@ -133,8 +133,7 @@ use crate::shell::menus::MenuHost;
 // `mod.rs` — `overlay::grip_box`, `zoom::arm_anchor`, `keys::canvas_keys` — and
 // so the doc links above and below resolve to the same places they always did.
 use super::{
-    CANVAS_MARGIN, dimdrag, handles, keys, markup, measure, overlay, strip, textsel, tool, trace,
-    zoom,
+    CANVAS_MARGIN, dimdrag, handles, keys, markup, measure, strip, textsel, tool, trace, zoom,
 };
 
 /// The three facts about *this frame's canvas* that [`interact`] needs, and
@@ -1018,11 +1017,17 @@ pub(super) fn interact(
                     from,
                     at,
                     phase,
-                    bounds: overlay::grip_box(map, &selection),
+                    // ★★★ `grabbable`, NOT `overlay::grip_box` — the one line
+                    // the annotation rotation hangs on; `canvas::rotating`'s
+                    // header is the argument.
+                    bounds: crate::canvas::pressing::grabbable(&ctx, doc, map, &selection).bounds,
                     page_index,
                     constrain: shift,
                     map: Some(map),
                     page: doc.current_page(),
+                    // ★ Resolved HERE so a dimension with no sidecar record
+                    // declines in words rather than in silence.
+                    dimension: dimdrag::selected(doc, &selection).map(|(id, _)| id),
                 },
                 &selection,
                 actions,

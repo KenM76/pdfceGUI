@@ -233,6 +233,10 @@ impl PdfceApp {
         // shared: the caller's copy is inside a borrow that has ended by the
         // time this runs, and a helper returning it would be a third place the
         // encoding is known.
+        // ★ Read BEFORE `self.parked` is borrowed mutably below. `Settings`'
+        // fields are `Copy`, so this is a value rather than a borrow, which is
+        // what lets the closure use it while the source document is borrowed.
+        let separations = self.settings.separations;
         let parked_index = if source_slot < self.active_slot {
             source_slot
         } else {
@@ -273,7 +277,11 @@ impl PdfceApp {
         // waiting behind its tab — visible the moment the operator clicks back,
         // and attributable to nothing.
         super::apply::vector_edit(source, "page-move-take", 0, pages.len(), |session| {
-            let outcome = super::pages::delete(session, pages);
+            // ★ The operator's separation policy, as on every other delete —
+            // this is a page delete wearing a drag's clothes, and a policy that
+            // applied on one route and not the other would be the divergence
+            // the single funnel exists to prevent.
+            let outcome = super::pages::delete(session, pages, separations);
             if let Ok(notes) = &outcome {
                 source_notes.clone_from(notes);
             }

@@ -107,6 +107,125 @@ pub enum AnnotAction {
         /// dependency.
         modifiers: crate::canvas::scaling::Modifiers,
     },
+    /// ★★★ **Turn a markup annotation about a pivot**, as one undoable command.
+    /// `Pass 155.0`.
+    ///
+    /// Raised by `crate::canvas::rotating` on the release of a rotate-handle
+    /// drag, and by nothing else.
+    ///
+    /// # ★★★ Why there is no options type, unlike [`Self::Resize`]
+    ///
+    /// **Because a rotation is an isometry.** Every length is preserved,
+    /// including the drawn stroke width — so the whole question
+    /// [`Self::Resize::modifiers`] exists to answer (*does a line weight scale
+    /// with the shape?*) has no counterpart here. There is nothing to ask, so
+    /// nothing is asked, and no switch is offered on the Tool row for one.
+    ///
+    /// `pdfce-core` put it in one sentence and it is the sentence that decides
+    /// this variant's shape: *"if your grip UI offers rotate and resize
+    /// together, **rotate needs no confirmation step and no distortion
+    /// warning.** Resize does."*
+    ///
+    /// # ★★ A foreign appearance turns correctly, where it cannot be scaled
+    ///
+    /// [`Self::Resize`] has to refuse artwork pdfce did not draw: §12.5.5's
+    /// placement matrix scales it *after* stroking and no scalar `/BS /W`
+    /// describes an anisotropic stroke. **Rotation has no such problem**, and
+    /// the reason is in the standard rather than in an implementation choice —
+    /// step (a) transforms the appearance `BBox` through its **own** `/Matrix`,
+    /// so pdfce composes the rotation into the matrix a producer already wrote.
+    /// Nothing is redrawn and nobody's artwork is replaced. It works on a stamp
+    /// Acrobat made.
+    ///
+    /// ⇒ Which is why the operator gets no confirmation, no warning and no
+    /// second thought on this gesture, and gets all three on the resize.
+    ///
+    /// # ★ `pivot` in page space, and `degrees` anticlockwise
+    ///
+    /// The **same anchor-plus-scalar shape** [`Self::Move`] and [`Self::Resize`]
+    /// already take, which the engine chose deliberately so this shell's grip
+    /// code needs no third convention. `canvas::rotating` performs the single
+    /// screen→page negation that gets it here; see that module's header for why
+    /// it happens exactly once.
+    ///
+    /// ★ No page, for this module's stated reason: `rotate_annotation` finds
+    /// its operand by stable object id.
+    Rotate {
+        /// The annotation, by stable object id.
+        id: pdfce_core::object::ObjId,
+        /// The point that stays still, in PDF page space — the **centre** of
+        /// the selection's box, which is what `Grip::Rotate::pivot` answers and
+        /// what the ghost turned about.
+        pivot: (f64, f64),
+        /// Degrees **anticlockwise** in PDF user space. Any real angle; the
+        /// engine does not quantise, and Shift's 15° snap is this shell's
+        /// affordance rather than a limit of the verb.
+        degrees: f64,
+    },
+    /// ★★★ **Turn a ce dimension about a pivot**, as one undoable command.
+    /// `Pass 159.0`.
+    ///
+    /// Raised by `crate::canvas::rotating` on the release of a rotate-handle
+    /// drag over a selected ce dimension, and by nothing else.
+    ///
+    /// # ★★★ A separate variant, because [`Self::Rotate`] REFUSES a dimension
+    /// by name
+    ///
+    /// `rotate_annotation` returns `AnnotationMoveWrongVerb` for a ce dimension
+    /// and points here, with its reason attached: *"a ce dimension's
+    /// orientation is part of its measurement, so turning it must re-measure
+    /// rather than spin a rectangle."* A dimension is a `/Line` with `/IT
+    /// /LineDimension`; rotating it as an annotation would turn the `/Rect` and
+    /// the baked `/AP` and leave the sidecar geometry — the thing the number is
+    /// derived from — where it was.
+    ///
+    /// ⇒ Two variants rather than one with a kind flag, for exactly the reason
+    /// `canvas::selection::annot::AnnotKind` is an enum: **a bool is a fact a
+    /// caller may forget to read; a variant is one the compiler makes them
+    /// handle.** The routing decision is made once, in `canvas::rotating`, over
+    /// a `match` that cannot fall through.
+    ///
+    /// # ★★ The measured value cannot change, and the UI is built around that
+    ///
+    /// A rotation preserves every distance, so the number is identical either
+    /// side of it **by construction** rather than because pdfce holds it. The
+    /// engine says so in as many words: *"if you show a live readout while
+    /// dragging a rotate handle, it will simply not move — that is correct, not
+    /// a stale binding."* There is therefore no before/after value on the
+    /// outcome and none carried here.
+    ///
+    /// # ★★★ What DOES change, and is disclosed
+    ///
+    /// A `Linear` dimension locked to horizontal or vertical **cannot stay
+    /// locked through a rotation**, and the engine relaxes it to *aligned*
+    /// rather than refusing the rotation or keeping a constraint that
+    /// contradicts the drawn line. `crate::app::actions::annots::rotate_dimension`
+    /// words that on the status row, because — the engine's argument, adopted —
+    /// *"an operator whose dimension silently stopped being axis-locked will
+    /// find out later and blame something else."*
+    ///
+    /// # ★ It carries a `DimensionId`, not an `ObjId`
+    ///
+    /// The one place this sub-enum departs from its own header's rule, and
+    /// deliberately: `rotate_dimension` takes the **sidecar record's** id, and
+    /// the annotation's object id maps to it only by a scan (`record.annot` is
+    /// stored one way round). Resolving it in the gesture rather than at apply
+    /// time is what lets the drag **decline in words** when the sidecar carries
+    /// no record for the selection, instead of raising an action that the
+    /// engine would then refuse into silence.
+    RotateDimension {
+        /// The dimension's sidecar record id, resolved by
+        /// `canvas::dimdrag::selected` at the moment of the gesture.
+        dimension: pdfce_core::dimension::DimensionId,
+        /// The annotation's object id — **for the trace only**, so a failed run
+        /// can be tied back to the thing the operator had selected. Not used to
+        /// find the dimension; see the variant docs.
+        annot: pdfce_core::object::ObjId,
+        /// The point that stays still, in PDF page space.
+        pivot: (f64, f64),
+        /// Degrees anticlockwise in PDF user space.
+        degrees: f64,
+    },
     Delete {
         /// The page it is on — for the trace and the disclosure, not for the
         /// verb, which finds the annotation by id wherever it lives. A reply

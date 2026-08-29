@@ -108,6 +108,21 @@
 //! declare its regions and the old binary cannot count its objects — and in
 //! both cases the check says in its own output which one it used.
 
+/// ★★★ **The ninth handle on an ANNOTATION** — draw a shape, grab the rotate
+/// handle, and it turns.
+///
+/// The sibling of [`rotate`], which drives the same handle over page content.
+/// It is a separate check rather than a parameter on that one because the two
+/// exercise different verbs behind an identical gesture — `rotate_annotation`
+/// here, `transform_objects` there — and the whole risk this check exists for
+/// is a build that reaches the *other* one. It asserts which trace line
+/// appeared **and** that the other's did not.
+///
+/// ★ It also asserts the affordance BEFORE pressing, through the
+/// `canvas.rotate-handle` region, which [`rotate`] could not: a build with no
+/// ninth handle and a build with a mis-routed one produce the same silence
+/// otherwise.
+pub mod annot_rotate;
 pub mod blend_space;
 /// Export to DXF: the file reaches disk, and its contents agree with the
 /// counts the shell reported.
@@ -429,6 +444,11 @@ pub mod adopt_widget;
 /// that was asked for.
 pub mod block_nav;
 pub mod bookmark_add;
+/// ★★ **The Bookmarks panel could only ever create** — rename and delete
+/// shipped in `Pass 156.0` and this drives both through the one block that
+/// carries them. Its header carries why the delete oracle asserts the count
+/// EXACTLY rather than "fewer than before".
+pub mod bookmark_edit;
 pub mod chords;
 /// ★★★ **The Comments panel stopped being a viewer** — a note can be written
 /// onto a shape that already exists, which needed a verb `pdfce-core` did not
@@ -609,6 +629,13 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // the two typing checks because a run that fails here should fail
         // before paying for a keystroke that may never arrive.
         Box::new(markup_move::DraggingAMarkupMovesIt),
+        // ★★★ Immediately after the move, and deliberately: the two share
+        // steps 1-3 verbatim in shape — draw a rectangle, put the pen down,
+        // click it — so a failure in EITHER of those here should be read
+        // against `dragging_a_markup_moves_it`'s result first. If both fail at
+        // the same step, the defect is in authoring or selection rather than in
+        // either gesture.
+        Box::new(annot_rotate::RotatingAMarkupTurnsIt),
         Box::new(widget_move::DraggingAFormFieldMovesIt),
         // ★ Beside the other form checks. It reuses `widget_move`'s first two
         // steps verbatim in shape, so a failure in EITHER of them here should
@@ -855,6 +882,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(dialog_windows::DialogsOpenInTheirOwnWindow),
         Box::new(draft_selection::ShiftArrowsSelectText),
         Box::new(bookmark_add::BookmarkCanBeWritten),
+        Box::new(bookmark_edit::ABookmarkCanBeRenamedAndRemoved),
         Box::new(comment_note::ANoteCanBeWrittenOntoAShape),
         // Last of the three new ones and the most expensive: it drives Insert
         // pages, the Forms panel and the Tab-order section in one session,

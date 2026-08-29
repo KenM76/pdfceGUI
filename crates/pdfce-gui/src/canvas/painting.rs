@@ -259,7 +259,26 @@ pub(super) fn draw(
                 .map_or(&[][..], |s| s.highlights(view.page, doc.edit_epoch)),
         );
     }
-    overlay::draw_selection(&painter, ui.visuals(), map, selection);
+    // ★★★ **ONE `GripSet`, ASKED ONCE, HANDED TO THE PAINTER — rule H7.**
+    //
+    // `pressing::grabbable` is the function `pressing::look` asks to decide
+    // what the press lands on, and it is the function asked here to decide what
+    // is drawn. Two calls, one decision procedure, no second predicate anywhere
+    // for the two to drift apart on.
+    //
+    // Before 2026-08-28 the painter re-derived the equivalent condition
+    // locally, which was survivable while every kind offered the same set. It
+    // stopped being survivable when three kinds started offering three
+    // different sets — a markup turns and scales, a ce dimension turns and does
+    // not scale, a form field's box scales and does not turn. See
+    // `overlay::draw_grips`' header for what each disagreement would look like
+    // from a chair.
+    //
+    // ★ It is cheap: `grabbable` is three `Option` probes over values already
+    // resolved for this frame, and the dimension probe short-circuits unless an
+    // annotation is selected at all.
+    let offer = crate::canvas::pressing::grabbable(&ctx, doc, map, selection);
+    overlay::draw_selection(&painter, ui.visuals(), map, selection, offer.offer);
     draw_anchors(
         &painter,
         ui,
@@ -325,8 +344,23 @@ pub(super) fn draw(
     // one block up: it is a pure function of the selection, and carrying it
     // would be a second copy that could go stale between the frame that
     // computed it and the frame that paints.
+    // ★★★ …and the box it is re-read from is `grabbable`'s, NOT
+    // `overlay::grip_box`'s — 2026-08-28, and this line is one of the two the
+    // whole annotation rotation hangs on.
+    //
+    // `grip_box` derives its answer from the selection's cached **content**
+    // outlines, which `select_annot` clears: an annotation is not content and
+    // has nothing decomposed to cache. So over a selected markup or dimension
+    // it answers `None`, this `let` fails, and **no ghost is drawn at all** —
+    // the operator drags the handle and sees nothing move until they let go,
+    // which reads as a gesture that is not tracking.
+    //
+    // `pressing::grabbable` is the same function the drag itself measures
+    // against (`canvas::rotating::Frame::bounds`) and the same one the hit test
+    // and the painter above ask. One box; the preview, the pivot and the commit
+    // cannot disagree about where the centre is.
     if let Some(radians) = f.rotate_ghost
-        && let Some(bounds) = overlay::grip_box(map, selection)
+        && let Some(bounds) = offer.bounds
     {
         overlay::draw_rotate_ghost(
             &painter,

@@ -650,6 +650,29 @@ pub const fn edit_insert_image() -> CommandText {
     CommandText::new("Image…", "Place an image file on this page.")
 }
 
+/// `edit.attachments`
+///
+/// ★★ **The tooltip says what the panel SHOWS as well as what it does**, which
+/// is [`view_panel_bookmarks`]' shape and is the right one here for a reason of
+/// its own: an operator has no way to discover that a PDF can carry whole files
+/// inside it, because nothing on the page ever shows one. A tooltip reading
+/// only *"Manage attachments"* would name a capability to somebody who does not
+/// know the capability exists.
+///
+/// ★ It does **not** promise a description edit. `attach_file` takes a
+/// description at attach time and `pdfce-core` has no verb that changes one
+/// afterwards, and `view_reset_layout`'s recorded defect is exactly this — a
+/// tooltip that promised a choice the build did not offer. The panel discloses
+/// the limit where an operator meets it.
+#[must_use]
+pub const fn edit_attachments() -> CommandText {
+    CommandText::new(
+        "Attachments",
+        "The files this document carries inside itself — attach one, save one out, or remove one. \
+         They appear on no page.",
+    )
+}
+
 /// **Text field** — the box an operator types into.
 #[must_use]
 pub const fn edit_form_text_field() -> CommandText {
@@ -1249,6 +1272,7 @@ mod tests {
             edit_add_text(),
             edit_objects(),
             edit_insert_image(),
+            edit_attachments(),
             edit_form_create_field(),
             edit_form_manage_fields(),
             edit_form_flatten(),

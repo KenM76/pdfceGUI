@@ -249,6 +249,280 @@ pub(super) fn resize(
     });
 }
 
+/// **Turn a markup annotation about a pivot.** `Pass 155.0`.
+///
+/// Reached from `canvas::rotating` on the release of a rotate-handle drag, and
+/// from nothing else.
+///
+/// # ★★★ There is no options type, and its absence is the feature
+///
+/// [`resize`] one screen up takes `crate::canvas::scaling::Modifiers` — the
+/// operator's Tool-row switches — because a resize has a genuine question to
+/// ask: *does a line weight scale with the shape?* A rotation has no such
+/// question, because **a rotation is an isometry**. Every length is preserved,
+/// including the drawn stroke width, so there is nothing for a switch to
+/// decide and no switch is offered.
+///
+/// `pdfce-core` drew the consequence for this shell's grip UI in one line, and
+/// it is the line that shaped this whole gesture: *"if your grip UI offers
+/// rotate and resize together, **rotate needs no confirmation step and no
+/// distortion warning.** Resize does."*
+///
+/// # ★★ And unlike [`resize`], a FOREIGN appearance turns correctly
+///
+/// `resize_annotation` has to refuse artwork pdfce did not draw — §12.5.5's
+/// placement matrix scales it *after* stroking, and no scalar `/BS /W`
+/// describes an anisotropic stroke. That refusal is why [`resize`] carries a
+/// worded decline for `ResizeAppearanceNotRebuildable` at all.
+///
+/// **Rotation has no equivalent**, and the reason is in the standard rather
+/// than in an implementation choice: step (a) transforms the appearance `BBox`
+/// through its **own** `/Matrix`, so pdfce composes the rotation into the
+/// matrix a producer already wrote. Nothing is redrawn and nobody's artwork is
+/// replaced — it works on a stamp Acrobat made.
+///
+/// # ★★★ The disclosure is about the box, not about the mark
+///
+/// **`/Rect` grows.** §12.5.2 requires it upright, and the upright box bounding
+/// a rotated rectangle is larger at any angle that is not a quarter turn. That
+/// is correct behaviour and it is *invisible as such*: this shell draws its
+/// selection outline **from `/Rect`**, so an operator turning a stamp 30°
+/// watches a dashed box swell around artwork that did not change size.
+///
+/// ⇒ Rule 4's surviving half exactly — a consequence the operator can see but
+/// cannot *explain* still owes an off-canvas report. Render normally; report
+/// separately. Both. [`crate::text::rotating::rect_grew`] is the sentence, and
+/// it answers `None` at a quarter turn so the commonest rotation there is stays
+/// silent.
+///
+/// # ★ What is deliberately NOT disclosed
+///
+/// **`rect_differences_untouched`** (`/RD`), for the reason [`move_annot`]
+/// already gives about the same key: at an angle that is not a quarter turn
+/// **no** axis-aligned inset expresses the rotated result, so pdfce does not
+/// invent one and leaving it alone is the only correct behaviour. A sentence
+/// about it would teach an operator to worry about something that is right.
+///
+/// **`appearance_matrix_updated`** — that is *how* a rotation is expressed, not
+/// a consequence of it. It goes in the trace, where implementation facts
+/// belong, and it is the field a wrong build would get wrong.
+pub(super) fn rotate(doc: &mut OpenDoc, id: ObjId, pivot: (f64, f64), degrees: f64) {
+    super::apply::vector_edit(doc, "rotate-annotation", 0, 1, |session| {
+        session
+            .rotate_annotation(id, pivot, degrees)
+            .inspect_err(|error| {
+                // ★★★ **The refusal is caught here and worded**, rather than
+                // being left to `vector_edit`'s generic arm, which traces and
+                // says nothing to the operator. [`resize`]'s own comment is the
+                // argument and it applies unchanged: a grip that is dragged,
+                // released, and does nothing with no explanation is this
+                // project's founding defect.
+                //
+                // ★★ From INSIDE the closure, because none of these is knowable
+                // before the call — whether a document's certification forbids
+                // an annotation change is a census over its objects, and
+                // whether the routing sent the wrong kind here is a fact about
+                // the value the engine resolved.
+                //
+                // ★ **Every** `EditError` is worded, unlike [`resize`], which
+                // words one variant and leaves the rest to the trace. The
+                // difference is that a resize genuinely has six refusal shapes
+                // with six remedies, and this verb has essentially none the
+                // operator can act on — so a catch-all that says *the page is
+                // exactly as it was* is honest here where a catch-all there
+                // would have been a shrug.
+                crate::app::status::decline::record_rotate(refusal_for(error));
+            })
+            .map(|outcome| {
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed.
+                    //
+                    // ★★ It carries the ANGLE, the PIVOT and both rectangles,
+                    // which is what a wrong build gets wrong. A line saying only
+                    // "a rotation applied" would be identical for a build that
+                    // turned the other way, pivoted about a corner instead of
+                    // the centre, or left the appearance `/Matrix` alone — and
+                    // that last one produces a `/Rect` that grew around artwork
+                    // that did not move, which looks exactly like the correct
+                    // behaviour this function discloses.
+                    //
+                    // `-applied`, per the convention `forms::import_data`
+                    // records: the funnel writes its own bare-named line for
+                    // the same edit and `.last()` would read that one.
+                    format!(
+                        "rotate-annotation-applied id={} deg={degrees:.2} px={:.2} py={:.2} \
+                         keys={} matrix={} from={:.1}x{:.1} to={:.1}x{:.1}",
+                        id.num,
+                        pivot.0,
+                        pivot.1,
+                        outcome.geometry_keys_rotated.len(),
+                        u8::from(outcome.appearance_matrix_updated),
+                        outcome.from.urx - outcome.from.llx,
+                        outcome.from.ury - outcome.from.lly,
+                        outcome.to.urx - outcome.to.llx,
+                        outcome.to.ury - outcome.to.lly,
+                    )
+                });
+                crate::text::rotating::rect_grew(
+                    (
+                        outcome.from.urx - outcome.from.llx,
+                        outcome.from.ury - outcome.from.lly,
+                    ),
+                    (
+                        outcome.to.urx - outcome.to.llx,
+                        outcome.to.ury - outcome.to.lly,
+                    ),
+                )
+                .into_iter()
+                .collect()
+            })
+    });
+}
+
+/// **Turn a ce dimension about a pivot.** `Pass 159.0`.
+///
+/// Reached from `canvas::rotating` on the release of a rotate-handle drag over
+/// a selected ce dimension, and from nothing else.
+///
+/// # ★★★ Why this is a second function rather than a branch in [`rotate`]
+///
+/// Because `rotate_annotation` **refuses a ce dimension by name** and points
+/// here, with its reason attached: *"a ce dimension's orientation is part of
+/// its measurement, so turning it must re-measure rather than spin a
+/// rectangle."*
+///
+/// A ce dimension is a `/Line` with `/IT /LineDimension` and a record in the
+/// document's `/PieceInfo` sidecar. It passes every *"is this markup pdfce can
+/// author?"* test. Turning it as an annotation would rotate the `/Rect` and the
+/// baked `/AP` and leave the **sidecar geometry** — the thing the displayed
+/// number is derived from — exactly where it was, so the dimension would draw
+/// at one angle and measure along another.
+///
+/// ⇒ This is the same routing obligation this module's header records for
+/// `set_markup_style`, and `canvas::selection::annot::AnnotKind` carries the
+/// distinction on the selected target precisely so the fork is a `match` the
+/// compiler checks.
+///
+/// # ★★★ The measured value CANNOT change, and nothing says otherwise
+///
+/// A rotation preserves every distance, so the number is identical either side
+/// of it **by construction** rather than because pdfce holds it. The engine
+/// therefore returns no before/after pair — deliberately, and it says why:
+/// reporting *"5.000 m → 5.000 m"* would invite a reader to look for a change
+/// that cannot exist.
+///
+/// ⇒ So there is no disclosure here saying the measurement is unchanged, and
+/// there must not be. A live readout that does not move during the drag is
+/// **correct, not a stale binding**.
+///
+/// # ★★★ The one disclosure, commissioned by the engine by name
+///
+/// A `Linear` dimension may be constrained to `Horizontal` or `Vertical`. Turn
+/// it 30° and that constraint can no longer describe what is drawn. Three
+/// options existed and two are wrong — refusing makes rotation impossible for
+/// most of a CAD drawing; keeping the constraint leaves the line and its own
+/// stated constraint disagreeing, invisibly, until something regenerates from
+/// it. The engine relaxes to `Aligned` and reports `constraint_relaxed`, with
+/// this instruction attached:
+///
+/// > **Say so**: an operator whose dimension silently stopped being axis-locked
+/// > will find out later and blame something else.
+///
+/// [`crate::text::rotating::axis_lock_relaxed`] is that sentence. It fires only
+/// when the flag is set — a rotation by a whole number of turns leaves the
+/// constraint alone, because nothing moved.
+///
+/// # ★ Scaling a dimension is not here, and will not be
+///
+/// Not unbuilt — **declined**, by the engine and by the operator, on the ground
+/// that it has no honest reading: either the displayed value stays fixed while
+/// the geometry grows, so the dimension lies about the drawing, or both change,
+/// so nothing was measured. The operation actually wanted is `set_group_scale`
+/// — points per unit — which already ships on the Measure surface. That is why
+/// `pressing::grabbable` hands a selected dimension `GripSet::rotate_only()`
+/// rather than the full nine.
+pub(super) fn rotate_dimension(
+    doc: &mut OpenDoc,
+    dimension: pdfce_core::dimension::DimensionId,
+    annot: ObjId,
+    pivot: (f64, f64),
+    degrees: f64,
+) {
+    super::apply::vector_edit(doc, "rotate-dimension", 0, 1, |session| {
+        session
+            .rotate_dimension(dimension, pivot, degrees)
+            .inspect_err(|error| {
+                // Same placement and the same argument as [`rotate`]'s: caught
+                // inside the closure, because whether the engine refuses is not
+                // knowable before the call.
+                crate::app::status::decline::record_rotate(refusal_for(error));
+            })
+            .map(|outcome| {
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed.
+                    //
+                    // ★ `relaxed=` is the field worth tracing and the one a
+                    // wrong build gets wrong: a rotation that turned the
+                    // geometry and left a `Horizontal` constraint behind
+                    // produces a line and a constraint that disagree, which is
+                    // invisible on the canvas and shows up the next time
+                    // anything regenerates from the constraint.
+                    //
+                    // ★ `annot=` is carried purely so a failed run ties back to
+                    // the thing the operator had selected; the verb addressed
+                    // the sidecar record, not the annotation.
+                    format!(
+                        "rotate-dimension-applied dim={} annot={} deg={degrees:.2} \
+                         px={:.2} py={:.2} relaxed={}",
+                        outcome.dimension.0,
+                        annot.num,
+                        pivot.0,
+                        pivot.1,
+                        u8::from(outcome.constraint_relaxed),
+                    )
+                });
+                if outcome.constraint_relaxed {
+                    vec![crate::text::rotating::axis_lock_relaxed()]
+                } else {
+                    Vec::new()
+                }
+            })
+    });
+}
+
+/// Which worded refusal an `EditError` from either rotation verb becomes.
+///
+/// # ★★★ One function over the two verbs, and it is the compiler's job to keep
+/// it complete
+///
+/// Both `rotate_annotation` and `rotate_dimension` refuse from the same short
+/// list, so a second copy of this mapping would be a second place for a variant
+/// to be forgotten — and a forgotten variant here is a grip that is dragged,
+/// released, and does nothing with no explanation.
+///
+/// # ★★ Why the fallback is a sentence rather than the error's `Display`
+///
+/// `tools/gates/check-ui-strings.sh`' exclusion 3 names the failure in as many
+/// words: a `format!` of an `EditError` routes **diagnostic prose into the UI**.
+/// [`crate::text::rotating::RotateRefusal::Other`] is a hand-written sentence
+/// that says the one thing an operator needs about an unrecognised refusal —
+/// *the page is exactly as it was* — and names no cause it does not know.
+fn refusal_for(error: &pdfce_core::edit::EditError) -> crate::text::rotating::RotateRefusal {
+    use crate::text::rotating::RotateRefusal;
+    match error {
+        // ★ The routing backstop. Unreachable while `canvas::rotating`'s
+        // `match` on `AnnotKind` holds and while `canvas::selection::annot`
+        // keeps excluding `/Widget` — which is exactly why it is worded: if
+        // this sentence ever appears, the routing has broken, and a broken
+        // route with a sentence is a bug report rather than a dead handle.
+        pdfce_core::edit::EditError::AnnotationMoveWrongVerb { .. } => RotateRefusal::WrongVerb,
+        // ★ The one an operator meets on an ordinary file and cannot guess at:
+        // a signed drawing looks exactly like an unsigned one on the canvas.
+        pdfce_core::edit::EditError::CertificationForbidsChange { .. } => RotateRefusal::Certified,
+        _ => RotateRefusal::Other,
+    }
+}
+
 /// **Write the note on an annotation that already exists** — `/Contents`, and
 /// conditionally `/T` and `/M` — as one undoable command.
 ///

@@ -403,6 +403,27 @@ pub fn grip_rects(bounds: Rect) -> Vec<(Grip, Rect)> {
 /// is the **visible control, silently inert** failure this project spends its
 /// time removing.
 ///
+/// ★★★ **AND IT EARNED THE SECOND FLAG THE SAME DAY, FROM THE OTHER SIDE.**
+///
+/// `Pass 155.0` gave the engine `rotate_annotation` and `Pass 159.0` gave it
+/// `rotate_dimension`, so within hours of this struct being written the two
+/// flags stopped moving together in *both* directions:
+///
+/// | selection | resize | rotate | why |
+/// |---|---|---|---|
+/// | page content, Object rung | ✓ | ✓ | `transform_objects` does both |
+/// | a **markup** annotation | ✓ | ✓ | `resize_annotation` **and** `rotate_annotation` |
+/// | a **ce dimension** | ✗ | ✓ | its extent IS its measurement, so there is no scale verb and there will not be one — but a rotation is an isometry, so it can turn |
+/// | a **form field's** box | ✓ | ✗ | a widget's rotation is `/MK /R`, a quantised 0/90/180/270 declaration, and it is not built |
+///
+/// ⇒ The ce-dimension row is the one a single bool could never have expressed,
+/// and it is the row that proves the split was not premature: **rotate without
+/// resize** is a real, shipping combination, not a hypothetical. The engine
+/// declined a dimension scale by name and will keep declining it — *"either the
+/// displayed value stays fixed while the geometry grows, so the dimension lies
+/// about the drawing; or both change, so nothing was measured"* — so this is a
+/// permanent asymmetry rather than a gap waiting to close.
+///
 /// ★★ It is one value passed to BOTH the painter and the hit test, which is
 /// rule H7 and is why it is a struct rather than two arguments threaded
 /// separately. That row exists because it failed on 2026-08-20: a dimension's
@@ -415,16 +436,31 @@ pub struct GripSet {
     pub resize: bool,
     /// The rotate handle above the top edge.
     ///
-    /// ★ Never true without [`Self::resize`] today, and deliberately not
-    /// collapsed into it: *"can this be scaled"* and *"can this be turned"* are
-    /// two questions about the engine's verb list, and a shell that inferred
-    /// one from the other would offer rotation to the next kind that gains a
-    /// resize verb without anybody deciding.
+    /// ★ Deliberately not collapsed into [`Self::resize`]: *"can this be
+    /// scaled"* and *"can this be turned"* are two questions about the engine's
+    /// verb list, and a shell that inferred one from the other would offer
+    /// rotation to the next kind that gains a resize verb without anybody
+    /// deciding.
+    ///
+    /// ★★ That caution paid on the day it was written. Until 2026-08-28 this
+    /// field's doc said *"never true without `resize` today"* — and
+    /// [`GripSet::rotate_only`] now exists, because a ce dimension turns and
+    /// does not scale. A struct that had collapsed the two would have had to be
+    /// un-collapsed to ship that, and the intervening builds would have offered
+    /// eight scale grips around a dimension whose extent is its measurement.
     pub rotate: bool,
 }
 
 impl GripSet {
-    /// Everything — page content at the Object rung.
+    /// Everything — page **content** at the Object rung, and a **markup
+    /// annotation**, which gained the second half on 2026-08-28.
+    ///
+    /// ★ The annotation reached this set from `scale_only` when
+    /// `rotate_annotation` shipped, and the two callers now name the identical
+    /// value for two different reasons. That is fine and is not a merge waiting
+    /// to happen: content rotates through `transform_objects`, an annotation
+    /// through `rotate_annotation`, and the day either verb is withdrawn only
+    /// one of the two callers changes.
     pub const fn all() -> Self {
         Self {
             resize: true,
@@ -432,12 +468,62 @@ impl GripSet {
         }
     }
 
-    /// The eight scale grips and no rotate handle — an annotation or a form
-    /// field's box, both of which pdfce can scale and cannot turn.
+    /// The eight scale grips and no rotate handle — a **form field's box**.
+    ///
+    /// ★★★ **A widget is the one thing on this canvas that scales and cannot
+    /// turn**, and the asymmetry is the PDF standard's rather than a gap in
+    /// pdfce. `edit_widget(… with_rect)` rebuilds a field's appearance into a
+    /// new box, so a resize is expressible; a widget's *rotation* is `/MK /R`
+    /// (§12.5.6.19 Table 189), **a quantised 0/90/180/270 declaration the
+    /// appearance generator reads** rather than a free-angle transform. There
+    /// is no verb for it, and `rotate_annotation` refuses a widget by name and
+    /// points at one that is not built.
+    ///
+    /// ⇒ So no rotate handle is painted over a form field and none is
+    /// hit-tested there. **R9**: rendering nothing is the honest answer for a
+    /// capability that does not exist. A ninth handle that declined on release
+    /// would be the *"visible control, silently inert"* failure wearing the
+    /// costume of a fix.
+    ///
+    /// ★ Until 2026-08-28 this said *"an annotation or a form field's box"*.
+    /// The annotation moved to [`Self::all`] when `rotate_annotation` shipped;
+    /// the widget stayed, and it is the only member left.
     pub const fn scale_only() -> Self {
         Self {
             resize: true,
             rotate: false,
+        }
+    }
+
+    /// **The rotate handle alone** — a selected **ce dimension**.
+    ///
+    /// ★★★ The combination that could not be spelled before this struct had two
+    /// fields, and the one that proves they had to be two.
+    ///
+    /// A ce dimension has **no scale verb and is never going to have one**.
+    /// `pdfce-core` declined it outright rather than leaving it unbuilt, and
+    /// the argument is worth carrying here because it is the reason this
+    /// constructor is not a temporary shape:
+    ///
+    /// > It has no honest reading. Either the displayed value stays fixed while
+    /// > the geometry grows, so the dimension **lies about the drawing**; or
+    /// > both change, so **nothing was measured** and the operator has *drawn*
+    /// > a number rather than *taken* one.
+    ///
+    /// A **rotation** has no such problem, because a rotation is an isometry:
+    /// every distance is preserved, so the measured value is identical either
+    /// side of it *by construction*. That is what makes turning a dimension a
+    /// legitimate drafting operation while scaling one is not.
+    ///
+    /// ★★ If an operator wants a dimension to read a different number for the
+    /// same drawn line, the operation they want is `set_group_scale` — points
+    /// per unit — which already ships and lives on the Measure surface. This
+    /// canvas deliberately offers no handle for it: a scale that is a property
+    /// of a *measurement group* has no grip on one member of that group.
+    pub const fn rotate_only() -> Self {
+        Self {
+            resize: false,
+            rotate: true,
         }
     }
 }
@@ -660,5 +746,49 @@ mod tests {
             ),
             None
         );
+    }
+
+    /// ★★★ **A ce dimension's set: the ninth handle and NONE of the eight.**
+    ///
+    /// The combination [`GripSet`] grew a second field for, asserted rather
+    /// than assumed, because it is the one a build can get wrong in two
+    /// directions and look plausible in both:
+    ///
+    /// * a build that reused `GripSet::all()` would paint eight scale grips
+    ///   around a dimension whose extent **is** its measurement — a resize that
+    ///   the engine declines by name, offered on the canvas as though it did
+    ///   not;
+    /// * a build that left `GripSet::default()` alone would paint nothing, and
+    ///   the rotation `pdfce-core` shipped on `Pass 159.0` would be unreachable
+    ///   with no affordance anywhere.
+    ///
+    /// The middle row — a press at a **corner** answering `Move` rather than
+    /// `NorthWest` — is the load-bearing one. `grip_at` gates the eight
+    /// separately from the ninth, and a build that gated them together would
+    /// pass the first and third assertions and fail only this one.
+    #[test]
+    fn a_rotate_only_set_offers_the_handle_and_none_of_the_eight() {
+        let b = box_of(200.0, 100.0);
+        let handle = rotate_rect(b).center();
+        assert_eq!(
+            grip_at(b, handle, GripSet::rotate_only()),
+            Some(Grip::Rotate),
+            "the ninth handle is the whole point of this set"
+        );
+        assert_eq!(
+            grip_at(b, b.min, GripSet::rotate_only()),
+            Some(Grip::Move),
+            "a corner press must NOT become a resize: a ce dimension has no scale verb, and \
+             offering one would be a grip that the engine declines by name"
+        );
+        assert_eq!(
+            grip_at(b, b.center(), GripSet::rotate_only()),
+            Some(Grip::Move),
+            "the body still moves — withholding the eight must not withhold the drag that \
+             repositions the dimension"
+        );
+        // …and the same press on the handle finds nothing when the set does not
+        // offer it, which is the widget's case. One predicate, both answers.
+        assert_eq!(grip_at(b, handle, GripSet::scale_only()), None);
     }
 }

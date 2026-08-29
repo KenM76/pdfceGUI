@@ -30,6 +30,21 @@ mod annots;
 /// inherent methods on [`crate::app::PdfceApp`] rather than free functions, so
 /// they are reachable exactly where they were before the split.
 mod apply;
+/// ★★ The three verbs whose subject is a whole **file living inside the
+/// document** — attach, remove, and save one out (ISO 32000-1 §7.11.4.1).
+///
+/// Its header carries the property that makes them a family rather than a
+/// subject label: **every one of them opens a native file dialog**, so all
+/// three are `Action`s for the reason [`write`]'s three are *as well as* for
+/// the funnel's own — and **nothing any of them does is visible on the
+/// canvas**, so every one of them owes a sentence to `app::status`, which is
+/// the exact inverse of [`bookmarks`]' deliberately-silent rename.
+///
+/// `pub` rather than private, unlike [`apply`], because the surface that raises
+/// these verbs is outside `app`: `panels::attachments` names
+/// [`attachments::AttachmentAction`] and [`attachments::AttachmentRef`] to
+/// build one.
+pub mod attachments;
 /// ★ The three verbs whose subject is one entry in the document's outline —
 /// add, rename, and delete-with-its-subtree.
 ///
@@ -51,6 +66,10 @@ pub mod bookmarks;
 /// this vocabulary with a type of its own. Re-exported below, so no call site
 /// learns that it moved.
 mod chrome;
+/// Extracting pages into a new file — the one page verb that writes a file
+/// rather than changing the open document. Split out of `pages` under R2 on
+/// 2026-08-28; its header carries the seam.
+mod extract;
 /// Authoring the annotations that carry WORDS — the sticky note, the text box
 /// and the stamp. Split out of `apply` under R2 on 2026-08-28; its header
 /// carries the seam, which is *composes rather than routes*.

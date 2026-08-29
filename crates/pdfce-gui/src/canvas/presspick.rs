@@ -101,7 +101,7 @@ pub(super) fn at_press(
     // from the other direction.
     if press_selects(ctx, active_tool, caps, shift)
         && let Some(origin) = ctx.input(|i| i.pointer.press_origin())
-        && !covers(map, selection, origin)
+        && !covers(ctx, doc, map, selection, origin)
     {
         let point = map.to_page(origin);
         let hit = doc.page_objects().and_then(|provider| {
@@ -135,7 +135,8 @@ fn press_selects(ctx: &egui::Context, tool: CanvasTool, caps: Capabilities, shif
 ///
 /// # The guard that keeps a press on an existing selection from re-selecting
 ///
-/// It asks `handles::grip_at` against `overlay::grip_box` — the **same** two
+/// It asks `handles::grip_at` against the box
+/// [`crate::canvas::pressing::grabbable`] answers with — the **same** two
 /// functions [`crate::canvas::pressing::look`] asks a moment later — rather
 /// than testing the selection's entries. A second opinion computed differently
 /// here would disagree with the gesture machine at the margins, and every
@@ -151,25 +152,69 @@ fn press_selects(ctx: &egui::Context, tool: CanvasTool, caps: Capabilities, shif
 /// select-and-move.
 ///
 /// A working gesture aimed at the wrong verb, which is the failure mode this
-/// canvas has now produced four separate times (corner grips over corner
-/// anchors, `Grip::Move` over Bézier handles, `Grip::Rotate` falling into the
-/// `Some(_)` wildcard, and this). It is worth naming every time because it
-/// never *looks* broken from a chair — something moves.
+/// canvas has now produced **five** separate times. It is worth naming every
+/// time because it never *looks* broken from a chair — something moves.
+///
+/// # ★★★ THE FIFTH INSTANCE WAS IN THIS FUNCTION, AGAIN — 2026-08-28
+///
+/// The paragraph above records the fourth: `covers` asked the wrong *question*
+/// (the box, not the grips). This one is subtler and had the identical symptom:
+/// it asked the right question of **the wrong box**.
+///
+/// `overlay::grip_box` derives its answer from the selection's cached
+/// **content** outlines, which `select_annot` clears — an annotation is not
+/// content and has nothing decomposed to cache. So the moment a markup or a ce
+/// dimension gained a rotate handle (`Pass 155.0` / `Pass 159.0`), this
+/// function answered `None` for every press on one, `covers` was **false**, and
+/// the press fell into the select-on-press body below — which picks the topmost
+/// *content* object at that point and **replaces the annotation selection with
+/// it**, twenty points above the shape the operator was aiming at.
+///
+/// ⇒ Then `pressing::look`, on the very next statement, would find a content
+/// selection and the release would rotate a page object. A perfect gesture, on
+/// something the operator never selected.
+///
+/// The fix is `pressing::grabbable`, which is the one function that knows about
+/// all four kinds of grabbable box — page content, a markup, a ce dimension and
+/// a form field's widget. That is what this doc comment always *claimed* was
+/// being asked; it stopped being true when the second kind arrived, and nothing
+/// said so.
+///
+/// ★ **The lesson is in the phrasing, not the diff.** *"The same two functions
+/// `pressing::look` asks"* was a claim about a call site somewhere else, held
+/// together by nothing. A guard that must agree with another module has to
+/// **call that module**, not resemble it.
 ///
 /// The eight resize grips are inside the box and were never at risk. They are
 /// covered by the same call anyway, rather than by an argument that they are
 /// safe: an argument is a thing that stops being true.
 ///
-/// # ★ `offer_resize = true` here, where `pressing::look` narrows it
+/// # ★ `GripSet::all()` here, where `pressing::look` narrows it
 ///
-/// `look` passes `at_object_rung && dimension_box.is_none()`. This passes
-/// `true` unconditionally, and the difference errs toward **declining**: at an
-/// inner rung this answers `Some(grip)` for a point `look` will call `None`, so
-/// the press falls through to the gesture machine unchanged instead of
-/// re-selecting under a node the operator is in the middle of editing. Erring
-/// the other way would be a press that silently leaves node editing.
-fn covers(map: &PageMapping, selection: &SelectionState, point: egui::Pos2) -> bool {
-    crate::canvas::overlay::grip_box(map, selection).is_some_and(|b| {
-        crate::canvas::handles::grip_at(b, point, crate::canvas::handles::GripSet::all()).is_some()
-    })
+/// `look` passes `grabbable`'s own `offer`, which is narrower for three of the
+/// four kinds. This passes `all()` unconditionally, and the difference errs
+/// toward **declining**: this answers `Some(grip)` for points `look` will call
+/// `None`, so the press falls through to the gesture machine unchanged instead
+/// of re-selecting under a node the operator is in the middle of editing.
+/// Erring the other way would be a press that silently leaves node editing.
+///
+/// ★★ It matters in the new direction too. A selected **ce dimension** is
+/// offered `GripSet::rotate_only()`, so `look` will not call a corner press a
+/// resize — but `all()` here still claims that corner for the *existing
+/// selection*, which is right: whatever the press turns out to mean, it is
+/// about the dimension the operator already has, not about the linework
+/// underneath it.
+fn covers(
+    ctx: &egui::Context,
+    doc: &OpenDoc,
+    map: &PageMapping,
+    selection: &SelectionState,
+    point: egui::Pos2,
+) -> bool {
+    crate::canvas::pressing::grabbable(ctx, doc, map, selection)
+        .bounds
+        .is_some_and(|b| {
+            crate::canvas::handles::grip_at(b, point, crate::canvas::handles::GripSet::all())
+                .is_some()
+        })
 }
