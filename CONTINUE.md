@@ -4,8 +4,13 @@
 
 **Clean tree. 19/19 gates. 1,986 + 421 + 150 tests, 0 failing. 105 driven
 checks — seven of them written this session and NEVER RUN. Re-measure before
-quoting.** Engine `6624e18`.
-**Published**: nothing new. `OneDrive\pdfceGUI1` is still O55.
+quoting.** Engine `97d445f` (it moved during packaging; the suite and the gates
+were re-run against it and are green — that revision is **docs only**).
+**Published**: `OneDrive\pdfceGUI2` is the newest — the Ctrl+S fix and the
+audit. `pdfceGUI1` holds O55, the build before it.
+
+★★★ **The published build BEFORE this one crashes on Ctrl+S** (D16). If he is
+still on `pdfceGUI1`, that is the reason to move him.
 
 ### ★★★ WHAT TO DO FIRST: ask him for the machine, then sweep
 
