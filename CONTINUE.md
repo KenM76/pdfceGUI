@@ -132,9 +132,20 @@ was argued at length in a doc comment, and made the coverage worse.
 
 ### ⬜ Still unexercised, said rather than hidden
 
-- No fixture in either corpus is **both certified and nested**, so the R9
-  arm-withholding assertion has nothing to run on. `gen-certified-fixture.py`
-  beside `nested-form.pdf`'s shape is the fix.
+- ~~No fixture in either corpus is **both certified and nested**, so the R9
+  arm-withholding assertion has nothing to run on.~~ ✅ **2026-08-29 —
+  `fixtures/certified-nested-form.pdf`**, built by
+  `tools/gen-certified-nested-fixture.py`: `nested-form.pdf`'s two-level field
+  tree under `certified-p2-form.pdf`'s `/P 2` certification. Phase F points
+  there and the arm assertion is live. ★ The lesson above stands and gained a
+  second half: the SKIP was a hypothesis, and so was the conditional that
+  replaced it — **the missing thing was an input, and no arrangement of guards
+  is an input.** ★★ The fixture is verified against the engine rather than by
+  eye (`Document::load`, `deletion_refusal → Some`, `AcroForm::groups ==
+  ["Personal.Address", "Personal"]`, `fill_refusal → None`), because a fixture
+  that loads with an EMPTY `groups` would make the check pass while testing
+  nothing — strictly worse than the SKIP, since a SKIP is legible in the report
+  and a vacuous pass is not.
 - `bookmark_edit` asserts the committed name's *length* changed, not that it is
   6: `Ctrl+A` over a dock is the primitive `scale_switch` measured arriving
   **zero times in six**, and a failed select-all leaves a legitimately-renamed
@@ -157,7 +168,7 @@ of them are the founding class at its purest.
 | B | ✅ **FIXED.** Its driven check proved nothing: pinned to `page-sized-form.pdf`, one invocation, while asserting *"every other invocation site keeps naming {original}"*. There are none. It is the run that would have surfaced A | ✅ fixed with A |
 | C | ✅ **FIXED.** The R83 delete gate reached one door of three, and for form fields it is a no-op BY CONSTRUCTION.** `conditions.rs:197` reads `doc.selected_field.is_none() && …`, so with a field selected the condition is set unconditionally on every document; the `canvas.field` menu carries no `visible_when` at all; the Delete key's field rung has no gate and returns six lines above the one that does. And `delete_widget` clears the selection **before** the engine call, so a refused press **blanks the panel that was explaining the refusal** | ✅ fixed |
 | D | **"Delete group…" is silently inert whenever a raster is in flight** — the only production `Arc::get_mut` outside `vector_edit`, missing its `cancel_and_wait`. After any scroll or zoom the press wrote one trace line and nothing to the screen | ✅ fixed |
-| E | `structural_refusals_are_sentences_not_controls` **passed vacuously** — its fixture is flat, so the section takes its early return and both assertions are satisfied by a section that never drew | ✅ fixed: SKIPs with the reason, and names the missing fixture |
+| E | `structural_refusals_are_sentences_not_controls` **passed vacuously** — its fixture is flat, so the section takes its early return and both assertions are satisfied by a section that never drew | ✅ **closed 2026-08-29 by the fixture, not by another guard.** It went vacuous → SKIP-the-whole-check → conditional-with-a-note, and all three were arrangements of the same hole. `tools/gen-certified-nested-fixture.py` builds `fixtures/certified-nested-form.pdf` — `nested-form.pdf`'s two-level tree under a `/P 2` certification — which is the intersection no file in either corpus occupied. Phase F now points there, traces `nodes=2`, and the arm-withholding assertion runs on every run; `nodes=0` is a **failure** there now, not a note. Four properties pinned by `delete.rs`'s `the_certified_nested_fixture_is_both_certified_and_nested` |
 | F | `form-group-preview` was the first token of **two** module lines. `check-trace-names` compares module lines against funnel labels and **never against each other**, so this class is outside it | ✅ fixed; the gate's blind spot is recorded |
 | G | The per-row census was written **inside** the collapsing header's body, which egui does not run while it is closed — and the section ships closed. The module header promised the opposite in prose | ✅ fixed: traced from the model, above the header |
 | H | **The group-delete refusal wore `⚑ About your last edit:`** — `record_note`, whose own module forbids exactly that for a decline. The sibling verb in the same commit used `decline::record_unshare` correctly, which is what made the mismatch findable | ✅ fixed — two `Declined` variants, and the group's NAME is dropped from the sentence because `Declined` is `Copy` by design and the confirmation block naming that group is still on screen |

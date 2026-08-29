@@ -296,6 +296,60 @@ fixture carried a markup annotation at all.
 cannot say which caused the difference. `tools/ui-verify`'s `annot_delete_gate`
 drives both and asserts the difference is the dictionary.
 
+##### `fixtures/certified-nested-form.pdf` — certified AND nested, 2026-08-29
+
+★ **This repository's fixture provenance lives in the generator's docstring**,
+not in a `PROVENANCE.md` — every file in `fixtures/` is byte-authored by a
+committed `tools/gen-*.py` whose header carries what it builds, why each
+structural choice, and what the fixture is for. The engine's corpus uses a
+`PROVENANCE.md` because its fixtures come from several sources; this one's do
+not. The entries below are the index, and each points at the header that is the
+record.
+
+`tools/gen-certified-nested-fixture.py` builds one file, and it exists because
+of an **intersection nothing occupied**:
+
+| needed | had | short by |
+|---|---|---|
+| certified | `fixtures/certified-comments.pdf`, `fixtures/threaded-comments.pdf`, `D:/Dev/pdfce/…/forms/certified-p2-form.pdf` | all three are **flat** — no dots in any field name, so `AcroForm::groups` is empty |
+| nested | `D:/Dev/pdfce/…/forms/nested-form.pdf` | **uncertified** — no `/Perms`, no signature, every gate open |
+
+`tools/ui-verify`'s `structural_refusals_are_sentences_not_controls` asserts
+that a certified document's Field-groups section lists its grouping nodes and
+draws **no** Delete-group control (R9). On a flat form
+`panels::forms::groups::section` returns before drawing anything, so that
+assertion was true of a section that never drew — `crate::checks` rule 4
+exactly. The check went vacuous → SKIP → conditional-with-a-note over three
+revisions, and none of them was the fix; the fix was the file.
+
+It is `nested-form.pdf`'s field tree (`Personal` ▸ `Personal.Address` ▸ three
+terminals, `Personal.Name` one level shallower on purpose) under
+`certified-p2-form.pdf`'s certification: `/Perms << /DocMDP >>` on the catalog
+and a `/Type /Sig` whose `/Reference` names `/DocMDP` with **`/P 2`**.
+
+★★★ **`/P 2`, and the reason is R162.** `/P 1` refuses *everything* — filling as
+well as restructuring — so a check written against it *"passes whether or not
+those gates differ at all"* (the engine's own `PROVENANCE.md`). At `/P 2` the
+two gates disagree **on one file**: `EditSession::fill_refusal` answers `None`
+and `EditSession::deletion_refusal` answers `Some`. That puts the control group
+*inside* the document, which is why this fixture needs no uncertified twin the
+way the annotation pair does — a run that finds no Delete-group control has
+found a *withheld* control rather than a dead panel, because the fill controls
+beside it are still live.
+
+★★ **Verified with the engine, not by eye.** A fixture that loads and whose
+`AcroForm::groups` is empty makes the check pass while testing nothing, which is
+worse than the SKIP it replaces. So the four properties are pinned by a unit
+test beside the fixture's users
+(`crates/pdfce-gui/src/app/actions/forms/delete.rs`,
+`the_certified_nested_fixture_is_both_certified_and_nested`): it loads,
+`deletion_refusal` is `Some`, `AcroForm::groups` is exactly
+`["Personal.Address", "Personal"]` (post-order, deepest first), and
+`fill_refusal` is `None`. Cross-checked against `pdfce-cli`: `list-fields`
+reports the four terminals, `list-signatures` reports
+`signatures=1 certifications=1`, `delete-field` exits 9 naming `P=2`, and
+`fill-field` exits 0.
+
 ### ⬜ / ⛔ What is left, and why
 
 | Verb | Reason |

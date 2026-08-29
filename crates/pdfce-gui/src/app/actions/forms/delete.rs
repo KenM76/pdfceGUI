@@ -215,6 +215,139 @@ mod tests {
         }
     }
 
+    /// **The one fixture that is certified AND nested**, built by
+    /// `tools/gen-certified-nested-fixture.py`. See
+    /// [`the_certified_nested_fixture_is_both_certified_and_nested`] for what it
+    /// has to be, and that script's header for why nothing already on disk was
+    /// it.
+    const CERTIFIED_NESTED: &str = "certified-nested-form.pdf";
+
+    /// ★★★ **The fixture contract for `certified-nested-form.pdf`, asserted
+    /// with the engine rather than by eye.**
+    ///
+    /// # Why this test exists at all, and why here
+    ///
+    /// `tools/ui-verify/src/checks/form_groups.rs`'s phase F asserts an
+    /// **absence**: that on a certified document the Forms panel's Field-groups
+    /// section lists its grouping nodes and draws **no** `forms.groups.arm.*`
+    /// control, because R9 says a permanently-refused capability renders
+    /// nothing rather than a greyed button.
+    ///
+    /// An absence assertion is only evidence if the thing that would have
+    /// produced the presence was working. `panels::forms::groups::section`
+    /// returns early — before a single control is drawn — the moment
+    /// `AcroForm::groups` is empty. So a fixture that loads, refuses deletion,
+    /// and has an **empty** `groups` makes phase F **pass while testing
+    /// nothing**: the arm control is missing because the section never drew,
+    /// not because the refusal withheld it. That is strictly worse than the SKIP
+    /// it replaces, because a SKIP is legible in the report and a vacuous pass
+    /// is not — and it is exactly the failure that produced this fixture's task.
+    ///
+    /// ⇒ The four properties are pinned here, **inside the crate**, so that a
+    /// change to the engine's field-tree walk or to its certification census
+    /// breaks a fast unit test rather than quietly hollowing out a driven check
+    /// that no one may run for a week.
+    ///
+    /// It lives in this module because this module is where
+    /// `deletion_refusal`'s shell-side consequence is asserted — the two tests
+    /// below use `certified-comments.pdf` for the flat half of the same
+    /// question, and a reader comparing them can see what the nesting adds.
+    ///
+    /// # The four claims
+    ///
+    /// 1. **It loads.** `open_local_fixture` panics otherwise, so reaching the
+    ///    first assertion is the assertion.
+    /// 2. **`deletion_refusal()` answers `Some`** — the file is certified and
+    ///    the certification is enforced. Without this the Field-groups section
+    ///    would draw its arm controls live and phase F would fail for the right
+    ///    reason but on the wrong subject.
+    /// 3. **`AcroForm::groups` is non-empty**, and is the *two-level* shape:
+    ///    `Personal.Address` then `Personal`, post-order, deepest first — core
+    ///    records that order on the field itself, and it is the opposite of what
+    ///    "DFS order" suggests. Asserted as an exact list rather than as a count
+    ///    so that a walk which lost the interior node but kept the root, or
+    ///    which reversed the order, is caught.
+    /// 4. **`fill_refusal()` answers `None`** — filling is still permitted. This
+    ///    is the claim `/P 2` is chosen for, and the reason `/P 1` was rejected:
+    ///    at `/P 1` both gates refuse, the fill controls disappear too, and a
+    ///    build that had disabled the whole Forms panel would be
+    ///    indistinguishable from a correct one. R162 — an assertion that cannot
+    ///    come out false is not an assertion.
+    ///
+    /// ★ Claim 4 is what makes claims 2 and 3 a *withholding* rather than an
+    /// outage. On this one document the two gates disagree, so the control
+    /// group is inside the file and no second fixture is needed to supply it.
+    #[test]
+    fn the_certified_nested_fixture_is_both_certified_and_nested() {
+        // 1 — it loads. `open_local_fixture` asserts the file is on disk, calls
+        //     `Document::load` and parses the page tree; any of the three
+        //     failing panics here rather than further down.
+        let doc = open_local_fixture(CERTIFIED_NESTED);
+
+        // 2 — the certification refuses restructuring.
+        assert!(
+            doc.session.deletion_refusal().is_some(),
+            "the fixture is not certified, or its `/Perms /DocMDP` is not enforced: \
+             `forbids_structural_change()` is `perms_enforced && signatures > 0`, so a \
+             missing catalog `/Perms` entry OR a signature dictionary the census cannot \
+             see leaves every structural gate open and phase F with nothing to withhold"
+        );
+
+        // 3 — and the field-name tree has an interior for it to withhold
+        //     controls over. THE half every previous attempt got wrong.
+        let view = doc.session.view();
+        let form = pdfce_core::forms::parse_acroform(&view)
+            .expect("the fixture carries an `/AcroForm` with fields");
+        let groups: Vec<&str> = form
+            .groups
+            .iter()
+            .map(|node| node.fully_qualified_name.as_str())
+            .collect();
+        assert_eq!(
+            groups,
+            ["Personal.Address", "Personal"],
+            "★★★ `AcroForm::groups` must be non-empty AND two levels deep. Empty is the \
+             failure that produced this fixture: `panels::forms::groups::section` returns \
+             before drawing anything when it is, so the driven check finds no arm control \
+             and passes having tested nothing. `walk_field` records a node only at its \
+             `!child_fields.is_empty() && widget_kids.is_empty()` early return, so a bare \
+             widget added to `Personal` or to `Address` would empty this list without \
+             changing anything a reader would notice. Order is post-order, deepest first, \
+             per core's own note on the field"
+        );
+        // The cascade the two-level shape exists for: three terminals hang off
+        // the root, and one of them is a level shallower than the other two.
+        let terminals: Vec<&str> = form
+            .fields
+            .iter()
+            .map(|f| f.fully_qualified_name.as_str())
+            .filter(|name| name.starts_with("Personal."))
+            .collect();
+        assert_eq!(
+            terminals,
+            [
+                "Personal.Address.Zip",
+                "Personal.Address.City",
+                "Personal.Name"
+            ],
+            "deleting `Personal` must be a cascade the operator cannot predict — three \
+             terminals and a second grouping node nobody named. `Personal.Name` sits one \
+             level shallower on purpose: a walk with a single shared depth counter gets \
+             exactly one of the two depths wrong, and a uniform tree would let that through"
+        );
+
+        // 4 — while FILLING is still permitted, which is what `/P 2` buys and
+        //     what makes 2 and 3 a withholding rather than a dead panel.
+        assert!(
+            doc.session.fill_refusal().is_none(),
+            "★ filling is refused too, so the two gates no longer disagree and this fixture \
+             cannot tell them apart. `/P 1` is the value that does this — \
+             `check_certification_for_fill` refuses only at permission 1 — and a fixture at \
+             `/P 1` passes phase F whether or not the shell distinguishes a structural \
+             refusal from a total one"
+        );
+    }
+
     /// ★★★ **A refused delete keeps the selection AND says something.**
     ///
     /// The defect in one line: `doc.selected_field = None` was the first

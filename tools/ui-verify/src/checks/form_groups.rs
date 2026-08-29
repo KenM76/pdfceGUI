@@ -43,7 +43,25 @@
 //! | fixture | what it carries | why nothing else works |
 //! |---|---|---|
 //! | `forms/nested-form.pdf` | `Personal.Name`, `Personal.Address.City`, `Personal.Address.Zip` | **The only fixture with grouping nodes at all.** Core's own note on `AcroForm::groups` says it is empty for a flat form, *"which is every file in the Pass 7.0 census"* — and the two-level shape is what makes the **cascade** observable: deleting `Personal` also empties `Personal.Address`, a node nobody named |
-//! | `forms/certified-p2-form.pdf` | `/DocMDP` at **`/P 2`** | Filling permitted, restructuring refused. `PROVENANCE.md` says why `/P 1` would not do: it refuses *everything*, so a check written against it *"passes whether or not those gates differ at all"* — the fill controls would be gone too, and the check could not tell a correct build from one that disables the whole panel |
+//! | `../../fixtures/certified-nested-form.pdf` | `/DocMDP` at **`/P 2`**, over the SAME two-level tree | Certified **and** nested, which is the intersection nothing else in either corpus occupies. Filling permitted, restructuring refused. The engine's `PROVENANCE.md` says why `/P 1` would not do: it refuses *everything*, so a check written against it *"passes whether or not those gates differ at all"* — the fill controls would be gone too, and the check could not tell a correct build from one that disables the whole panel |
+//!
+//! ★★★ **The second fixture was `forms/certified-p2-form.pdf` and could not
+//! serve.** That file is certified at the right `/P` and its fields are
+//! **flat** (`FullName`, `Subscribe` — no dots), so `AcroForm::groups` is empty
+//! and `panels::forms::groups::section` takes its early return before laying
+//! out a single control. Phase F's arm-withholding assertion — *the section
+//! draws no `forms.groups.arm.*` control* — was therefore true of a section
+//! that never drew: an absence with nothing behind it, which `crate::checks`
+//! rule 4 forbids. Every certified file in either corpus was flat
+//! (`certified-comments.pdf`, `threaded-comments.pdf`, `certified-p2-form.pdf`)
+//! and the only nested one (`nested-form.pdf`) was uncertified, so the fix was
+//! a **fixture**, not a rewrite: `tools/gen-certified-nested-fixture.py` copies
+//! `nested-form.pdf`'s field tree under `certified-p2-form.pdf`'s
+//! certification. Its header carries the whole argument, and
+//! `crates/pdfce-gui/src/app/actions/forms/delete.rs`'s
+//! `the_certified_nested_fixture_is_both_certified_and_nested` pins the four
+//! properties it has to keep — it loads, `deletion_refusal` is `Some`,
+//! `AcroForm::groups` is non-empty, and `fill_refusal` is `None`.
 //!
 //! # Phases
 //!
@@ -57,11 +75,11 @@
 //! | D | press **Delete 3 fields** | `delete-field-group-applied terminals=3 widgets=3 nodes=2` |
 //! | E | re-read the census | `nodes=0` — the subtree and both grouping nodes are gone |
 //!
-//! ## `structural_refusals_are_sentences_not_controls` — `certified-p2-form.pdf`
+//! ## `structural_refusals_are_sentences_not_controls` — `certified-nested-form.pdf`
 //!
 //! | Phase | Does | Expected |
 //! |---|---|---|
-//! | F | Edit mode, View ▸ Forms | `form-groups refused=1`; and where the fixture has grouping nodes, **no** `forms.groups.arm.*` region |
+//! | F | Edit mode, View ▸ Forms, then **open** the Field-groups header | `form-groups nodes=2 refused=1`, and — with the body laid out — **no** `forms.groups.arm.*` region |
 //! | G | click a widget the canvas census names | `form-field-selected field=…` |
 //! | H | read the Properties pane's gate census | `form-field-gates rename_refused=1 delete_refused=1`, and **neither** `properties.form_field.rename` nor `properties.form_field.delete` declared |
 //!
@@ -70,18 +88,26 @@
 //! regions, and the `form-field-gates` line — written unconditionally, refused
 //! or not — is what tells the two apart.
 //!
-//! ★★★ **The arm half of F is CONDITIONAL, and the rest of the check is not.**
-//! `certified-p2-form.pdf`'s fields are flat, so `groups::section` takes its
-//! early return and offers no arm controls for a reason that is not the
-//! refusal — an absence with nothing behind it, which this phase originally
-//! asserted anyway and passed on. Between 2026-08-29 and this note the remedy
-//! was a SKIP of the whole check, and that was the wrong half to cut: `refused`
-//! is traced ABOVE the early return, so it is real evidence on a flat form, and
-//! phases G and H — the Rename box and both Delete buttons, which are what this
-//! check's `defect()` actually names — need only a certified document with a
-//! widget. Skipping out on the group section left the check reporting SKIP on
-//! every run: zero coverage, counted as a check. The arm assertion alone is now
-//! conditional, and it says in the report when it did not run.
+//! ★★★ **The arm half of F is LIVE, and its history is worth keeping.** It has
+//! been through three states, and each was a worse-looking fix than it sounds:
+//!
+//! 1. **Asserted unconditionally on a flat fixture** — and passed, having
+//!    checked that a section which never drew drew no controls.
+//! 2. **SKIPped the whole check** — the wrong half to cut. `refused` is traced
+//!    ABOVE `groups::section`'s early return, so it is real evidence even on a
+//!    flat form, and phases G and H (the Rename box and both Delete buttons,
+//!    which are what this check's `defect()` actually names) need only a
+//!    certified document with a widget. That left the check reporting SKIP on
+//!    every run: zero coverage, counted as a check.
+//! 3. **Conditional, with a note when it did not run** — honest, and still zero
+//!    coverage of the one assertion, because the condition was never true.
+//!
+//! ⇒ The fixture closed it. `certified-nested-form.pdf` traces `nodes=2`, so
+//! the arm assertion runs on every run — and a run that reports `nodes=0` is
+//! now a **FAILURE** rather than a note, because on this fixture that means
+//! either the panel stopped listing an interior the engine can see or the
+//! fixture was regenerated wrong. Both are red, and a silent pass is the one
+//! outcome this phase must never produce again.
 
 use crate::checks::driving::{
     SHELL_DIAG_ENV, click_mode_segment, declared, declared_names, declared_or_in_overflow, list,
@@ -95,10 +121,24 @@ use crate::launch::{LaunchSpec, Session};
 use crate::report::CheckReport;
 use crate::trace::Trace;
 
-/// The two-level form. See the module header's fixture table.
+/// The two-level form, in the **engine's** corpus. See the module header's
+/// fixture table. Resolved by [`engine_fixture`].
 const NESTED: &str = "forms/nested-form.pdf";
-/// The `/P 2` certified form. See the module header's fixture table.
-const CERTIFIED: &str = "forms/certified-p2-form.pdf";
+/// The `/P 2` certified form **over that same two-level tree**, in *this*
+/// repository. See the module header's fixture table.
+///
+/// ★★★ **Relative to `CARGO_MANIFEST_DIR`, which is `tools/ui-verify`** — two
+/// levels up, not three, and resolved by [`local_fixture`] rather than by
+/// [`engine_fixture`]. `annot_delete_gate` and `field_delete_gate` both record
+/// the same trap: written as `../../../fixtures/…` it resolves to a
+/// `D:/Dev/fixtures/` that does not exist, and the check SKIPs on every run
+/// while telling the reader to run a generator that writes somewhere else.
+///
+/// ★ It is in this repository and not the engine's because `D:/Dev/pdfce` is
+/// READ-ONLY for this project — see the workspace manifest — so a fixture this
+/// project needs and that project does not have is authored here, by
+/// `tools/gen-certified-nested-fixture.py`.
+const CERTIFIED: &str = "../../fixtures/certified-nested-form.pdf";
 /// The command that shows the Forms panel, and the tab it lives on.
 const PANEL_TAB: &str = "view";
 const PANEL_ITEM: &str = "ribbon.item.view.panel_forms";
@@ -475,12 +515,19 @@ fn drive_groups(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<S
 #[allow(clippy::too_many_lines)]
 fn drive_refusals(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>> {
     let (exe, ui_rect) = preflight(ctx)?;
-    let pdf = engine_fixture(CERTIFIED).ok_or_else(|| {
+    let pdf = local_fixture(CERTIFIED).ok_or_else(|| {
         Error::new(format!(
-            "the engine fixture `{CERTIFIED}` is not on disk. A `/P 1` document will not \
-             substitute: it refuses everything, so the fill controls would be withdrawn too \
-             and this check could not tell a correct build from one that disables the whole \
-             panel. `PROVENANCE.md` records that as the reason the `/P 2` fixture was authored."
+            "this repository's fixture `{CERTIFIED}` is not on disk. Build it with \
+             `python tools/gen-certified-nested-fixture.py` from the repository root. \
+             Nothing already on disk substitutes, and the two obvious candidates each fail \
+             one half: `forms/certified-p2-form.pdf` is certified at the right `/P` and \
+             FLAT, so the Field-groups section early-returns and phase F's arm assertion \
+             would be about a section that never drew; `forms/nested-form.pdf` has the tree \
+             and no certification, so there would be nothing to withhold. A `/P 1` document \
+             will not substitute either: it refuses everything, so the fill controls would \
+             be withdrawn too and this check could not tell a correct build from one that \
+             disables the whole panel — the engine's `PROVENANCE.md` records that as the \
+             reason the `/P 2` fixture was authored in the first place."
         ))
     })?;
 
@@ -492,7 +539,7 @@ fn drive_refusals(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option
         Some("mode.edit"),
     )?;
     report.note(format!(
-        "launched {} as pid {} on the /P 2 certified form",
+        "launched {} as pid {} on the /P 2 certified, two-level form",
         exe.display(),
         session.pid()
     ));
@@ -528,51 +575,104 @@ fn drive_refusals(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option
              tell the two gates apart.",
         )));
     }
-    // ★★★ THE ASSERTION THIS PHASE WAS PASSING WITHOUT, and it is the ARM half
-    // alone.
+    // ★★★ THE PRECONDITION FOR THE ARM ASSERTION, ASSERTED RATHER THAN
+    // ASSUMED — and it is a FAILURE now, not a note.
     //
-    // `certified-p2-form.pdf`'s fields are **flat** (`FullName`, `Subscribe` —
-    // no dots), so `AcroForm::groups` is empty, so `groups::section` takes its
-    // early return and lays out nothing. `arms` is then empty because there are
-    // no rows, not because the refusal withheld them — the check would be
-    // reporting R9 upheld by a section that never drew.
+    // `groups::section` returns before laying out a single control when
+    // `AcroForm::groups` is empty, so on a FLAT certified form `arms` is empty
+    // because there were no rows, not because the refusal withheld them. Every
+    // previous version of this phase ran against such a form
+    // (`forms/certified-p2-form.pdf`: `FullName`, `Subscribe`, no dots) and so
+    // reported R9 upheld by a section that never drew — `crate::checks` rule 4
+    // exactly: an absence is not evidence unless the thing that would have
+    // produced the presence was working.
     //
-    // ⇒ So the arm assertion is made only when there was something to withhold.
-    // The gap is the corpus and not the program: **no fixture in either
-    // repository is both certified AND nested.** `tools/gen-certified-fixture.py`
-    // builds the certified pair and `nested-form.pdf` has the shape; a file with
-    // both is a generator away.
+    // `certified-nested-form.pdf` is the fixture that closes it, and the
+    // engine's answer on it is not in doubt:
+    // `crates/pdfce-gui/src/app/actions/forms/delete.rs`'s
+    // `the_certified_nested_fixture_is_both_certified_and_nested` asserts
+    // `AcroForm::groups == ["Personal.Address", "Personal"]` from inside the
+    // crate, every `cargo test` run. So `nodes=0` here cannot mean "this
+    // document is flat"; it means the PANEL stopped listing an interior the
+    // engine can see, or the fixture was regenerated wrong. Both are red.
     //
-    // ★★ What it does NOT do any more is skip the whole check. Phases G and H
-    // are this check's named subject — its `defect()` is about the Rename box
-    // and both Delete buttons on the Properties pane — and they need a
-    // certified document with a WIDGET, which this fixture is. Skipping out
-    // here on the strength of the group section took the two assertions the
-    // audit actually found with it, and left the check reporting SKIP on every
-    // run: zero coverage, counted as a check.
+    // ⇒ Reported as a FAILURE rather than as a note, deliberately. A note would
+    // put the phase back where it started — technically honest, and passing
+    // while its one assertion never ran, which is the outcome a SKIP at least
+    // makes legible and a silent pass does not.
     if seen.nodes == 0 {
-        report.note(format!(
-            "★ the arm-control absence is NOT exercised on this run: `{CERTIFIED}` has no \
-             grouping nodes, so the Field-groups section takes its early return and offers no \
-             arm controls for a reason that is not the refusal. No fixture in either corpus is \
-             both certified and nested; `tools/gen-certified-fixture.py` beside \
-             `nested-form.pdf`'s shape is the fix. The gate census above and phases G and H \
-             below are unaffected — they need a certified document with a widget, which this is."
-        ));
-    } else {
-        let arms = live_names(&trace, ui_rect, REGION_ARM);
-        if !arms.is_empty() {
-            return Ok(Some(format!(
-                "the section knows the document refuses and drew {} arm control(s) anyway: {}. \
-                 R9: a permanently-refused capability renders nothing and says why in prose — a \
-                 greyed button implies a state the operator could argue their way out of, which \
-                 a certification signature is not.",
-                arms.len(),
-                list(&arms)
-            )));
-        }
-        report.note("the Field-groups section refused and offered no control");
+        return Ok(Some(format!(
+            "the Field-groups section traced `{CENSUS} nodes=0` on `{CERTIFIED}`, whose field \
+             tree is two levels deep — `Personal` over `Personal.Address` over three \
+             terminals. `AcroForm::groups` collects the name tree's INTERIOR, and a unit test \
+             beside this fixture's users asserts it is exactly \
+             `[\"Personal.Address\", \"Personal\"]`. So either the panel stopped listing nodes \
+             the engine reports, or the fixture was rebuilt into something flat — regenerate \
+             it with `python tools/gen-certified-nested-fixture.py`. Reported as a failure \
+             rather than as a note because with `nodes=0` the arm assertion below has nothing \
+             to withhold and would pass having tested nothing."
+        )));
     }
+    // ★★★ THE HEADER MUST BE OPENED BEFORE THE ABSENCE IS READ, and this is the
+    // SECOND level of the same vacuity trap.
+    //
+    // The Field-groups header ships **closed** — phase A clicks it for exactly
+    // this reason, and egui does not run a `CollapsingHeader`'s body while it
+    // is closed. So a phase that read `live_names(REGION_ARM)` without opening
+    // it would find nothing on **every** document, refused or not: the arm
+    // controls are not withheld, they are simply not laid out yet.
+    //
+    // ⇒ Getting the fixture right was necessary and not sufficient. Both halves
+    // have to hold for the absence to mean anything: the section must have rows
+    // (`nodes != 0`, asserted above) **and** its body must have run.
+    let header = declared(&trace, ui_rect, REGION_HEADER).ok_or_else(|| {
+        Error::new(format!(
+            "the section traced `{CENSUS} nodes={}` and declared no `{REGION_HEADER}` region, \
+             so there is no header to open and the absence below could not be read. Regions \
+             beginning `forms.groups`: {}. Reported as a SKIP: without the header this phase \
+             cannot make its observation at all, which is a harness precondition rather than \
+             the defect under test.",
+            seen.nodes,
+            list(&declared_names(&trace, ui_rect, "forms.groups"))
+        ))
+    })?;
+    driver.click_at(session.frame()?.declared_center(header))?;
+    session.settle(24);
+    let trace = session.trace()?;
+
+    // ★★★ THE ASSERTION THIS PHASE WAS PASSING WITHOUT, now live on every run.
+    //
+    // R9: a permanently-refused capability renders NOTHING. Three things are
+    // true at this point and all three are needed:
+    //
+    //   * the document refuses — `refused=1`, asserted above from the census;
+    //   * the section has rows to draw controls beside — `nodes != 0`;
+    //   * the header is open, so `groups::section`'s body has run.
+    //
+    // Any `forms.groups.arm.*` region declared now is therefore a Delete-group
+    // button offered on a document that will refuse every press.
+    //
+    // ★★ And the CONTROL for this absence is phase B, in this same module:
+    // there, on `nested-form.pdf` — the same field tree without the
+    // certification — the identical gesture produces arm controls and the check
+    // fails if it does not. So "no arm control here" is a difference caused by
+    // the `/Perms` dictionary, not a claim about a gesture that never works.
+    let arms = live_names(&trace, ui_rect, REGION_ARM);
+    if !arms.is_empty() {
+        return Ok(Some(format!(
+            "the section knows the document refuses, has {} grouping node(s) listed, and drew \
+             {} arm control(s) anyway: {}. R9: a permanently-refused capability renders nothing \
+             and says why in prose — a greyed button implies a state the operator could argue \
+             their way out of, which a certification signature is not.",
+            seen.nodes,
+            arms.len(),
+            list(&arms)
+        )));
+    }
+    report.note(format!(
+        "the Field-groups section listed {} grouping node(s), refused, and offered no control",
+        seen.nodes
+    ));
 
     // --- G: select a field the canvas draws --------------------------------
     let page: PageGeometry = match ctx.page_size {
@@ -591,9 +691,10 @@ fn drive_refusals(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option
     let Some(target) = first_target(&trace) else {
         return Err(Error::new(format!(
             "the canvas published no `{TARGETS}` line, so this check has no widget to click. \
-             `certified-p2-form.pdf` carries two merged field-widgets, so either the census \
-             stopped being written or the page has not rasterized. Reported as a SKIP: a \
-             missing census is a harness precondition, not the defect under test."
+             `certified-nested-form.pdf` carries three merged text field-widgets plus the \
+             certification's own, all on page 1, so either the census stopped being written or \
+             the page has not rasterized. Reported as a SKIP: a missing census is a harness \
+             precondition, not the defect under test."
         )));
     };
     let mapping = CanvasMapping::from_trace(&trace, &ctx.profile.vocab, page, target.0)?;
@@ -833,5 +934,19 @@ fn capture(ctx: &CheckContext, session: &Session, report: &mut CheckReport, name
 /// by path.
 fn engine_fixture(rel: &str) -> Option<std::path::PathBuf> {
     let path = std::path::Path::new("D:/Dev/pdfce/fixtures/synthetic").join(rel);
+    path.is_file().then_some(path)
+}
+
+/// A fixture from **this** repository's `fixtures/`.
+///
+/// ★ Resolved from `CARGO_MANIFEST_DIR` — `tools/ui-verify` — rather than from
+/// the process's working directory, which is whatever the operator happened to
+/// be in. `reflow`, `text_edit`, `annot_delete_gate` and `field_delete_gate` all
+/// do the same, and two of those record having got the *depth* wrong first:
+/// `../../` reaches the repository root, `../../../` reaches `D:/Dev`, and the
+/// second SKIPs on every run with a message telling the reader to run a
+/// generator that writes to the first.
+fn local_fixture(rel: &str) -> Option<std::path::PathBuf> {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(rel);
     path.is_file().then_some(path)
 }
