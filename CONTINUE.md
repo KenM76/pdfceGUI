@@ -6,8 +6,17 @@
 checks — seven of them written this session and NEVER RUN. Re-measure before
 quoting.** Engine `97d445f` (it moved during packaging; the suite and the gates
 were re-run against it and are green — that revision is **docs only**).
-**Published**: `OneDrive\pdfceGUI2` is the newest — the Ctrl+S fix and the
-audit. `pdfceGUI1` holds O55, the build before it.
+**Published**: `OneDrive\pdfceGUI2` is the newest — the Ctrl+S fix and the bulk
+of the audit. `pdfceGUI1` holds O55, the build before it.
+
+⚠ **That package predates the last two commits** — the R83 refusal work (a
+certified document no longer draws three dead Delete controls), the Bold/Italic
+previews, and the Comments panel finding the annotation the canvas selected.
+Held rather than re-published because each mirror costs the machine ~27,000
+kernel handles it does not give back, and `package-portable.py`'s own header
+rules *publish when there is something an operator would notice*: the thing he
+would notice most — Ctrl+S not killing the program — is already in the slot.
+**Re-publish before he next sits down with it.**
 
 ★★★ **The published build BEFORE this one crashes on Ctrl+S** (D16). If he is
 still on `pdfceGUI1`, that is the reason to move him.
