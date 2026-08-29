@@ -1,5 +1,49 @@
 # CONTINUE — handoff
 
+## 2026-08-29 (overnight, latest) — a SMOKE LAUNCH found the fourth broken check, which reading could not
+
+**The technique is worth more than the bug.** Six new surfaces, none ever
+launched. `PDFCE_DIAG_VIEWPORT=-4000,-4000,1400,900` puts the window off the
+desktop with `with_active(false)`, `PDFCE_DIAG_INVOKE` supplies commands at
+startup, and seven seconds later the trace says whether the surface drew and
+whether anything panicked. **No pointer, no focus, nothing in front of the
+operator.** Five of six drew clean.
+
+### ★★★ The sixth did not, and my own check was the reason
+
+`attachments` traced no `attachments-panel` line. The cause is on the next line
+of the trace: `panel-closed id=edit.attachments closed=true`.
+
+`edit.attachments` is a **toggle**, and Edit's saved arrangement had the panel
+showing — so the check's own `PDFCE_DIAG_INVOKE=mode.edit,edit.attachments`
+**shut the surface it exists to test.** Every phase would have failed on a
+correct build, at phase A, reporting the panel was not on screen.
+
+★★ **An audit of all eleven checks two hours earlier marked this one SOUND, and
+was right to.** Which tab a stack activates, and what a persisted layout
+remembers, are properties of the running program — not of the source. A reading
+cannot settle them. **Seven seconds of running did.**
+
+⇒ Fixed to the convention `properties_metadata` set: *ask whether the surface is
+already drawing, and press the toggle only if it is not.*
+
+### ★★ And a property of this technique worth knowing before using it
+
+**The launches mutate the persisted layout.** Run 1 closed the panel and the
+layout was saved; run 2 found it absent, which reads as a different defect
+entirely. The state lives in `target/release/userdata/`, so **his published
+build's own settings were never touched** — but a smoke run is not idempotent,
+and two runs of one command can answer differently for that reason alone.
+
+⇒ Normalise, or tolerate both. The check now tolerates both, which is also what
+makes it survive whatever arrangement he happens to have saved.
+
+★ Confirmed afterwards by raising the panel deliberately:
+`attachments-panel count=0 document_level=0 page_level=0 notes=0` — the panel
+draws, the command works, and the check was the only thing wrong.
+
+---
+
 ## 2026-08-29 (overnight, later) — the checks were audited too, and three of eleven could not pass
 
 **Read this before quoting a check count.** Eleven driven checks were written in

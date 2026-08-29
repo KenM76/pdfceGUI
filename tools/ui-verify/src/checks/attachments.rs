@@ -71,8 +71,35 @@ use crate::input::Driver;
 use crate::launch::{LaunchSpec, Session};
 use crate::report::CheckReport;
 
-/// Supplied at launch: Edit mode, then the panel.
-const INVOKE: &str = "mode.edit,edit.attachments";
+/// Supplied at launch: **Edit mode, and nothing else.**
+///
+/// # ★★★ `edit.attachments` was here until a smoke launch showed it CLOSING the
+/// panel
+///
+/// The command is a **toggle** — `app::panels::toggle_panel` closes a panel that
+/// `dock::is_on_screen` reports as showing, and that predicate is *mounted **and**
+/// its side visible **and** it is the active tab*. Edit's default arrangement
+/// mounts Attachments as the last tab of its right-hand stack, and the last tab
+/// is the active one.
+///
+/// So the launch invoked it and the trace answered
+/// `panel-closed id=edit.attachments closed=true`. **Every phase below would
+/// have failed on a correct build**, at phase A, reporting that the panel was
+/// not on screen — which it had been, until this check shut it.
+///
+/// ⇒ ★★ It is the fourth "cannot pass" in this suite and the only one a
+/// **reading** could not have found: an audit that walked all eleven checks
+/// two hours earlier marked this one SOUND, correctly, because which tab a
+/// stack activates by default is a property of the running program and not of
+/// the source. **Launching it offscreen for seven seconds found it.**
+///
+/// ★ The convention this now follows is `properties_metadata`'s, cited by
+/// `bookmark_add` and `dimension_groups` before it: **ask whether the surface is
+/// already drawing, and only press the toggle if it is not.**
+const INVOKE: &str = "mode.edit";
+/// The ribbon control that toggles the panel, for the case where Edit's saved
+/// arrangement does not have it showing.
+const PANEL_ITEM: &str = "ribbon.item.edit.attachments";
 /// The panel's per-frame census.
 const CENSUS: &str = "attachments-panel";
 /// The line the panel writes when the picker has answered and the file is read.
@@ -192,12 +219,26 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     let driver = Driver::new(session.window());
 
     // --- A: the panel, and nothing in it -----------------------------------
+    //
+    // ★ Raised only if it is not already drawing. See [`INVOKE`]: pressing the
+    // toggle over an open panel shuts the subject of the check, which is what
+    // this one did on every run until 2026-08-29.
+    if census(&session)?.is_none() {
+        let trace = session.trace()?;
+        if let Some(item) = declared(&trace, ui_rect, PANEL_ITEM) {
+            driver.click_at(session.frame()?.declared_center(item))?;
+            session.settle(20);
+        }
+    }
     let trace = session.trace()?;
     let Some(before) = census(&session)? else {
         return Err(Error::new(format!(
-            "the panel traced no `{CENSUS}` line after `{INVOKE}`, so it is not on screen and \
-             every control below is absent for that reason rather than the one under test. \
-             Regions beginning `attachments`: {}.",
+            "the panel traced no `{CENSUS}` line after `{INVOKE}` and after pressing \
+             `{PANEL_ITEM}`, so it is not on screen and every control below is absent for that \
+             reason rather than the one under test. ★ If the trace carries \
+             `panel-closed id=edit.attachments`, this check pressed a toggle over an already-open \
+             panel and shut its own subject — the defect this INVOKE was corrected for. Regions \
+             beginning `attachments`: {}.",
             list(&declared_names(&trace, ui_rect, "attachments"))
         )));
     };
