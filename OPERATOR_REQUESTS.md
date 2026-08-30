@@ -252,21 +252,52 @@ time:** a reply arriving is not a capability landing. The workaround was
 published at 12:49 and replaced at 14:0x; the gap was ninety minutes and it
 still cost a build and a `FEATURES.md` row that was true for one hour.
 
-### ★★ Still open, and it is the one thing I did not decide for you
+### ★★★ SETTLED — it is a setting now, 2026-08-29
 
-Your `Ctrl+V` remains the **opposite** of Acrobat's, and I have deliberately not
-changed it — see the section above for the evidence. Acrobat's plain paste is
-the *linked* one; it has no paste-as-independent chord at all. Your split puts
-the common intent on the common chord, Acrobat's own users have a standing
-request for exactly that, and I think you are right.
+*"let's make it an option to have it swap to match Acrobat or work the way we
+have it now."*
 
-**But if "follow Acrobat's conventions" meant the chords too, say so and it is a
-one-line swap.** I did not read it that way, because "make it so we are able"
-describes a capability we lacked and the chords were never about ability.
+**Settings ▸ Display ▸ Copying a form field**, two choices:
 
-**Status:** ✅ **SHIPPED, LOSSLESS AND DRIVEN — awaiting your verdict.** Nothing
-is filed and unanswered any more. One question back to you: did "follow
-Acrobat's conventions" include swapping the two chords?
+| | `Ctrl+V` | `Ctrl+Shift+V` |
+|---|---|---|
+| **pdfce's order** (default, your original ruling) | a separate field with its own value | another box that fills in step |
+| **Acrobat's order** | another box that fills in step | a separate field with its own value |
+
+**It swaps the CHORDS, never what a command means.** `edit.paste` is always
+*"paste as a new field"* and `edit.paste_duplicate` is always *"paste as another
+box"* — only the keys move. Swapping what the *commands* do was the obvious
+implementation and was rejected: a ribbon button reading **Paste as duplicate**
+would have pasted a new field, and no tooltip rescues a control whose name is
+wrong. Moving the binding instead means the ribbon, the context menu, the
+shortcuts dialog and the keyboard all agree by construction, because every one
+of them reads the same keymap.
+
+★ **Both pastes stay available either way.** This exchanges two keys; it never
+removes a capability. If you forget which order you chose, both are on the Edit
+tab under their own names.
+
+★★ **The default stays yours.** You made the split before the Acrobat
+divergence was found, were told about it, and asked for an option rather than a
+swap — so a fresh install behaves exactly as it did this morning.
+
+**Driven, both ways, and falsified.** `a_form_field_can_be_copied_and_pasted_both_ways`
+drives the default order; `the_acrobat_paste_order_swaps_which_chord_does_which`
+drives the other in a second process and asserts the **mirror** — under the
+Acrobat order `Ctrl+V` must add a box *without* a name and `Ctrl+Shift+V` must
+add one. Measured: it does.
+
+⇒ And it was **falsified before it was trusted**: with `apply_paste_chords`
+stubbed out, the Acrobat check fails on its first assertion and its message
+names the cause — *"if the OTHER order passes, the paste itself is fine and the
+SETTING is what did not reach the keymap."* That is the defect this check exists
+for: a preference that saves, reloads, reads back correctly in the pane and
+**changes nothing when the key is pressed**. No unit test can see it, because
+the keymap, the chord translation and the dispatcher all sit between the
+preference and the keystroke.
+
+**Status:** ✅ **SHIPPED, LOSSLESS, OPTIONAL AND DRIVEN — awaiting your
+verdict.** Nothing is open on this row and no question is outstanding.
 
 ---
 

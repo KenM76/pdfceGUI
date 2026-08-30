@@ -125,8 +125,118 @@ const APPLIED_LINE: &str = "paste-field-applied";
 /// the check would report a clipboard defect for a geometry problem.
 const PLACE_AT: (f64, f64) = (0.30, 0.45);
 
+/// The paste order a run is driving, and the chord it expects for each sense.
+///
+/// ★★ Carried rather than assumed, because the whole subject of the second
+/// check is that the SAME keystroke means the OTHER thing. A check that hard-
+/// coded `Ctrl+V` -> new field could only ever test one of the two orders, and
+/// would pass against a build whose setting did nothing at all.
+#[derive(Clone, Copy)]
+struct Order {
+    /// `PDFCE_DIAG_PASTE_CHORDS`, or `None` for the operator's default.
+    env: Option<&'static str>,
+    /// Whether Shift is held to reach the NEW-field paste.
+    shift_for_new: bool,
+    /// For the report and the failure messages.
+    label: &'static str,
+}
+
+/// pdfce's own order: `Ctrl+V` is a new field.
+const PDFCE_ORDER: Order = Order {
+    env: None,
+    shift_for_new: false,
+    label: "pdfce order (Ctrl+V = new field)",
+};
+
+/// Acrobat's order: `Ctrl+V` is a duplicate, `Ctrl+Shift+V` is a new field.
+const ACROBAT_ORDER: Order = Order {
+    env: Some("acrobat"),
+    shift_for_new: true,
+    label: "Acrobat order (Ctrl+V = duplicate)",
+};
+
+impl Order {
+    /// A distinct trace file per order, so a failure in one does not read the
+    /// other's evidence — the mistake that made an earlier check in this suite
+    /// report a defect that had been fixed two days before.
+    /// The chord this order puts the NEW-field paste on.
+    const fn new_chord(self) -> &'static str {
+        if self.shift_for_new {
+            "Ctrl+Shift+V"
+        } else {
+            "Ctrl+V"
+        }
+    }
+
+    /// The chord this order puts the DUPLICATE paste on.
+    const fn dup_chord(self) -> &'static str {
+        if self.shift_for_new {
+            "Ctrl+V"
+        } else {
+            "Ctrl+Shift+V"
+        }
+    }
+
+    const fn trace_file(self) -> &'static str {
+        if self.shift_for_new {
+            "field-clipboard-acrobat.trace.txt"
+        } else {
+            "field-clipboard.trace.txt"
+        }
+    }
+}
+
 /// See the module documentation.
 pub struct AFormFieldCanBeCopiedAndPastedBothWays;
+
+/// ★★★ The same three chords under the **Acrobat** paste order — O58.
+///
+/// Ken, 2026-08-29: *"let's make it an option to have it swap to match Acrobat
+/// or work the way we have it now."*
+///
+/// # Why this is a second check and not an extra phase of the first
+///
+/// Because the setting is applied **once, at start-up**, when the shell's
+/// keymap is assembled. Testing it needs a second process, not a second
+/// gesture — and a check that relaunched mid-run would be asserting two
+/// different programs under one name.
+///
+/// # What it would catch that the first check cannot
+///
+/// A setting that saves, reloads, reads back correctly in the pane, and
+/// **changes nothing when the key is pressed**. That is the silently-inert
+/// control this project has shipped before, and it is invisible to every unit
+/// test: `PasteChords` round-trips through its file token, `apply_paste_chords`
+/// rewrites the map, and the keystroke can still reach the old command if any
+/// link between them is missed.
+///
+/// ★ The assertion is deliberately the MIRROR of the first check's, not a copy
+/// of it: under this order `Ctrl+V` must add a **box without a name** and
+/// `Ctrl+Shift+V` must add a **name**. A build that ignored the setting would
+/// pass the first check and fail this one on its first assertion.
+pub struct TheAcrobatPasteOrderSwapsWhichChordDoesWhich;
+
+impl Check for TheAcrobatPasteOrderSwapsWhichChordDoesWhich {
+    fn name(&self) -> &'static str {
+        "the_acrobat_paste_order_swaps_which_chord_does_which"
+    }
+
+    fn defect(&self) -> &'static str {
+        "the paste-order setting saves, reloads and reads back correctly in the Settings pane \
+         and changes nothing when the key is pressed — a preference that reaches the file and \
+         not the keymap, which no unit test can see because the keymap, the chord translation \
+         and the dispatcher all sit between the two"
+    }
+
+    fn run(&self, ctx: &CheckContext) -> CheckReport {
+        let mut report = CheckReport::new(self.name(), self.defect());
+        match drive_order(ctx, &mut report, ACROBAT_ORDER) {
+            Ok(Some(failure)) => report.fail(failure),
+            Ok(None) => report.pass(),
+            Err(skip) => report.skip(skip.to_string()),
+        }
+    }
+}
 
 impl Check for AFormFieldCanBeCopiedAndPastedBothWays {
     fn name(&self) -> &'static str {
@@ -142,7 +252,7 @@ impl Check for AFormFieldCanBeCopiedAndPastedBothWays {
 
     fn run(&self, ctx: &CheckContext) -> CheckReport {
         let mut report = CheckReport::new(self.name(), self.defect());
-        match drive(ctx, &mut report) {
+        match drive_order(ctx, &mut report, PDFCE_ORDER) {
             Ok(Some(failure)) => report.fail(failure),
             Ok(None) => report.pass(),
             Err(skip) => report.skip(skip.to_string()),
@@ -215,11 +325,15 @@ fn distinct_boxes(trace: &Trace) -> std::collections::BTreeSet<(String, i64, i64
 }
 
 #[allow(clippy::too_many_lines)]
-fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>> {
+fn drive_order(
+    ctx: &CheckContext,
+    report: &mut CheckReport,
+    order: Order,
+) -> Result<Option<String>> {
     if !ctx.allow_input {
         return Err(Error::new(
             "input is disabled (--no-input). This check places a field with a click, selects it \
-             with two more, and then presses Ctrl+C, Ctrl+V and Ctrl+Shift+V — the three chords \
+             with two more, and then presses Ctrl+C and the two paste chords — which are the \
              being the subject. Reported as SKIPPED rather than passed: a check that did not run \
              has learned nothing.",
         ));
@@ -248,7 +362,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         })?,
     };
 
-    let mut spec = LaunchSpec::new(&exe, ctx.out("field-clipboard.trace.txt"));
+    let mut spec = LaunchSpec::new(&exe, ctx.out(order.trace_file()));
     spec.pdf = Some(pdf.clone());
     spec.env.push((
         ctx.profile.diag_env.0.to_owned(),
@@ -260,6 +374,13 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         .push(("PDFCE_DIAG_INVOKE".to_owned(), INVOKE.to_owned()));
     spec.env
         .push((ACCEPT_ENV.0.to_owned(), ACCEPT_ENV.1.to_owned()));
+    // ★ The paste order for this run. Absent means the operator's own setting,
+    // which on a clean checkout is pdfce's order — see `PasteChords::from_environment`
+    // for why this seam exists rather than a check writing his preferences file.
+    if let Some(value) = order.env {
+        spec.env
+            .push(("PDFCE_DIAG_PASTE_CHORDS".to_owned(), value.to_owned()));
+    }
     spec.allow_stale = ctx.allow_stale;
     spec.source_root = ctx.source_root.clone();
 
@@ -271,6 +392,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         session.pid()
     ));
     session.settle(45);
+    report.note(format!("★ driving the {}", order.label));
     let driver = Driver::new(session.window());
 
     // --- A: place one field -------------------------------------------------
@@ -381,8 +503,12 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     }
     report.note("★ Ctrl+C produced a fieldclip-copy line");
 
-    // --- D: Ctrl+V — paste as a NEW field -----------------------------------
-    driver.press_chord(&[vk::CONTROL], vk::V)?;
+    // --- D: the NEW-field paste, on whichever chord this order puts it -------
+    if order.shift_for_new {
+        driver.press_chord(&[vk::CONTROL, vk::SHIFT], vk::V)?;
+    } else {
+        driver.press_chord(&[vk::CONTROL], vk::V)?;
+    }
     session.settle(35);
     let after_new = session.trace()?;
     let new_paste = after_new
@@ -391,9 +517,13 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         .count();
     if new_paste == 0 {
         return Ok(Some(format!(
-            "Ctrl+V raised no `{PASTE_LINE} mode=NewField` line after a successful copy. The \
-             clipboard held a field, so either the binding does not reach `edit.paste` or the \
-             dispatcher's clipboard-kind branch did not take the field arm. Trace: {}",
+            "{} raised no `{PASTE_LINE} mode=NewField` line after a successful copy, under \
+             the {}. The clipboard held a field, so either that chord does not reach \
+             `edit.paste`, or the dispatcher's clipboard-kind branch did not take the field \
+             arm. ★ If the OTHER order passes, the paste itself is fine and the SETTING is \
+             what did not reach the keymap. Trace: {}",
+            order.new_chord(),
+            order.label,
             session.trace_path().display()
         )));
     }
@@ -414,7 +544,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     let names_after_new = field_names(&after_new);
     if names_after_new.len() <= names_before.len() {
         return Ok(Some(format!(
-            "★★ Ctrl+V RAISED THE PASTE AND NOTHING ARRIVED. `{PASTE_LINE} mode=NewField` is in \
+            "★★ THE PASTE WAS RAISED AND NOTHING ARRIVED. `{PASTE_LINE} mode=NewField` is in \
              the trace and page 1 still has {} distinct field name(s), the same as before. So \
              the shell asked and the document did not change — which is what a missing \
              `FieldAction::Paste` arm looks like, and is precisely the state a check reading \
@@ -453,7 +583,8 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         )));
     }
     report.note(format!(
-        "★ Ctrl+V added a new field named {pasted:?} (from {field:?}): {} name(s) -> {}",
+        "★ {} added a new field named {pasted:?} (from {field:?}): {} name(s) -> {}",
+        order.new_chord(),
         names_before.len(),
         names_after_new.len()
     ));
@@ -464,7 +595,11 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // left behind. An operator copies once and pastes several times, and a
     // clipboard that emptied itself on paste would break that.
     let boxes_before_dup = distinct_boxes(&after_new).len();
-    driver.press_chord(&[vk::CONTROL, vk::SHIFT], vk::V)?;
+    if order.shift_for_new {
+        driver.press_chord(&[vk::CONTROL], vk::V)?;
+    } else {
+        driver.press_chord(&[vk::CONTROL, vk::SHIFT], vk::V)?;
+    }
     session.settle(35);
     let after_dup = session.trace()?;
     let dup_paste = after_dup
@@ -473,12 +608,15 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         .count();
     if dup_paste == 0 {
         return Ok(Some(format!(
-            "Ctrl+Shift+V raised no `{PASTE_LINE} mode=Duplicate` line, on a build where Ctrl+V \
-             worked one step earlier. So the chord itself is the failure rather than the paste \
-             path. ★ The most likely cause is the modifier, not the binding: winit derives its \
-             modifier state from key EVENTS, and a synthesised `VK_SHIFT` — the 'either shift' \
-             virtual key a real keyboard never sends — is not always recognised. `sys::vk::LSHIFT` \
-             exists for exactly this and is the first thing to try. Trace: {}",
+            "{} raised no `{PASTE_LINE} mode=Duplicate` line, on a build where {} worked one \
+             step earlier under the {}. So the chord itself is the failure rather than the \
+             paste path. ★ If the failing chord carries Shift, suspect the MODIFIER before the \
+             binding: winit derives its modifier state from key EVENTS, and a synthesised \
+             `VK_SHIFT` — the 'either shift' virtual key a real keyboard never sends — is not \
+             always recognised. `sys::vk::LSHIFT` exists for exactly this. Trace: {}",
+            order.dup_chord(),
+            order.new_chord(),
+            order.label,
             session.trace_path().display()
         )));
     }
@@ -497,7 +635,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     let boxes_after_dup = distinct_boxes(&after_dup).len();
     if boxes_after_dup <= boxes_before_dup {
         return Ok(Some(format!(
-            "★★★ Ctrl+Shift+V raised `{PASTE_LINE} mode=Duplicate` and page 1 still has \
+            "★★★ The duplicate paste raised `{PASTE_LINE} mode=Duplicate` and page 1 still has \
              {boxes_after_dup} box(es), unchanged from {boxes_before_dup}. The duplicate paste \
              authors a field with the SOURCE'S OWN NAME and relies on `pdfce-core` merging it \
              into the existing field as a second widget (`edit.rs:13523`, `merged: true`). If \
@@ -514,7 +652,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             "★★★ THE DUPLICATE MADE A NEW FIELD. Boxes went {boxes_before_dup} -> \
              {boxes_after_dup}, which is right, but the number of distinct field NAMES went {} \
              -> {} — and a duplicate must add a box WITHOUT adding a name. That is the whole \
-             difference between the two chords: Ctrl+Shift+V's promise to the operator is that \
+             difference between the two chords: the duplicate's promise to the operator is that \
              typing in either box fills both, and two names means two independent fields. Names \
              now: {:?}. Trace: {}",
             names_after_new.len(),
@@ -524,9 +662,9 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         )));
     }
     report.note(format!(
-        "★★ Ctrl+Shift+V added a box without adding a name: {boxes_before_dup} -> \
-         {boxes_after_dup} boxes, {} name(s) unchanged — which is the merge, observed from \
-         outside the engine",
+        "★★ {} added a box without adding a name: {boxes_before_dup} -> {boxes_after_dup} \
+         boxes, {} name(s) unchanged — which is the merge, observed from outside the engine",
+        order.dup_chord(),
         names_after_dup.len()
     ));
 

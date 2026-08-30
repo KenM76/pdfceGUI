@@ -1022,6 +1022,73 @@ pub const fn wheel_paging_note(paging: crate::app::prefs::WheelPaging) -> &'stat
     }
 }
 
+/// Which paste chord means which, for a form field: the setting's name.
+///
+/// ★ It names the SUBJECT, not the keys. An operator scanning the pane for
+/// *"why did my copied field come out linked?"* is thinking about fields, not
+/// about `V`.
+#[must_use]
+pub const fn paste_chords_title() -> &'static str {
+    "Copying a form field"
+}
+
+/// What happens if you never touch it.
+#[must_use]
+pub const fn paste_chords_silence() -> &'static str {
+    "Ctrl+V pastes a separate field with its own value; Ctrl+Shift+V pastes another box that fills in step with the original."
+}
+
+/// What it costs, and what it does not affect.
+///
+/// ★★ Three things, and the second is the one that stops the support question.
+/// Both pastes always exist — this only exchanges the keys — so an operator who
+/// picks the Acrobat order has lost nothing and can still reach either from the
+/// Edit tab. The third sentence forestalls the other reasonable worry: it is a
+/// keyboard preference, not a document one, so nothing already pasted changes.
+#[must_use]
+pub const fn paste_chords_radius() -> &'static str {
+    "Applies at once. Both kinds of paste stay available either way — this only swaps which key does which, and both are on the Edit tab under their own names. Nothing already in a document changes."
+}
+
+/// One paste-order option's name.
+///
+/// ★ The pdfce entry does not say *"pdfce's default"* the way `wheel_paging`'s
+/// does, because here the alternative is named after a **product** and the pair
+/// would read as an endorsement contest. Each names what its Ctrl+V does, which
+/// is the fact being chosen between.
+#[must_use]
+pub const fn paste_chords_label(order: crate::app::prefs::PasteChords) -> &'static str {
+    use crate::app::prefs::PasteChords as P;
+    match order {
+        P::PdfceOrder => "Ctrl+V makes a separate field (pdfce's default)",
+        P::AcrobatOrder => "Ctrl+V makes another box for the same field (matches Acrobat)",
+    }
+}
+
+/// One paste-order option's description.
+///
+/// ★★★ Both notes lead with the CONSEQUENCE — whether typing in one box shows
+/// in the other — because that is the only difference an operator can observe,
+/// and it is invisible on the page. Two linked boxes and two independent boxes
+/// are pixel-identical until somebody types.
+///
+/// ★ The Acrobat note says *why* Acrobat does it, rather than only that it does.
+/// An operator picking a compatibility setting deserves to know it is a real
+/// convention with a purpose — repeated page-number and date fields that must
+/// agree — and not merely a quirk being mimicked.
+#[must_use]
+pub const fn paste_chords_note(order: crate::app::prefs::PasteChords) -> &'static str {
+    use crate::app::prefs::PasteChords as P;
+    match order {
+        P::PdfceOrder => {
+            "The copy is its own field: filling one leaves the other alone. Usually what you want going down a column of a title block. Hold Shift to link them instead."
+        }
+        P::AcrobatOrder => {
+            "The copy shares the original's value, so typing in either shows in both — Acrobat's own behaviour, and how a form repeats one answer across sheets. Hold Shift to get a separate field instead."
+        }
+    }
+}
+
 /// Page overlays: what they are.
 #[must_use]
 pub const fn chrome_title() -> &'static str {

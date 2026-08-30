@@ -851,6 +851,27 @@ impl PdfceApp {
             prefs::Prefs::load().0
         };
 
+        // ★★★ POINT THE TWO PASTE CHORDS AT THE OPERATOR'S CHOSEN ORDER —
+        // `OPERATOR_REQUESTS.md` O58.
+        //
+        // Here rather than inside `built_in()` because the manifest is the
+        // SHIPPED default and this is a preference: baking the choice into the
+        // built-in layer would make the checked-in `built_in.ron` depend on
+        // whoever last ran the program, and its equality test would fail on
+        // every machine but one.
+        //
+        // ★ After the load, necessarily — the preference does not exist until
+        // then — and after `validate_against`, which is what decides whether
+        // there is a keymap to edit at all.
+        let mut shell = shell;
+        if let Some(shell) = shell.as_mut() {
+            // ★ The harness override wins for one run, if it is set. See
+            // `PasteChords::from_environment` for why a seam exists here rather
+            // than a check writing the operator's own preferences file.
+            let order = prefs::PasteChords::from_environment().unwrap_or(prefs.paste_chords);
+            crate::shell::manifest::apply_paste_chords(shell, order);
+        }
+
         Self {
             status: Status::default(),
             // The operator's saved selection filter, or everything the shell

@@ -111,6 +111,69 @@ use egui_shell::manifest::{Group, Item, ItemSize, Mode, Shell};
 /// to edit, and — the payoff that decided it — **one keymap**, so a menu
 /// row's chord hint is derived from the same bindings the ribbon uses
 /// rather than written down twice. See [`super::menus`] for what is in
+/// **Point the two form-field paste chords at the operator's chosen order.**
+///
+/// `OPERATOR_REQUESTS.md` **O58**. Ken, 2026-08-29: *"let's make it an option to
+/// have it swap to match Acrobat or work the way we have it now."*
+///
+/// # What it does, and what it deliberately does not
+///
+/// It rewrites **two entries** of the shell's keymap so `edit.paste` and
+/// `edit.paste_duplicate` sit on the chords
+/// [`crate::app::prefs::PasteChords`] names. It changes **nothing else** — not
+/// what either command does, not its label, not its tooltip, not whether it is
+/// on the ribbon.
+///
+/// ★★ That is the whole design. Swapping what the *commands* do would make the
+/// labels lie: a button reading **Paste as duplicate** would paste a new field.
+/// Swapping the *keys* leaves every surface honest by construction, because the
+/// ribbon, the context menu, the shortcuts dialog and the keyboard dispatcher
+/// all read this one keymap.
+///
+/// # Why it removes before it inserts
+///
+/// A [`Keymap`] is a map from chord to command, so writing the new pair without
+/// clearing the old one leaves whichever chord is now unused still pointing at
+/// its old command — and under `AcrobatOrder` that is `Ctrl+V` mapped twice.
+/// `BTreeMap::insert` would resolve it silently and the loser would be decided
+/// by nothing the operator can see.
+///
+/// ⇒ Both chords are cleared first, then both are written. The result depends
+/// only on the preference, never on what was there before, which is what makes
+/// this safe to call repeatedly — and it IS called repeatedly: once at start-up
+/// and again every time the setting changes.
+///
+/// # It is a no-op on a shell with no keymap
+///
+/// `Shell::keymap` is an `Option`, and a manifest that failed validation leaves
+/// it `None`. Silently doing nothing is right here: the operator has already
+/// been told the ribbon is unavailable, and a second complaint about key
+/// bindings would be noise about a consequence rather than the cause.
+pub fn apply_paste_chords(shell: &mut Shell, order: crate::app::prefs::PasteChords) {
+    let Some(keymap) = shell.keymap.as_mut() else {
+        return;
+    };
+    // ui-text-exempt: keymap chord spellings, never displayed.
+    for chord in ["Ctrl+V", "Ctrl+Shift+V"] {
+        keymap.0.remove(chord);
+    }
+    keymap
+        .0
+        .insert(order.new_field_chord().to_owned(), "edit.paste".to_owned());
+    keymap.0.insert(
+        order.duplicate_chord().to_owned(),
+        "edit.paste_duplicate".to_owned(),
+    );
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed.
+        format!(
+            "paste-chords order={order:?} new={} duplicate={}",
+            order.new_field_chord(),
+            order.duplicate_chord()
+        )
+    });
+}
+
 /// them and why.
 #[must_use]
 pub fn built_in() -> Shell {

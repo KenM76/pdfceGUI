@@ -107,6 +107,9 @@ pub mod chrome;
 /// document open, never on the hot path.
 pub mod opening;
 // What a plain wheel does when the document is not one long scroll -- O30.
+/// ★ Which chord means which form-field paste — O58. Its own file because
+/// neither order is obviously right and the argument for each is worth keeping.
+pub mod pastechords;
 /// How sharply a page is drawn, and how long zoom waits before drawing it.
 /// The two preferences that change what a **frame costs**.
 pub mod quality;
@@ -117,6 +120,7 @@ use std::path::PathBuf;
 pub use cache::PageCache;
 pub use chrome::{DEFAULT_UI_SCALE, MAX_UI_SCALE, MIN_UI_SCALE, UI_SCALE_STEP};
 pub use opening::{OpeningFit, PageChrome};
+pub use pastechords::PasteChords;
 pub use quality::{DEFAULT_SETTLE_MS, MAX_SETTLE_MS, MIN_SETTLE_MS, RenderQuality};
 pub use wheel::WheelPaging;
 
@@ -292,6 +296,13 @@ pub struct Prefs {
     /// See [`WheelPaging`] for why the choice exists only under
     /// `PageDisplay::Single` and `Facing`.
     pub wheel_paging: WheelPaging,
+    /// **Which chord means which form-field paste** — `OPERATOR_REQUESTS.md`
+    /// **O58**, operator ruling 2026-08-29.
+    ///
+    /// See [`PasteChords`]. Read when the shell's keymap is assembled and on
+    /// every change to it, never per keystroke: it does not decide what a
+    /// command *does*, it decides which key *reaches* it.
+    pub paste_chords: PasteChords,
     /// **How big the program's own controls are drawn**, as a multiplier on
     /// whatever the operating system already asked for.
     ///
@@ -406,6 +417,9 @@ impl Default for Prefs {
     fn default() -> Self {
         Self {
             render_quality: RenderQuality::default(),
+            // O58: the operator's own ruling, not Acrobat's. He was told about
+            // the divergence and asked for a setting rather than a swap.
+            paste_chords: PasteChords::default(),
             page_cache: PageCache::default(),
             zoom_settle_ms: DEFAULT_SETTLE_MS,
             // ★ The shipped default is today's ceiling, so a fresh install
@@ -689,6 +703,21 @@ impl Prefs {
                         line,
                     }),
                 },
+                // ★ An unreadable token leaves the DEFAULT in place and is
+                // REPORTED, exactly as every sibling arm does. Swallowing it
+                // silently was the first version and was wrong: a token this
+                // build cannot read is either a file from a newer build or a
+                // hand-edit with a typo, and both are worth a note. The load
+                // still succeeds, so one bad line never costs the operator
+                // every other setting in the file.
+                "paste_chords" => match PasteChords::from_key(value) {
+                    Some(o) => prefs.paste_chords = o,
+                    None => notes.push(PrefNote::BadValue {
+                        key: key.to_owned(),
+                        value: value.to_owned(),
+                        line,
+                    }),
+                },
                 "wheel_paging" => match WheelPaging::from_key(value) {
                     Some(w) => prefs.wheel_paging = w,
                     None => notes.push(PrefNote::BadValue {
@@ -884,6 +913,10 @@ impl Prefs {
              # Ignored under a continuous display mode, where the wheel\n\
              # scrolls the whole document by definition.\n",
         );
+        // ui-text-exempt: a file KEY, as above.
+        out.push_str("paste_chords = ");
+        out.push_str(self.paste_chords.key());
+        out.push('\n');
         // ui-text-exempt: a file KEY, as above.
         out.push_str("wheel_paging = ");
         out.push_str(self.wheel_paging.key());

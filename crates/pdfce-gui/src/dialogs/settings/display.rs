@@ -49,7 +49,8 @@ use egui::Ui;
 
 use super::widgets;
 use crate::app::prefs::{
-    MAX_SETTLE_MS, MIN_SETTLE_MS, OpeningFit, PageCache, Prefs, RenderQuality, WheelPaging,
+    MAX_SETTLE_MS, MIN_SETTLE_MS, OpeningFit, PageCache, PasteChords, Prefs, RenderQuality,
+    WheelPaging,
 };
 use crate::text::settings as t;
 
@@ -200,6 +201,41 @@ pub fn opening_fit(ui: &mut Ui, prefs: &mut Prefs) {
 /// thinking about pages. This one is how they *find* the choice — and how they
 /// read the two sentences that make it decidable, which a one-word toggle in a
 /// 24-point bar has no room for. Both write the same field, so neither can
+/// **Which chord pastes a form field as a new one, and which as a duplicate.**
+///
+/// `OPERATOR_REQUESTS.md` **O58**. Ken, 2026-08-29: *"let's make it an option to
+/// have it swap to match Acrobat or work the way we have it now."*
+///
+/// # ★ Here rather than on a keyboard-shortcuts page, and there is no keyboard page
+///
+/// The shortcuts dialog *lists* bindings; it does not edit them. And this is not
+/// really a question about keys — it is a question about **which of two pastes
+/// is the ordinary one**, which is why the labels name the behaviour and the
+/// chords are the parenthetical rather than the other way round.
+///
+/// # It is in Display because that is where input-gesture preferences already live
+///
+/// Beside `wheel_paging`, which is the same shape of question: an operator
+/// deciding what a familiar input should mean in this program. Neither is about
+/// what the document *is*, which is what keeps them out of Saving and Pages.
+pub fn paste_chords(ui: &mut Ui, prefs: &mut Prefs) {
+    widgets::header(
+        ui,
+        t::paste_chords_title(),
+        t::paste_chords_silence(),
+        t::paste_chords_radius(),
+    );
+    for option in PasteChords::ALL {
+        widgets::option(
+            ui,
+            &mut prefs.paste_chords,
+            *option,
+            t::paste_chords_label(*option),
+            Some(t::paste_chords_note(*option)),
+        );
+    }
+}
+
 /// drift from the other.
 pub fn wheel_paging(ui: &mut Ui, prefs: &mut Prefs) {
     widgets::header(

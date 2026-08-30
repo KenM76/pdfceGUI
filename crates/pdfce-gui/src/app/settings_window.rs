@@ -125,6 +125,25 @@ impl PdfceApp {
         self.settings = draft.working;
         self.prefs = draft.working_prefs;
 
+        // ★★★ AND THE KEYMAP FOLLOWS THE PASTE-ORDER PREFERENCE — O58.
+        //
+        // `Prefs` is data; the shell's keymap is what a keystroke actually
+        // consults. Adopting the preference without rewriting the binding would
+        // give the operator a radio button that saves correctly, reloads
+        // correctly, reads correctly in the pane — and changes nothing when they
+        // press the key. That is precisely the silently-inert control this
+        // project has shipped before, and the reason `wheel_paging` grew its own
+        // live-apply branch three screens away in `frame.rs`.
+        //
+        // ★ Unconditional rather than guarded on a change. `apply_paste_chords`
+        // clears both chords and rewrites both, so its result depends only on
+        // the preference — running it when nothing changed costs two map
+        // operations and removes the need for a before/after snapshot that could
+        // itself go stale.
+        if let Some(shell) = self.shell.as_mut() {
+            crate::shell::manifest::apply_paste_chords(shell, self.prefs.paste_chords);
+        }
+
         // ★ Trace before the write, so a harness can see the adopted values
         // even if the write is what fails. `theme` is named separately because
         // it is the one setting whose effect is already on screen by now.

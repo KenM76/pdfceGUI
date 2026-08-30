@@ -611,6 +611,7 @@ pub fn show(
                     ui.add_space(10.0);
                     display::opening_fit(ui, &mut draft.working_prefs);
                     display::wheel_paging(ui, &mut draft.working_prefs);
+                    display::paste_chords(ui, &mut draft.working_prefs);
                     ui.add_space(10.0);
                     display::page_chrome(ui, &mut draft.working_prefs);
                 });

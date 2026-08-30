@@ -49,6 +49,7 @@ fn every_preference_round_trips_through_the_file() {
                 // ★ The non-default, so a writer that emitted no
                 // `wheel_paging` key at all would fail here rather than
                 // pass by landing back on `Scroll`.
+                paste_chords: PasteChords::AcrobatOrder,
                 wheel_paging: WheelPaging::FlipPages,
                 // Deliberately not all-true and not all-false: an assignment
                 // that crossed two of the three fields would survive either.
@@ -471,6 +472,9 @@ fn the_writer_emits_no_key_the_parser_rejects() {
     // A non-default in every field, so no emitted value can coincide with
     // what a failed parse would have left behind.
     let prefs = Prefs {
+        // ★ Non-default: the Acrobat order, so a writer emitting a constant
+        // token would fail here rather than pass.
+        paste_chords: PasteChords::AcrobatOrder,
         // ★ Non-default, like every field here — and this one is the only
         // REPEATED key in the file, so it is the only field whose writer
         // emits a variable number of lines. Two entries rather than one,

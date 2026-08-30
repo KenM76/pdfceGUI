@@ -160,8 +160,8 @@ blocked on the reply.
 re-measured; `OPERATOR_REQUESTS.md` has **three new questions for him (O47, O48,
 O49)** and none of them blocks anything.
 
-**Measured now (2026-08-29, re-run):** **2,657 passing tests across the
-workspace** (2,069 GUI lib + 421 shell + the rest), **19/19 gates**, **111 registered
+**Measured now (2026-08-29, re-run):** **2,662 passing tests across the
+workspace** (2,074 GUI lib + 421 shell + the rest), **19/19 gates**, **112 registered
 driven checks**. Engine pinned at `3ac9dd7` (re-measured 2026-08-29 from `Cargo.lock`). Scaffold list **5**.
 
 **What shipped:** Tools ▸ Embed fonts and Tools ▸ Remove embedded fonts, both

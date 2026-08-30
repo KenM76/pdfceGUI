@@ -1070,6 +1070,11 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // first thing to say so — it would name the clipboard for a selection
         // defect. Its own SKIP messages distinguish the two.
         Box::new(field_clipboard::AFormFieldCanBeCopiedAndPastedBothWays),
+        // ★★ Immediately after its sibling, and it is the MIRROR of it: same
+        // gestures, opposite expectations, one environment variable apart. A
+        // build that ignored the paste-order setting passes the first and fails
+        // this one on its first assertion.
+        Box::new(field_clipboard::TheAcrobatPasteOrderSwapsWhichChordDoesWhich),
         Box::new(form_selection::AClickInsideAFormSelectsWhatIsDrawnThere),
         // ★ Immediately after it, and the order is a dependency rather than a
         // preference: this check's second step is `form_selection`'s first

@@ -497,7 +497,13 @@ mod tests {
     /// entry here that is neither an answer to a silent standard nor a
     /// rendering preference. It is a fact about the *person*, and it is in
     /// this window because the alternative was a comment nobody signed.
-    const SETTINGS_COUNT: usize = 26;
+    /// ★★ And 26 → **27** on 2026-08-29 with `paste_chords` —
+    /// `OPERATOR_REQUESTS.md` O58, and the first entry here that exists
+    /// because **another program disagrees with us**. It is a compatibility
+    /// preference rather than a taste one: Acrobat assigns the two form-field
+    /// pastes to the opposite chords, both assignments have a real argument,
+    /// and the operator asked for the choice rather than a ruling.
+    const SETTINGS_COUNT: usize = 27;
 
     /// The `(title, silence, radius)` triple for every setting in the window.
     ///
@@ -612,6 +618,14 @@ mod tests {
                 wheel_paging_title(),
                 wheel_paging_silence(),
                 wheel_paging_radius(),
+            ),
+            // ★ O58 — the paste-order choice. It sits beside wheel paging
+            // because both are the same shape of question: what should a
+            // familiar input mean in this program.
+            (
+                paste_chords_title(),
+                paste_chords_silence(),
+                paste_chords_radius(),
             ),
             (chrome_title(), chrome_silence(), chrome_radius()),
             // The theme's twin in the Appearance group — the second setting
