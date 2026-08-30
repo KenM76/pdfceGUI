@@ -137,7 +137,10 @@
 //! decision 058's whole argument and is quoted in the engine's own docs about
 //! the last time it happened.
 
-use pdfce_core::text_edit::{FormatError, FormatOptions, FormatRequest, NewFill, StyleSynthesis};
+use pdfce_core::settings::StylePolicy;
+use pdfce_core::text_edit::{
+    FormatError, FormatOptions, FormatRequest, NewFill, StyleOutcome, StyleSynthesis,
+};
 
 use crate::app::state::OpenDoc;
 use crate::app::status::decline;
@@ -262,6 +265,14 @@ fn request(page: usize, pinned: crate::canvas::textedit::pin::Pinned) -> FormatR
 /// half-applies and says so: the operator sees some of their text change, has no
 /// way to tell how much, and the undo stack holds an unknown number of entries.
 pub(super) fn apply(doc: &mut OpenDoc, page: usize, runs: &[usize], change: &StyleChange) {
+    // ★★★ THE OPERATOR'S POSTURE, SNAPSHOT BEFORE THE BORROW.
+    //
+    // `super::apply::vector_edit` takes `&mut doc`, so nothing inside the
+    // closure can read `doc.settings`. Reading it here is not a convenience:
+    // it is the same rule `OpenDoc::settings` itself documents — a setting
+    // sampled once per gesture cannot change halfway through a multi-run
+    // restyle and leave two runs decided by two different answers.
+    let policy = doc.settings.style_policy;
     // ★★★ DERIVED-WHITESPACE RUNS ARE SKIPPED, and the first driven run of this
     // module is why.
     //
@@ -339,11 +350,73 @@ pub(super) fn apply(doc: &mut OpenDoc, page: usize, runs: &[usize], change: &Sty
             let mut outcome: Option<FormatError> = None;
             let mut notes: Vec<String> = Vec::new();
             super::apply::vector_edit(doc, "format-text", page, 1, |session| {
-                match session.format_text(
-                    &change.stamp(request(page, op.pin)),
-                    &FormatOptions::default(),
-                ) {
+                // ★★★ THE OPERATOR'S POSTURE MUST NOT REACH THIS CALL, AND THE
+                // REASON IS THAT THE PROBE IS A QUESTION, NOT AN ACTION.
+                //
+                // `Pass 179.0` (engine `71d13aa`, 2026-08-30) made the
+                // synthesis gate posture-dependent. Under its new default —
+                // `StylePolicy::Auto` — asking for synthetic bold on a page
+                // that carries a real bold face no longer refuses: it fakes the
+                // weight and reports the face it passed over.
+                //
+                // ★★ That silently removed this shell's Bold button. The retry
+                // below is triggered BY the refusal, so when the refusal
+                // stopped arriving the retry stopped happening, and pressing
+                // Bold on a page carrying `Calibri-Bold` began thickening
+                // `Calibri` instead of using it. Nothing failed anywhere; one
+                // test caught it only because it asserts the face BY NAME.
+                //
+                // ⇒ So the probe pins `Refuse` unconditionally. The refusal is
+                // how this shell ASKS which real face is available; it is never
+                // shown to the operator as a refusal, because the very next
+                // thing that happens is taking the offer it names. The engine
+                // says this in as many words: *"a shell must read the posture
+                // to know what pressing the button does."* This shell's answer
+                // is that the button always means "make this bold", so it reads
+                // the posture for a different question — see `policy` below.
+                let probe = FormatOptions::default().with_style_policy(StylePolicy::Refuse);
+
+                // ★★ Under `Refuse` a fake is declined even when NO real face
+                // was available, and the gate cannot say so.
+                //
+                // `gate_synthesis` refuses only when a real face exists — a run
+                // whose page carries no bold at all sails through it and gets
+                // thickened. That is the engine's contract and it is right for
+                // the engine. It is not what an operator who chose "never fake
+                // it" asked for, so the read-only preview is asked instead.
+                //
+                // ★ Only under `Refuse`, so the overwhelmingly common path pays
+                // nothing for a posture nobody selected.
+                if policy == StylePolicy::Refuse
+                    && let StyleChange::Weight { bold, italic } = change
+                {
+                    let want = StyleSynthesis::new(*bold, *italic);
+                    // An empty `find` WITH a pin is addressed by the pin alone —
+                    // the same addressing `request` uses. An empty find with no
+                    // pin is refused by name, which is why the pin is passed.
+                    let would_fake = session
+                        .preview_style_resolution(page, "", Some(op.pin.span), want)
+                        .is_ok_and(|res| {
+                            matches!(res.combined, Some(StyleOutcome::WouldSynthesize))
+                        });
+                    if would_fake {
+                        decline::record_text_style(t::TextStyleRefusal::FakingDeclined);
+                        outcome = Some(FormatError::NoOp);
+                        return Err(FormatError::NoOp);
+                    }
+                }
+
+                match session.format_text(&change.stamp(request(page, op.pin)), &probe) {
                     Ok(report) => {
+                        // ★ Nothing real was on offer, so whatever happened here
+                        // is the honest best available. Under `Warn` the fact
+                        // that it was FAKED is raised from a quiet disclosure to
+                        // a sentence of its own — the engine's own reading of
+                        // that posture, applied to the one thing this shell can
+                        // observe about it.
+                        if policy == StylePolicy::Warn && !report.synthesis.is_none() {
+                            notes.push(t::text_style_faked_warning().to_owned());
+                        }
                         notes.extend(report.disclosures);
                         Ok(notes.clone())
                     }
@@ -382,7 +455,7 @@ pub(super) fn apply(doc: &mut OpenDoc, page: usize, runs: &[usize], change: &Sty
                     }) => {
                         let retry = request(page, op.pin)
                             .font(pdfce_core::text_edit::FontSelector::new(&selector));
-                        match session.format_text(&retry, &FormatOptions::default()) {
+                        match session.format_text(&retry, &probe) {
                             Ok(report) => {
                                 // ★★ `same_family` gets its own sentence. The
                                 // engine says outright that a fallback to
@@ -400,22 +473,59 @@ pub(super) fn apply(doc: &mut OpenDoc, page: usize, runs: &[usize], change: &Sty
                                 notes.extend(report.disclosures);
                                 Ok(notes.clone())
                             }
-                            // ★★★ The RETRY's refusal is reported, not the
-                            // synthesis refusal that sent us here. On
-                            // `textedit/format_family.pdf` the gate names
+                            // ★★★ THE THIRD RUNG, AND IT IS NEW.
+                            //
+                            // On `textedit/format_family.pdf` the gate names
                             // `Times-Bold` — family-matching the run — and
                             // `Times-Bold` remaps `o` to a bullet, so it cannot
                             // cover "hello world" while `Calibri-Bold` on the
                             // same page can. "There is a real bold face, use
                             // it" is useless advice when using it is what just
-                            // failed. Filed with the engine, not worked around:
-                            // a shell-side search for a different bold resource
-                            // would be this project second-guessing pdfce's
-                            // font selection.
+                            // failed.
+                            //
+                            // ★★ Until 2026-08-30 this shell STOPPED here, and
+                            // the operator got a refusal for a request pdfce
+                            // could have satisfied badly-but-visibly. That was
+                            // defensible while the engine itself refused; it is
+                            // not defensible now that the engine's own default
+                            // posture is "decide and apply" and the operator's
+                            // ruling behind it was **"shouldn't have to
+                            // intervene"**.
+                            //
+                            // ⇒ So: fake it, and SAY which real face was tried
+                            // and could not show this text. Under `Refuse` the
+                            // operator has said they would rather be told, and
+                            // the refusal stands.
                             Err(error) => {
-                                decline::record_text_style(refusal_of(&error));
-                                outcome = Some(error);
-                                Err(FormatError::NoOp)
+                                if policy == StylePolicy::Refuse {
+                                    decline::record_text_style(refusal_of(&error));
+                                    outcome = Some(error);
+                                    return Err(FormatError::NoOp);
+                                }
+                                // `Auto`, explicitly, whatever the operator
+                                // chose: the shell has ALREADY established that
+                                // no usable real face exists, so the gate has
+                                // nothing left to refuse in favour of, and
+                                // pinning the posture here keeps the second call
+                                // from re-asking a question already answered.
+                                let fake =
+                                    FormatOptions::default().with_style_policy(StylePolicy::Auto);
+                                let fresh = change.stamp(request(page, op.pin));
+                                match session.format_text(&fresh, &fake) {
+                                    Ok(report) => {
+                                        notes.push(t::text_style_faked_instead(&real_font));
+                                        notes.extend(report.disclosures);
+                                        Ok(notes.clone())
+                                    }
+                                    // The RETRY's refusal is reported, not this
+                                    // one: it names the face that was tried,
+                                    // which is the half the operator can act on.
+                                    Err(_) => {
+                                        decline::record_text_style(refusal_of(&error));
+                                        outcome = Some(error);
+                                        Err(FormatError::NoOp)
+                                    }
+                                }
                             }
                         }
                     }

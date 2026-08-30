@@ -552,6 +552,14 @@ pub fn show(
                     focus == Some("fonts"), // ui-text-exempt: a group key.
                     |ui| {
                         fonts::folders(ui, &mut draft.working_prefs);
+                        ui.add_space(10.0);
+                        ui.separator();
+                        // ★ Under the folder list, and after a separator,
+                        // because the two are about different halves of the
+                        // same subject: the list is where pdfce LOOKS for a
+                        // face, and this is what it does when looking has
+                        // failed. Drawn in the order an operator meets them.
+                        fonts::style_policy(ui, draft);
                     },
                 );
                 widgets::group(ui, "images", t::group_images(), false, |ui| {
@@ -751,23 +759,75 @@ mod tests {
     /// failure message says which setting, and the group it belongs in is
     /// decided by the symptom that brings an operator looking for it — see this
     /// module's header.
+    /// Every file in this directory, paired with its module name.
+    ///
+    /// ★★★ HAND-WRITTEN, AND THEREFORE AUDITED — see
+    /// [`every_source_in_this_directory_is_listed`].
+    ///
+    /// `fonts.rs` was missing from here on 2026-08-30 and the consequence was
+    /// precise and misleading: the completeness test below reported
+    /// `Settings::style_policy` as having no control **after the control had
+    /// been written**, because the control was in the one file the search did
+    /// not read. A check that cannot see a file reports its contents as absent,
+    /// which is indistinguishable from the defect it exists to find.
+    const SOURCES: &[(&str, &str)] = &[
+        ("mod", include_str!("mod.rs")),
+        ("appearance", include_str!("appearance.rs")),
+        ("colour", include_str!("colour.rs")),
+        ("comments", include_str!("comments.rs")),
+        ("display", include_str!("display.rs")),
+        ("fonts", include_str!("fonts.rs")),
+        ("images", include_str!("images.rs")),
+        ("measuring", include_str!("measuring.rs")),
+        ("pages", include_str!("pages.rs")),
+        ("preset", include_str!("preset.rs")),
+        ("saving", include_str!("saving.rs")),
+        ("text", include_str!("text.rs")),
+        ("widgets", include_str!("widgets.rs")),
+    ];
+
+    /// ★★★ EVERY MODULE THIS DIRECTORY DECLARES IS IN [`SOURCES`].
+    ///
+    /// Unlike the catalog's own version of this guard, there is **no
+    /// exclusion list**: this search is for *"is there a control bound to this
+    /// setting anywhere in the window"*, and a control could legitimately be
+    /// written in any file here — including `widgets.rs`, if a helper ever
+    /// bound a field directly. Every file counts, so every file is listed.
+    ///
+    /// The failure this prevents is the quiet one. A missing file does not
+    /// make the completeness test fail loudly; it makes it **report the
+    /// missing file's settings as uncontrolled**, sending the next session to
+    /// write a control that already exists a few lines away.
+    #[test]
+    fn every_source_in_this_directory_is_listed() {
+        let file = syn::parse_file(include_str!("mod.rs")).expect("mod.rs did not parse");
+        let declared: Vec<String> = file
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                syn::Item::Mod(m) if m.content.is_none() => Some(m.ident.to_string()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            declared.len() >= 8,
+            "parsed {} module declaration(s) — the PARSER is stale, not the list.",
+            declared.len()
+        );
+        let listed: Vec<&str> = SOURCES.iter().map(|(name, _)| *name).collect();
+        for name in declared {
+            assert!(
+                listed.contains(&name.as_str()),
+                "`{name}.rs` is not in SOURCES, so any control it binds is invisible to \
+                 `every_setting_the_store_carries_has_a_control_in_this_window` — which will \
+                 then report that setting as having no control at all, whether or not it has \
+                 one. Add it."
+            );
+        }
+    }
+
     #[test]
     fn every_setting_the_store_carries_has_a_control_in_this_window() {
-        // The whole directory, because the controls are spread across seven
-        // files and a setting could legitimately land in any of them.
-        const SOURCES: &[&str] = &[
-            include_str!("mod.rs"),
-            include_str!("appearance.rs"),
-            include_str!("colour.rs"),
-            include_str!("display.rs"),
-            include_str!("images.rs"),
-            include_str!("measuring.rs"),
-            include_str!("pages.rs"),
-            include_str!("saving.rs"),
-            include_str!("text.rs"),
-            include_str!("widgets.rs"),
-        ];
-
         let file = Settings::default().write_to_string();
         let keys: Vec<&str> = file
             .lines()
@@ -791,7 +851,7 @@ mod tests {
         for key in keys {
             let needle = format!("working.{key}");
             assert!(
-                SOURCES.iter().any(|src| src.contains(&needle)),
+                SOURCES.iter().any(|(_, src)| src.contains(&needle)),
                 "`Settings::{key}` is honoured by the engine and has NO control in this \
                  window, so an operator can only change it by hand-editing settings.txt — \
                  which is not a user interface. Add one to whichever group matches the \

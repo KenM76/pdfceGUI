@@ -99,8 +99,8 @@ pub use formdelete::field_delete_declined_structural;
 pub use selection::{
     TextStyleRefusal, selection_inside_form_declined, selection_many, selection_one,
     selection_one_in_form, selection_one_in_form_unsized, selection_one_unsized,
-    selection_with_depth, text_style_multi, text_style_used_other_family,
-    text_style_used_real_face,
+    selection_with_depth, text_style_faked_instead, text_style_faked_warning, text_style_multi,
+    text_style_used_other_family, text_style_used_real_face,
 };
 
 // ---------------------------------------------------------------------------

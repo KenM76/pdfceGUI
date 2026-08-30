@@ -80,6 +80,116 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O63 — ⬜ The canvas should keep up with your hand
+
+**Ken, 2026-08-30:** *"we need to make it so we have a live preview as we drag
+and move and resize and rotate, etc around the canvas. The live preview should
+remain while the update to the pdf structure runs in the background. This should
+just cache each one as the user does their edits so to them everything looks
+WYSIWYG and the delay in updating the actual isn't noticable. If the user gets
+too far ahead, then it will pause and update."*
+
+**Not started.** Raised while O62b was being fixed; this is the next piece of
+work and it is the largest single item on the list.
+
+★★ What he described is not a rendering optimisation, it is a **decoupling**:
+the picture the operator is dragging and the document pdfce is rewriting stop
+being the same object. The screen follows the pointer at pointer speed; the
+engine catches up behind it; and the queue between them has a depth, past which
+the shell stops accepting input until the engine is level.
+
+★★★ **Rule 4 binds this hard and in a direction that is easy to get backwards.**
+A preview must render *exactly* as the committed result will render — no ghost,
+no outline, no "provisional" tint, no dashed rectangle. The operator's own
+words, recorded when the redaction work was scoped: *"the nagging and red
+flagging in the original GUI made for a lot of extra bugs in the visibility when
+editing."* A preview drawn differently from the commit is a second rendering
+path for the same content, and two paths drift.
+
+Open questions to settle before any code:
+
+* **what the preview IS** — a re-rasterised page, or the existing page texture
+  with the moved object composited over it? The second is far cheaper and is
+  only correct while the object does not interact with what is under it;
+* **the queue depth**, and what "pause" looks like. A frozen pointer is worse
+  than a slow one;
+* **what happens when the engine REFUSES** a move the preview already showed —
+  this is the case that has no honest answer yet, and it is the one that decides
+  the whole design;
+* whether undo sees one entry per gesture or one per frame. It must be one per
+  gesture, and nothing in `EditSession` groups entries.
+
+---
+
+## O62b — ✅ Bold stopped using real bold fonts, and nothing failed
+
+**Found, not reported.** It arrived inside the same `cargo update` that built
+the O62 release, and it is the reason that release was rebuilt.
+
+### What was wrong
+
+Press **Bold** on a page that carries a real bold face — a title block set in
+Calibri with Calibri-Bold sitting right there in the page's own font list — and
+pdfce **thickened the Calibri instead of using the Calibri-Bold**. Artificially.
+Into the saved file. Every other viewer would show the fake.
+
+### Why nothing caught it
+
+The engine's `Pass 179.0` (2026-08-30) changed what asking for a synthetic bold
+*does*. It used to **refuse** when a real face was available, naming the face —
+and this shell was built on that refusal: it asks for the fake, reads the
+refusal, and immediately re-asks for the real face the refusal names. One Bold
+button, working on every page, built out of a decline.
+
+The engine's new default applies the fake and reports the face it passed over.
+So the refusal stopped arriving, the retry stopped happening, and the button
+quietly became worse. **Nothing failed.** The verb succeeded, the page changed,
+the epoch moved, the disclosure was written. One unit test caught it, and only
+because it asserts the resulting face **by name** rather than asserting that
+something changed.
+
+⇒ ★★★ The finding worth keeping is not the bug, it is that **a shell built on a
+refusal is a shell that breaks when the refusal is upgraded into a success.** A
+decline is an API surface like any other, and this one changed without the
+engine or this project noticing that it had.
+
+### What it is now
+
+The Bold button asks the engine with *"refuse if a real face exists"* pinned on,
+whatever the operator's settings say — because for this shell the refusal is a
+**question**, not an answer. It is never shown to anybody: the next thing that
+happens is taking the offer it names.
+
+★★ **And a third rung was added that was never there.** Where the named real
+face turns out not to be able to show the text — `Times-Bold` has no `o`, so it
+cannot set *hello world* on a page where `Calibri-Bold` can — the old shell
+simply gave up and told the operator to use a face that had just failed. It now
+fakes the weight and says which real face it tried and why it could not.
+
+### The setting that came with it
+
+**Settings ▸ Fonts ▸ Faking bold and italic.** Three choices: fake it quietly
+(the default), fake it and say so plainly, or never fake it. A real face is
+preferred under all three — that is stated under the group, because *"never fake
+it"* reads like *"never change my font"* and is not.
+
+### ★★ The instrument that found it, and the instrument that hid it
+
+The settings window has a test that refuses to compile past a setting the engine
+honours and the window cannot reach. It fired on `style_policy` within one
+`cargo update` — third time it has caught exactly this.
+
+Then it kept firing **after the control was written**, because its list of files
+to search is hand-written and `fonts.rs` was not in it. A check that cannot see
+a file reports that file's contents as absent, which looks identical to the
+defect it exists to find. The list had a comment from two days earlier saying
+*"if a third module is ever added, this line is the one to remember"* — a note
+asking a future session to remember something is not a mechanism, and it failed
+exactly as written. **Both hand-written lists are now derived-checked** against
+the modules the directory declares.
+
+---
+
 ## O62 — ◐ Turn a form field's box · Say something other than the measurement — BUILT, NOT DRIVEN
 
 **Ken, 2026-08-30:** *"finish those 2 then release."*

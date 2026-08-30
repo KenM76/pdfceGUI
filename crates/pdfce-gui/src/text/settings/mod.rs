@@ -503,7 +503,17 @@ mod tests {
     /// preference rather than a taste one: Acrobat assigns the two form-field
     /// pastes to the opposite chords, both assignments have a real argument,
     /// and the operator asked for the choice rather than a ruling.
-    const SETTINGS_COUNT: usize = 27;
+    /// ★★ And 27 → **28** on 2026-08-30 with `style_policy` — the engine's
+    /// `Pass 179.0`, and the **third** time this window's completeness test
+    /// caught a setting the engine had grown and the shell could not reach.
+    ///
+    /// ★★★ It caught something larger that time. The same engine Pass changed
+    /// what `format_text` DOES by default — a synthesis request that used to be
+    /// refused is now applied — and that silently removed this shell's Bold
+    /// button, which was built on the refusal. `cargo update` brought both in
+    /// together, and the settings test and one face-by-name assertion were the
+    /// only two things that noticed.
+    const SETTINGS_COUNT: usize = 28;
 
     /// The `(title, silence, radius)` triple for every setting in the window.
     ///
@@ -566,6 +576,11 @@ mod tests {
                 actual_text_title(),
                 actual_text_silence(),
                 actual_text_radius(),
+            ),
+            (
+                style_policy_title(),
+                style_policy_silence(),
+                style_policy_radius(),
             ),
             (
                 separations_title(),
@@ -689,39 +704,55 @@ mod tests {
     /// catalog test then fails on the missing triples. The cost is that the
     /// author has to add one line here; the alternative is a directory walk at
     /// test time, which is the runtime file read `reach.rs` refused.
+    /// The group modules the window is built from, paired with their source.
+    ///
+    /// ★ Hoisted out of `the_window_draws_exactly_the_settings_this_catalog_describes`
+    /// on 2026-08-30 so that `every_settings_module_is_counted` can check the
+    /// list is complete. A hand-written list that only one test can see is a
+    /// hand-written list nothing can audit.
+    const GROUP_SOURCES: &[(&str, &str)] = &[
+        (
+            "appearance",
+            include_str!("../../dialogs/settings/appearance.rs"),
+        ),
+        ("colour", include_str!("../../dialogs/settings/colour.rs")),
+        // ★★★ Added 2026-08-28 with the author-name control, and its
+        // absence for the first ten minutes is the finding: this list is
+        // HAND-WRITTEN, so a new settings module is invisible to the very
+        // test whose job is to prove the window and the catalog agree.
+        // A new file draws a header nobody counts and describes a setting
+        // nobody checks — the count still adds up and both halves are
+        // wrong. If a third module is ever added, this line is the one to
+        // remember before the control is written.
+        (
+            "comments",
+            include_str!("../../dialogs/settings/comments.rs"),
+        ),
+        ("display", include_str!("../../dialogs/settings/display.rs")),
+        // ★★★ Added 2026-08-30 with the faking-bold-and-italic control,
+        // and it is `comments`' lesson recurring exactly as that comment
+        // predicted. `fonts.rs` had existed for two days and drew no
+        // `header` at all while it held only the folder list, so its
+        // absence here cost nothing and announced nothing. The moment it
+        // gained a setting, this list was short by one — which is why
+        // `every_settings_module_is_counted` below now derives the
+        // membership instead of asking the next session to remember.
+        ("fonts", include_str!("../../dialogs/settings/fonts.rs")),
+        ("images", include_str!("../../dialogs/settings/images.rs")),
+        (
+            "measuring",
+            include_str!("../../dialogs/settings/measuring.rs"),
+        ),
+        ("pages", include_str!("../../dialogs/settings/pages.rs")),
+        ("saving", include_str!("../../dialogs/settings/saving.rs")),
+        ("text", include_str!("../../dialogs/settings/text.rs")),
+    ];
+
     #[test]
     fn the_window_draws_exactly_the_settings_this_catalog_describes() {
         // Every module under `dialogs/settings/` that draws a setting. `mod.rs`
         // draws none (it composes groups) and `widgets.rs` defines the helper
         // rather than calling it.
-        const GROUP_SOURCES: &[(&str, &str)] = &[
-            (
-                "appearance",
-                include_str!("../../dialogs/settings/appearance.rs"),
-            ),
-            ("colour", include_str!("../../dialogs/settings/colour.rs")),
-            // ★★★ Added 2026-08-28 with the author-name control, and its
-            // absence for the first ten minutes is the finding: this list is
-            // HAND-WRITTEN, so a new settings module is invisible to the very
-            // test whose job is to prove the window and the catalog agree.
-            // A new file draws a header nobody counts and describes a setting
-            // nobody checks — the count still adds up and both halves are
-            // wrong. If a third module is ever added, this line is the one to
-            // remember before the control is written.
-            (
-                "comments",
-                include_str!("../../dialogs/settings/comments.rs"),
-            ),
-            ("display", include_str!("../../dialogs/settings/display.rs")),
-            ("images", include_str!("../../dialogs/settings/images.rs")),
-            (
-                "measuring",
-                include_str!("../../dialogs/settings/measuring.rs"),
-            ),
-            ("pages", include_str!("../../dialogs/settings/pages.rs")),
-            ("saving", include_str!("../../dialogs/settings/saving.rs")),
-            ("text", include_str!("../../dialogs/settings/text.rs")),
-        ];
 
         /// Counts calls whose callee path ends in `header`.
         ///
@@ -773,6 +804,63 @@ mod tests {
         );
     }
 
+    /// ★★★ EVERY GROUP MODULE IS IN THE LIST ABOVE — checked, not remembered.
+    ///
+    /// # The gap this closes, which had already been found once and left open
+    ///
+    /// The list above is hand-written, and the comment beside it says so:
+    /// *"a new settings module is invisible to the very test whose job is to
+    /// prove the window and the catalog agree."* That was written on
+    /// 2026-08-28 after `comments.rs` was missed for ten minutes, and it ends
+    /// *"if a third module is ever added, this line is the one to remember"*.
+    ///
+    /// ★★ A note asking a future session to remember something is not a
+    /// mechanism, and on 2026-08-30 it failed exactly as written: `fonts.rs`
+    /// had existed since 2026-08-28, drew no `header` while it held only the
+    /// folder list, and the moment it gained one the count was silently short
+    /// by one in **both** directions at once.
+    ///
+    /// ⇒ So this test reads `dialogs/settings/mod.rs` and requires every module
+    /// it declares to appear above. Two modules are excluded **by name and with
+    /// a reason**, which is the part that keeps the exclusion honest:
+    ///
+    /// | module | why it is not a group |
+    /// |---|---|
+    /// | `widgets` | the helpers the groups are built from; it draws no setting of its own |
+    /// | `preset` | the preset row at the top of the window. It DOES call `header`, and that is precisely why it must be excluded rather than forgotten: a preset is not a setting, and counting its header would inflate the total by one forever |
+    #[test]
+    fn every_settings_module_is_counted() {
+        const NOT_A_GROUP: &[&str] = &["widgets", "preset"];
+        let src = include_str!("../../dialogs/settings/mod.rs");
+        let file = syn::parse_file(src).expect("dialogs/settings/mod.rs did not parse");
+        let declared: Vec<String> = file
+            .items
+            .iter()
+            .filter_map(|item| match item {
+                syn::Item::Mod(m) if m.content.is_none() => Some(m.ident.to_string()),
+                _ => None,
+            })
+            .filter(|name| !NOT_A_GROUP.contains(&name.as_str()))
+            .collect();
+        assert!(
+            declared.len() >= 8,
+            "parsed {} module declaration(s) out of dialogs/settings/mod.rs — the PARSER is \
+             stale, not the list. A test that can only return one answer cannot detect the \
+             thing it was added to detect.",
+            declared.len()
+        );
+        let listed: Vec<&str> = GROUP_SOURCES.iter().map(|(n, _)| *n).collect();
+        for name in declared {
+            assert!(
+                listed.contains(&name.as_str()),
+                "`dialogs/settings/{name}.rs` is a group module and is NOT in the hand-written \
+                 list in this file, so every setting it draws is invisible to the check built \
+                 to find it — and the totals still add up, which is what makes it silent. Add \
+                 it, or add it to NOT_A_GROUP with the reason it is not a group."
+            );
+        }
+    }
+
     /// ★ Every setting that changes SAVED BYTES says so, and no other does.
     ///
     /// The distinction the window exists to make legible: a setting whose blast
@@ -798,6 +886,10 @@ mod tests {
             xref_eol_radius(),
             trailing_eol_radius(),
             polarity_radius(),
+            // ★ The least obvious member of this list, which is why it is in
+            // it. A faked weight looks like a rendering choice and is written
+            // into the content stream — see `style_policy_radius`.
+            style_policy_radius(),
         ] {
             assert!(touches_bytes(radius), "a byte setting hides it: {radius:?}");
         }

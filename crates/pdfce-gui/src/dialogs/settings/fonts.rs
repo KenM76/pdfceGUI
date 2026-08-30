@@ -36,9 +36,12 @@
 //! with a second way of going stale.
 
 use egui::Ui;
+use pdfce_core::settings::StylePolicy;
 
 use crate::app::prefs::{Prefs, fonts};
 use crate::text::settings as t;
+
+use super::{Draft, widgets};
 
 /// The Fonts group's rect, for `ui-verify`.
 // ui-text-exempt: trace region name, never displayed
@@ -49,6 +52,9 @@ pub const ADD_REGION: &str = "settings.fonts.add";
 /// The "use this computer's fonts" checkbox.
 // ui-text-exempt: trace region name, never displayed
 pub const OS_REGION: &str = "settings.fonts.use_os";
+/// The faking-bold-and-italic radio group.
+// ui-text-exempt: trace region name, never displayed
+pub const STYLE_POLICY_REGION: &str = "settings.fonts.style_policy";
 
 /// Draw the folder list and its two controls.
 ///
@@ -173,4 +179,80 @@ pub fn folders(ui: &mut Ui, prefs: &mut Prefs) {
         }
     }
     crate::diag::ui_rect(REGION, ui.min_rect());
+}
+
+/// **May pdfce fake a bold or an italic that the page has no real face for?**
+///
+/// # What this setting is, in this shell
+///
+/// The engine calls it `StylePolicy` and gives it three values. Its own reading
+/// of them is narrower than this window's, and the difference is deliberate and
+/// worth stating rather than papering over.
+///
+/// `pdfce-core`'s gate asks exactly one question: *"could a real face have done
+/// this instead?"* — so its `Refuse` refuses a fake **only when a real face was
+/// available and would have been passed over**. On a page carrying no bold at
+/// all there is nothing to refuse in favour of, and the engine thickens the
+/// strokes under all three postures.
+///
+/// That is the right contract for a crate whose caller might genuinely mean
+/// *"fake it"*. It is not what this shell's Bold button means. Here the button
+/// means **"make this bold"**, and `crate::app::actions::textstyle` already
+/// prefers a real face under every posture — it asks the gate with `Refuse`
+/// pinned, purely to learn which real face is on offer, and then takes it.
+///
+/// ⇒ So the only question left for the operator is the one this control asks:
+/// **when no real face will do, may pdfce fake one?** All three engine values
+/// map onto it, and every one of them is observable:
+///
+/// | choice | what happens |
+/// |---|---|
+/// | Fake it quietly (`Auto`, the default) | the letters are thickened or slanted, and it is reported with the edit's other disclosures |
+/// | Fake it and say so (`Warn`) | the same, plus a sentence of its own on the status bar |
+/// | Never fake it (`Refuse`) | nothing changes, and pdfce says no real face on the page can show that text |
+///
+/// # ★★ Why it lives in Fonts and not in Text
+///
+/// The window's rule is *"whichever group matches the SYMPTOM that would send
+/// somebody looking"*. The symptom here is **"my bold looks wrong / pdfce did
+/// not use the bold font"** — a statement about faces. The Text group is about
+/// what comes out when you copy, which this never touches: a synthesised weight
+/// changes how a run is painted, not what it extracts as.
+///
+/// # ★ Never fake it is NOT the same as an error
+///
+/// The third option changes nothing and says so, which makes it the only
+/// setting in this window that can make a control appear not to work. The note
+/// under it says that in advance, because an operator who ticks it in January
+/// and presses Bold in March will otherwise file a bug.
+pub fn style_policy(ui: &mut Ui, draft: &mut Draft) {
+    widgets::header(
+        ui,
+        t::style_policy_title(),
+        t::style_policy_silence(),
+        t::style_policy_radius(),
+    );
+    widgets::option(
+        ui,
+        &mut draft.working.style_policy,
+        StylePolicy::Auto,
+        t::style_policy_auto_label(),
+        Some(t::style_policy_auto_note()),
+    );
+    widgets::option(
+        ui,
+        &mut draft.working.style_policy,
+        StylePolicy::Warn,
+        t::style_policy_warn_label(),
+        Some(t::style_policy_warn_note()),
+    );
+    widgets::option(
+        ui,
+        &mut draft.working.style_policy,
+        StylePolicy::Refuse,
+        t::style_policy_refuse_label(),
+        Some(t::style_policy_refuse_note()),
+    );
+    widgets::disclosure(ui, t::style_policy_bound());
+    crate::diag::ui_rect(STYLE_POLICY_REGION, ui.min_rect());
 }

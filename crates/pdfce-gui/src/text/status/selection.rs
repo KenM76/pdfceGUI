@@ -239,6 +239,24 @@ pub enum TextStyleRefusal {
     ItalicWouldMove,
     /// The chosen face cannot show every character in the run.
     FaceLacksCharacters,
+    /// The operator's `style_policy` is `Refuse` and the only way to satisfy
+    /// this request was to fake the weight or the slant.
+    ///
+    /// ★★ NOT the same thing the ENGINE's `StylePolicy::Refuse` refuses.
+    ///
+    /// The engine's gate refuses a synthesis only when a **real face was
+    /// available** and would have been passed over. That is the right contract
+    /// for a crate whose caller might genuinely mean "fake it". It is not what
+    /// an operator who ticked *"never fake it"* asked for: on a page carrying
+    /// no bold face at all, the engine's gate has nothing to refuse in favour
+    /// of and thickens the strokes.
+    ///
+    /// ⇒ So this variant is raised by the SHELL, from
+    /// `EditSession::preview_style_resolution`, and it is the wider reading —
+    /// see `crate::app::actions::textstyle`. Recorded here because a future
+    /// session reading only the engine's docs would conclude this variant is
+    /// unreachable, and it is reached on the commonest page of all.
+    FakingDeclined,
     /// Anything else the engine refused.
     Other,
     /// Some of the selection was restyled before something stopped the rest.
@@ -301,6 +319,12 @@ impl TextStyleRefusal {
             Self::FaceLacksCharacters => {
                 "That face has no shape for one or more characters in this text. pdfce changed nothing rather than substitute a different letter or leave a blank."
             }
+            // ★ Remedy first, and the remedy is a SETTING, so the sentence
+            // names where it lives. A refusal caused by the operator's own
+            // choice that does not say which choice reads as a program defect.
+            Self::FakingDeclined => {
+                "No real bold or italic face on this page can show this text, and your settings tell pdfce not to fake one. Nothing changed. Under Settings, the Fonts group has a \"Faking bold and italic\" choice that lets pdfce thicken or slant the letters instead."
+            }
             Self::Other => {
                 "pdfce could not make that change to this text and changed nothing. Text that was converted to outlines has no font to change; a face has to cover every character in the run."
             }
@@ -327,6 +351,47 @@ impl TextStyleRefusal {
 pub fn text_style_used_real_face(style: &str, face: &str) -> String {
     format!(
         "This page carries a real {style} face, so pdfce used it: the text is now set in {face} rather than being thickened or slanted artificially."
+    )
+}
+
+/// Disclosure, **`StylePolicy::Warn` only**: the weight or slant was faked.
+///
+/// # ★★ Why this is a separate sentence rather than louder formatting
+///
+/// The engine already reports a synthesis in `FormatReport::disclosures`, and
+/// under `Auto` that quiet report is the whole obligation. `Warn` exists for
+/// the operator for whom *"a faked weight in the output is a problem worth
+/// noticing at the moment it is created"* — a drawing that will be printed, a
+/// document that will be handed on — and a disclosure they have to go looking
+/// for does not serve them.
+///
+/// ★ It is prose rather than an alarm colour because the edit **happened**.
+/// Rule 4's shape holds: the text renders exactly as it will render when
+/// saved, and the fact about it is said off-canvas.
+#[must_use]
+pub const fn text_style_faked_warning() -> &'static str {
+    "pdfce faked that weight or slant — no real face on this page could show this text that way, so the letters are thickened or shaped artificially rather than set in a genuine bold or italic face."
+}
+
+/// Disclosure: a real face was offered, tried, and could not show the text, so
+/// pdfce faked it instead.
+///
+/// # ★★★ The third rung, and the sentence is the whole point of having it
+///
+/// This is the outcome that used to be a **refusal**. The engine's gate names
+/// a real face of the run's own family; `set_font` then rejects it because it
+/// has no shape for one of the characters — `Times-Bold` remaps `o` to a
+/// bullet, so it cannot show `hello world` on a page where `Calibri-Bold` can.
+///
+/// The old behaviour said *"there is a real bold face, use it"* about a face
+/// that had just failed, and changed nothing. This says what actually
+/// happened, **and names the face**, because "pdfce faked it" without the
+/// reason invites the operator to go looking for a bold face that is right
+/// there and does not work.
+#[must_use]
+pub fn text_style_faked_instead(face: &str) -> String {
+    format!(
+        "This page carries {face}, but it has no shape for one or more characters in this text, so pdfce thickened or slanted the letters artificially instead of using it."
     )
 }
 

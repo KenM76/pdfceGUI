@@ -384,3 +384,108 @@ pub const fn quad_order_ccw_note() -> &'static str {
      For output going to a conformance checker. Expect Acrobat to draw the \
      marked area wrongly if it works the shape out from these numbers."
 }
+
+// ===========================================================================
+// Fonts — faking bold and italic
+// ===========================================================================
+
+/// Faking bold/italic: what it is.
+///
+/// ★ Named for the ACT, not for the engine's type. `StylePolicy` means nothing
+/// to an operator; *"faking bold and italic"* is what they will have seen
+/// happen and the phrase they would search for.
+#[must_use]
+pub const fn style_policy_title() -> &'static str {
+    "Faking bold and italic"
+}
+
+/// Faking bold/italic: what is left open.
+///
+/// ★★ This is the one `*_silence` line in the window that is **not** about the
+/// standard being silent. Every other setting here exists because ISO 32000-1
+/// permits two readings; this one exists because the *page* may not carry what
+/// the operator asked for, and there is no answer in any standard to what a
+/// program should do then.
+///
+/// It says so outright rather than borrowing the shape of the others. A
+/// sentence implying the standard is undecided about synthesised weights would
+/// send an operator looking for a clause that does not exist.
+#[must_use]
+pub const fn style_policy_silence() -> &'static str {
+    "Nothing in the PDF standard says what a program should do when you ask for bold and the page carries no bold face. It describes how to thicken letters artificially and leaves the choice of whether to entirely to the program."
+}
+
+/// Faking bold/italic: what it costs.
+///
+/// ★★★ It changes **the bytes pdfce writes**, and that is not obvious.
+///
+/// A faked weight is not a display trick: it is text rendering mode 2 plus a
+/// stroke width written into the page's content stream, and a faked slant is a
+/// shear term written into the text matrix. Both survive Save and both are what
+/// every other viewer will show. An operator who read this as a preview setting
+/// would hand on a drawing carrying artificial letterforms they thought were
+/// only on their screen.
+#[must_use]
+pub const fn style_policy_radius() -> &'static str {
+    "Changes the bytes pdfce writes: a faked weight or slant is drawn into the page itself and is what every other viewer will show."
+}
+
+/// Faking bold/italic: the default.
+#[must_use]
+pub const fn style_policy_auto_label() -> &'static str {
+    "Fake it quietly"
+}
+
+/// Faking bold/italic: the default's note.
+///
+/// ★ It states what pdfce does FIRST, because the thing operators get wrong
+/// about this setting is assuming it decides whether a real face is used. It
+/// does not — a real face is always preferred, under all three choices.
+#[must_use]
+pub const fn style_policy_auto_note() -> &'static str {
+    "pdfce always uses a real bold or italic face when the page carries one. This is only about what happens when it does not: the letters are thickened or slanted artificially, and pdfce reports that it did. The shipped default."
+}
+
+/// Faking bold/italic: warn.
+#[must_use]
+pub const fn style_policy_warn_label() -> &'static str {
+    "Fake it, and say so plainly"
+}
+
+/// Faking bold/italic: warn's note.
+#[must_use]
+pub const fn style_policy_warn_note() -> &'static str {
+    "The same, but faking gets a sentence of its own on the status bar rather than sitting among the edit's other notes. For work where an artificial weight in the finished file is worth noticing the moment it is made."
+}
+
+/// Faking bold/italic: refuse.
+#[must_use]
+pub const fn style_policy_refuse_label() -> &'static str {
+    "Never fake it"
+}
+
+/// Faking bold/italic: refuse's note.
+///
+/// ★★ It says the button will appear not to work, in advance. This is the only
+/// setting in this window that can make a control do nothing, and an operator
+/// who chose it months earlier will otherwise read the silence as a defect.
+#[must_use]
+pub const fn style_policy_refuse_note() -> &'static str {
+    "Bold and italic then change nothing on a page that carries no real face for them, and pdfce says which face it looked for. Choose this if an artificial weight would be worse than no change at all — and expect the buttons to decline on some pages."
+}
+
+/// Faking bold/italic: the bound, disclosed under the whole group.
+///
+/// ★★★ The fact that makes this setting narrower than it looks, and it is a
+/// fact rather than a direction — so it is drawn under the group rather than
+/// attached to one option, exactly as `actual_text_bound` is.
+///
+/// A real face is preferred under **every** choice here. pdfce asks the engine
+/// which real face is on offer before it asks for anything to be faked, and
+/// takes the offer when there is one. None of the three options can turn that
+/// off, and an operator who read *"Never fake it"* as *"never change my font"*
+/// has misread it in the direction that matters.
+#[must_use]
+pub const fn style_policy_bound() -> &'static str {
+    "Whichever you choose, pdfce looks for a real bold or italic face on the page first and uses it if there is one — including a face from another family when nothing in the text's own family will do. These options only decide what happens after that search comes up empty."
+}
