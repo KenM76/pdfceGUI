@@ -243,3 +243,132 @@ fn a_selection_cannot_outlive_the_document_it_was_made_on() {
 // =======================================================================
 // Opening a document is what forgets the panels' state
 // =======================================================================
+
+// ===========================================================================
+// ★★★ The held preview — `OPERATOR_REQUESTS.md` O63's third piece
+// ===========================================================================
+
+/// Build a document with a hold already in place, `captured_at_epoch` frames
+/// old, captured `age` ago.
+///
+/// ★ The `ShapePreview` is **empty**, and that is deliberate: every assertion
+/// below is about the liveness *decision*, and a preview carrying real geometry
+/// would make the tests depend on a fixture decomposing — a second reason to
+/// fail, in tests about a rule that has nothing to do with geometry.
+fn with_hold(
+    edit_epoch: u64,
+    page_texture_epoch: u64,
+    captured_at_epoch: u64,
+    age: std::time::Duration,
+) -> OpenDoc {
+    let mut doc = open_local_fixture("polyline-nodes.pdf");
+    doc.edit_epoch = edit_epoch;
+    doc.page_texture_epoch = page_texture_epoch;
+    doc.held_preview = Some(super::HeldPreview {
+        shape: crate::canvas::shapes::ShapePreview::default(),
+        captured_at_epoch,
+        since: std::time::Instant::now() - age,
+    });
+    doc
+}
+
+/// The ordinary case: the edit committed, the raster has not caught up, so the
+/// preview stays on screen.
+///
+/// This is the whole feature. Without it the operator watches the object snap
+/// back to where it started and then jump forward when the raster lands, one to
+/// two seconds later on a dense drawing.
+#[test]
+fn a_committed_edit_whose_raster_has_not_landed_keeps_its_preview() {
+    let doc = with_hold(8, 7, 7, std::time::Duration::from_millis(50));
+    assert!(
+        doc.held_preview_to_draw().is_some(),
+        "the edit bumped the epoch to 8 and the texture is still at 7, so the page on screen \
+         does NOT show this edit — which is exactly when the preview has to stay up"
+    );
+}
+
+/// The raster landed. The document's own picture is correct now and is better
+/// than the preview in every way, so the preview goes.
+///
+/// ★ A preview left up over a correct raster would be drawing a
+/// selection-coloured tracing over the real thing — the operator's own
+/// complaint about the old GUI's marking, arriving by a new route.
+#[test]
+fn the_preview_goes_the_moment_the_page_catches_up() {
+    let doc = with_hold(8, 8, 7, std::time::Duration::from_millis(50));
+    assert!(
+        doc.held_preview_to_draw().is_none(),
+        "the texture epoch caught the edit epoch, so the page already shows the edit"
+    );
+}
+
+/// ★★★ THE ONE THAT MATTERS: a refused edit holds nothing for long.
+///
+/// # The failure this pins
+///
+/// Actions are drained after the frame that raised them, so there is a real
+/// window in which a hold is legitimate and `edit_epoch` has not moved. There is
+/// also a state where it **never** moves: the engine refused. By epoch alone the
+/// two are identical.
+///
+/// Without the time bound, a refusal would leave a preview of a move that did
+/// not happen sitting over a document that disagrees with it — for the full four
+/// seconds of the backstop. That is a picture of a lie rather than a picture
+/// that is late, and it is the worst outcome this feature can produce.
+#[test]
+fn an_edit_the_epoch_never_moved_for_stops_drawing_almost_at_once() {
+    // 20 ms — about one frame. Legitimate: the Action was raised this frame and
+    // has not been drained yet.
+    let fresh = with_hold(7, 7, 7, std::time::Duration::from_millis(20));
+    assert!(
+        fresh.held_preview_to_draw().is_some(),
+        "one frame after release the commit has not been applied yet, and blinking the preview \
+         off for that frame is the flicker this feature exists to remove"
+    );
+
+    // 400 ms with the epoch still unmoved is not "not yet". It is a refusal.
+    let refused = with_hold(7, 7, 7, std::time::Duration::from_millis(400));
+    assert!(
+        refused.held_preview_to_draw().is_none(),
+        "400 ms with the epoch unmoved means the engine REFUSED — and a preview of a move that \
+         did not happen, drawn over a document that disagrees with it, is worse than no preview"
+    );
+}
+
+/// The backstop fires even when everything else says "keep drawing".
+///
+/// ★ It exists because *"the raster will arrive"* is an assumption, and a stuck
+/// preview is indistinguishable from a corrupted document. Four seconds is
+/// roughly four times the measured whole-page raster on the operator's hardest
+/// drawing, so it cannot fire on a render that is merely slow.
+#[test]
+fn the_backstop_drops_a_preview_no_raster_ever_arrived_for() {
+    let doc = with_hold(8, 7, 7, std::time::Duration::from_secs(10));
+    assert!(
+        doc.held_preview_to_draw().is_none(),
+        "ten seconds is not a slow render, it is a raster that is never coming"
+    );
+}
+
+/// `retire_held_preview` clears what `held_preview_to_draw` has stopped
+/// returning — and leaves a live one alone.
+///
+/// Two assertions rather than one, because a retire that cleared everything
+/// would pass the first half and silently delete the feature.
+#[test]
+fn retiring_clears_a_dead_hold_and_keeps_a_live_one() {
+    let mut dead = with_hold(8, 8, 7, std::time::Duration::from_millis(50));
+    dead.retire_held_preview();
+    assert!(
+        dead.held_preview.is_none(),
+        "a dead hold must not sit in memory"
+    );
+
+    let mut live = with_hold(8, 7, 7, std::time::Duration::from_millis(50));
+    live.retire_held_preview();
+    assert!(
+        live.held_preview.is_some(),
+        "retiring must not delete a hold that is still doing its job"
+    );
+}

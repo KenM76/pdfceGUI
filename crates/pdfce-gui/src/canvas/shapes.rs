@@ -117,8 +117,38 @@ pub struct PreviewShape {
 /// Everything one gesture is about to change, as geometry.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ShapePreview {
-    /// The shapes, in paint order.
+    /// The shapes, in paint order, **at their new position**.
     pub shapes: Vec<PreviewShape>,
+    /// The same shapes **where they still are** — the footprint to erase.
+    ///
+    /// # ★★★ Why an erase list exists at all
+    ///
+    /// The page raster underneath is stale: it still shows the object where it
+    /// was, and it cannot be re-rendered in under ~0.7 s on the operator's own
+    /// drawing (`BENCHMARK.md` — a *two-pixel* region render costs 691 ms
+    /// because ~99 % of render cost is content-stream interpretation, not fill).
+    ///
+    /// So without this the operator sees the object **twice**: once where it
+    /// was, painted into the raster, and once where their pointer is. That is
+    /// worse than the bounding box this feature replaced.
+    ///
+    /// # ★★ The footprint, not the bounding box — and that is the whole
+    /// difference between acceptable and not
+    ///
+    /// **Ken, 2026-08-30:** *"yeah do both"*, accepting that erasing the old
+    /// position would take whatever was underneath with it.
+    ///
+    /// It takes much less than he agreed to. Because the shell has the real
+    /// geometry, the erase is the object's **own outline** — stroked at its own
+    /// width, filled where it was filled — rather than a rectangle over it. On a
+    /// CAD sheet a bounding box would blank a title-block cell; a stroked
+    /// polyline blanks a line's own width.
+    ///
+    /// ⇒ What is still a lie, stated plainly: anything drawn *underneath the
+    /// object's own footprint* disappears for as long as the stale raster is up,
+    /// and so does anything drawn *on top* of it there. Bounded to the object's
+    /// own ink, transitional, and it ends when the raster lands.
+    pub erase: Vec<PreviewShape>,
     /// Whether a cap above stopped this being the whole selection.
     ///
     /// ★ Carried rather than dropped so the painter can decide what to do about
@@ -192,6 +222,16 @@ pub fn transformed(
             out.capped = true;
             break;
         }
+        // ★ The untransformed twin, for the erase pass. Built from the same
+        // `page_subpaths()` walk rather than from a second read of the model:
+        // two walks could disagree if the cache were invalidated between them,
+        // and an erase that does not match the shape it is erasing leaves a
+        // ghost of the object behind.
+        out.erase.push(PreviewShape {
+            subpaths: path.page_subpaths(),
+            style: path.style,
+            line_width: path.line_width,
+        });
         out.shapes.push(PreviewShape {
             subpaths,
             style: path.style,
@@ -271,21 +311,27 @@ pub fn with_nodes_moved(
         scoped += 1 + subpath.segments.len();
     }
 
-    let out = ShapePreview {
-        capped: subpaths.iter().map(|sp| sp.segments.len()).sum::<usize>() > MAX_SEGMENTS,
-        shapes: vec![PreviewShape {
-            subpaths,
-            style: path.style,
-            line_width: path.line_width,
-        }],
-    };
-    let out = if out.capped {
+    let capped = subpaths.iter().map(|sp| sp.segments.len()).sum::<usize>() > MAX_SEGMENTS;
+    let out = if capped {
         ShapePreview {
             shapes: Vec::new(),
+            erase: Vec::new(),
             capped: true,
         }
     } else {
-        out
+        ShapePreview {
+            capped: false,
+            erase: vec![PreviewShape {
+                subpaths: path.page_subpaths(),
+                style: path.style,
+                line_width: path.line_width,
+            }],
+            shapes: vec![PreviewShape {
+                subpaths,
+                style: path.style,
+                line_width: path.line_width,
+            }],
+        }
     };
     trace(&out, 1);
     Some(out)
@@ -435,12 +481,73 @@ pub fn draw(
     colour: egui::Color32,
     scale: f32,
 ) {
+    // ★★★ THE ERASE PASS — the object's old footprint, in paper.
+    //
+    // See [`ShapePreview::erase`] for why this is necessary and what it costs.
+    // In short: the raster underneath still shows the object where it was and
+    // cannot be redrawn inside a second, so without this the operator sees the
+    // thing twice.
+    //
+    // ★★ Painted **1.5 points wider** than the object's own stroke. An erase
+    // exactly as wide as the line leaves a hairline of the original visible
+    // down both sides, because the raster's antialiasing spread the ink half a
+    // pixel further than the geometry says. A visible outline of where the
+    // object *used* to be is the one outcome worse than not erasing at all — it
+    // reads as a rendering artefact rather than as a preview.
+    for shape in &preview.erase {
+        let width = ((shape.line_width as f32) * scale).max(1.0) + 1.5;
+        stroke_shape(painter, shape, page, map, Stroke::new(width, paper()));
+    }
     for shape in &preview.shapes {
         // ★ A minimum of one logical point. A hairline (`0 w`, §8.4.3.2) is one
         // *device* pixel and would vanish under egui's antialiasing; and a
         // preview nobody can see is the same as no preview.
         let width = ((shape.line_width as f32) * scale).max(1.0);
-        let stroke = Stroke::new(width, colour);
+        stroke_shape(painter, shape, page, map, Stroke::new(width, colour));
+    }
+}
+
+/// **The colour an erased footprint is painted in.**
+///
+/// # ★★ Why this is a constant and not read from the document
+///
+/// PDF has no page-background colour. A page is whatever its content paints,
+/// and the overwhelming majority of pages paint nothing at all outside their
+/// ink — which a viewer composites over **white**, because that is what
+/// `render_page`'s own backdrop is (§11.4.7's page group is composited onto an
+/// opaque white backdrop when a document does not say otherwise).
+///
+/// ⇒ So white is not a guess about this document, it is the same value the
+/// renderer used to produce the raster this is painted over. Reading a colour
+/// out of the texture at that point would be a *measurement* rather than an
+/// assumption, and it is a genuine improvement worth making if a coloured
+/// drawing ever makes this look wrong — recorded here rather than done now
+/// because no such drawing has been seen.
+const fn paper() -> egui::Color32 {
+    // DOCUMENT COLOUR: this is the renderer's own page backdrop, not chrome.
+    // §11.4.7 composites a page group onto an opaque white backdrop when the
+    // document does not say otherwise, and `render_page` produced the raster
+    // this is painted over using exactly that value. A theme must never move it:
+    // restyling the application would change what an erased footprint looks
+    // like against a raster the theme has no say in, and the two would stop
+    // matching.
+    egui::Color32::WHITE
+}
+
+/// Walk one shape's subpaths and stroke them.
+///
+/// Shared by the erase pass and the preview pass so the two cannot disagree
+/// about what the shape's outline *is*: an erase that traced a different path
+/// from the preview would leave part of the original showing, and the part left
+/// showing would look like the program had drawn it on purpose.
+fn stroke_shape(
+    painter: &Painter,
+    shape: &PreviewShape,
+    page: &pdfce_core::page_tree::Page,
+    map: &PageMapping,
+    stroke: Stroke,
+) {
+    {
         for subpath in &shape.subpaths {
             let Some(start) = screen(subpath.start, page, map) else {
                 continue;

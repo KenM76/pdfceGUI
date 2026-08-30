@@ -101,12 +101,6 @@ use pdfce_core::object::ObjId;
 use pdfce_core::page_tree::Page;
 use pdfce_render::LayerVisibility;
 
-// `Document` is reached only by the test-only fixture opener below, which is
-// the one place this module constructs an `OpenDoc` from a file — the loading
-// path proper moved to `crate::app::lifecycle`.
-#[cfg(test)]
-use pdfce_core::document::Document;
-
 use crate::app::cache::{FontCache, PageObjectCache, PageTextCache};
 use crate::canvas::selection::SelectionState;
 use crate::render::raster::PageTexture;
@@ -319,6 +313,15 @@ pub struct OpenDoc {
     /// `actions::pages::resync` drops it on exactly that condition, beside the
     /// strip cache and the selection it drops for the same reason.
     pub page_texture_epoch: u64,
+    /// ★★★ **The preview that outlives the gesture**, held until the page
+    /// catches up (`OPERATOR_REQUESTS.md` O63, third piece).
+    ///
+    /// The whole argument — what it removes, why holding a picture of a
+    /// committed edit is honest rather than optimistic, and the three-clause
+    /// liveness rule with its two wall-clock bounds — lives in
+    /// [`heldpreview`](super::state::heldpreview), beside the code that
+    /// enforces it. Do not restate it here; one fact, one place.
+    pub(crate) held_preview: Option<HeldPreview>,
     /// **The other visible pages' rasters**, under a continuous mode.
     ///
     /// Empty for the whole of a single-page session — which is the mechanical
@@ -897,6 +900,7 @@ impl OpenDoc {
             view,
             page_texture: None,
             page_texture_epoch: 0,
+            held_preview: None,
             // Empty by construction, like everything else here. A strip cache
             // carried across an open would hold textures of another file's
             // pages under this file's indices.
@@ -1430,53 +1434,6 @@ impl OpenDoc {
     }
 }
 
-/// Open a fixture the way [`PdfceApp::open_path`] does, without a frame —
-/// the same three calls in the same order, so what is under test is the state
-/// machine rather than an approximation of it.
-///
-/// At module level rather than inside `mod tests`, and `pub(crate)`, because
-/// three other modules' tests need the identical starting point:
-/// [`crate::app::cache`]'s assert against caches whose fields are declared on
-/// [`OpenDoc`], `crate::app::status`'s drive the bar over a real document, and
-/// `crate::find`'s run a real search and a real reveal against real page
-/// geometry. A second fixture opener would be a second way to assemble an
-/// `OpenDoc` — exactly what [`OpenDoc::new`]'s own docs argue against — so the
-/// visibility widens rather than the function being copied.
-#[cfg(test)]
-pub(crate) fn open_fixture(rel: &str) -> OpenDoc {
-    let path = crate::panels::objects::test_support::engine_fixture(rel);
-    let doc = Document::load(&path).expect("the fixture loads");
-    let pages = pdfce_core::page_tree::pages(&doc).expect("a page tree");
-    OpenDoc::new(path, EditSession::new(doc), pages)
-}
-
-/// Open a fixture from **this** repository's `fixtures/`, the same way
-/// [`open_fixture`] opens one of the engine's.
-///
-/// Two openers rather than one taking a root, because the two roots mean
-/// different things and the difference is the project's governing rule:
-/// `D:\Dev\pdfce\fixtures` is READ-ONLY and is the engine's own corpus, while
-/// `fixtures/` here holds the pages this shell had to author because no engine
-/// fixture exercised the condition — right-aligned text, a node-draggable
-/// polyline, an image-only scan, and now a page of rotated strings. A single
-/// function with a flag would let a call site pick the wrong tree by getting a
-/// boolean backwards; two named functions cannot.
-#[cfg(test)]
-pub(crate) fn open_local_fixture(rel: &str) -> OpenDoc {
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures")
-        .join(rel);
-    assert!(
-        path.exists(),
-        "this repository's fixture {rel} is missing at {}",
-        path.display()
-    );
-    let doc = Document::load(&path).expect("the fixture loads");
-    let pages = pdfce_core::page_tree::pages(&doc).expect("a page tree");
-    OpenDoc::new(path, EditSession::new(doc), pages)
-}
-
-/// A four-page document, three objects on every page.
 #[cfg(test)]
 pub(crate) const FOUR_PAGES: &str = "pageops/four-pages.pdf";
 
@@ -1495,6 +1452,21 @@ pub(super) const PAINTED_LAYERS: &str = "layers/painted-layers.pdf";
 /// three load-bearing properties are asserted in `crate::dialogs::signature`.
 #[cfg(test)]
 pub(crate) const SIGNED_TWO_PAGES: &str = "signed-two-pages.pdf";
+
+/// ★★★ **The preview that outlives the gesture** — `OPERATOR_REQUESTS.md` O63.
+///
+/// Split out under R2 on 2026-08-30. Its header carries the subject: for how
+/// long is a picture of this document still true? Three clauses, two of them
+/// bounded by wall-clock time, and the reason each of the two is.
+/// How a test opens a document, and why there are **two** fixture roots.
+/// `#[cfg(test)]` only; split out under R2 when this file hit its ceiling.
+#[cfg(test)]
+mod fixtures;
+#[cfg(test)]
+pub(crate) use fixtures::{open_fixture, open_local_fixture};
+
+mod heldpreview;
+pub(crate) use heldpreview::HeldPreview;
 
 #[cfg(test)]
 mod tests;

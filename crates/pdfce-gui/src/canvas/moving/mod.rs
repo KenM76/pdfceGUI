@@ -699,6 +699,21 @@ pub struct MovePreview {
     pub ghost: Option<Vec2>,
     /// The selection's own geometry at its new position, in page space.
     pub shape: Option<crate::canvas::shapes::ShapePreview>,
+    /// ★★★ **The same geometry, on the frame the gesture RELEASED**, for the
+    /// canvas to hold until the page raster catches up (O63's third piece).
+    ///
+    /// `Some` on exactly one frame per gesture — the one that pushed the
+    /// `Action` — and `None` on every other, which is what makes it unambiguous
+    /// to the caller. [`Self::shape`] is the in-flight value and is `None` on
+    /// that same frame, so the two never both speak.
+    ///
+    /// # Why it is a third field rather than reusing [`Self::shape`]
+    ///
+    /// Because they mean different things to the caller: one is *draw this now*
+    /// and the other is *keep drawing this until the picture is right*. A caller
+    /// that had to infer which from the phase would be inferring something this
+    /// function already knows.
+    pub hold: Option<crate::canvas::shapes::ShapePreview>,
 }
 
 /// Apply one frame of a move drag: draw the ghost, or commit the command.
@@ -778,6 +793,7 @@ pub fn drag(
         return MovePreview {
             ghost: Some(delta),
             shape,
+            hold: None,
         };
     }
 
@@ -810,6 +826,11 @@ pub fn drag(
         _ => Vec::new(),
     };
 
+    // ★ Cloned before `action` consumes it, so the hold below describes the
+    // SAME subject the Action carries. A hold rebuilt from the selection would
+    // be a second derivation of what the release decided, and the two could
+    // disagree on exactly the rung where a disagreement is invisible.
+    let subject_for_hold = subject.clone();
     match action(subject, delta, node_at, &points) {
         Ok(raised) => {
             crate::diag::trace(|| {
@@ -823,13 +844,39 @@ pub fn drag(
             });
             actions.push(raised);
         }
-        Err(reason) => decline(selection, reason, actions),
+        Err(reason) => {
+            decline(selection, reason, actions);
+            // ★★ A refused release holds NOTHING. The document did not change,
+            // so there is nothing for a preview to be true about, and holding
+            // one would show the operator a move that was declined — the
+            // "placeholder" failure R9 forbids, in its most misleading form.
+            return MovePreview::default();
+        }
     }
-    // ★ Nothing on release. The gesture is over; what replaces the preview is
-    // the document, rendered with no marking of any kind. `painting` keeps the
-    // last live preview alive across the raster gap — see O63's third piece —
-    // and that retention is the painter's business, not this function's.
-    MovePreview::default()
+    // ★★★ HOLD IT. `OPERATOR_REQUESTS.md` O63, third piece.
+    //
+    // **Ken, 2026-08-30:** *"the live preview should remain while the update to
+    // the pdf structure runs in the background."*
+    //
+    // The gesture is over and the Action is raised, but the page raster
+    // underneath still shows the object where it STARTED, for one to two
+    // seconds on his own drawing. Discarding the preview here — which is what
+    // this function did until today — makes the object appear to snap back to
+    // its old position and then jump forward when the raster lands.
+    //
+    // ★ Built from the SAME `delta` and the SAME `subject` the Action carries,
+    // one line below where it was pushed. There is no second computation to
+    // drift, and a hold cannot describe a move the engine was not asked to make.
+    let hold = provider
+        .and_then(|provider| {
+            crate::canvas::shapes::for_move_subject(provider, &subject_for_hold, delta.dx, delta.dy)
+        })
+        .filter(|preview| !preview.is_empty());
+    MovePreview {
+        ghost: None,
+        shape: None,
+        hold,
+    }
 }
 
 /// Report a move that committed nothing, with the reason.

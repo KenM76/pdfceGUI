@@ -607,6 +607,16 @@ pub(super) fn interact(
                     ..
                 }
         );
+    // ★ Drop a held preview that has stopped being live — the raster caught up,
+    // the edit was refused, or the backstop fired.
+    //
+    // ★★ Placed ABOVE the provider borrow deliberately, and it is not a style
+    // choice: `page_objects()` returns a `Ref` that lives until `drop(targets)`
+    // a few hundred lines below, and nothing may take `&mut doc` while it is
+    // held. Every mutation of the document in this function is either above
+    // this borrow or below that drop, and the two O63 calls follow the same
+    // rule — `hold_preview` waits until after it.
+    doc.retire_held_preview();
     let mut targets = if needs_targets {
         doc.page_objects()
     } else {
@@ -624,6 +634,12 @@ pub(super) fn interact(
     // `interact` answers *what does this frame's pointer mean*; those answer
     // *what is drawn while the answer is still provisional*.
     let mut pv = crate::canvas::previews::Slots::default();
+    // ★ The one preview value that does NOT live in `pv`, because it does not
+    // belong to this frame: it is handed to the document to keep on screen
+    // until the raster catches up. Parked here and applied after
+    // `drop(targets)`, since taking `&mut doc` inside the match is impossible
+    // while the provider `Ref` is alive.
+    let mut hold_after_drop: Option<crate::canvas::shapes::ShapePreview> = None;
     match outcome {
         // ★ A click is EITHER a measure pick or a selection, never both.
         //
@@ -731,6 +747,14 @@ pub(super) fn interact(
             );
             pv.ghost = previews.ghost;
             pv.shape = previews.shape;
+            // ★★★ O63's third piece. On the release frame `moving::drag` hands
+            // back the geometry it just committed; the document keeps it on
+            // screen until the raster carries the edit, so the object does not
+            // appear to snap back to where it started.
+            //
+            // Stored on the DOCUMENT rather than in a frame value, because it
+            // has to survive frames — that is the entire point of it.
+            hold_after_drop = previews.hold;
             pv.annot_ghost = previews.annot.or(previews.widget);
             pv.dimension = previews.dimension;
         }
@@ -1241,6 +1265,11 @@ pub(super) fn interact(
     // constraint worth naming: nothing below this line may read the
     // decomposition.
     drop(targets);
+    // ★★★ O63's third piece, applied at the first point in this function where
+    // `&mut doc` is available again. See `hold_after_drop`'s declaration.
+    if let Some(hold) = hold_after_drop {
+        doc.hold_preview(hold);
+    }
 
     // ---- 7b. the released zoom marquee ----------------------------------
     //

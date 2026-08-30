@@ -450,7 +450,20 @@ pub(super) fn draw(
     // both explicitly permitted — it is derived from the transform the release
     // will commit, and it disappears the moment the real thing is rendered.
     // Nothing already applied to the page is marked, tinted or outlined by it.
-    if let Some(preview) = f.shape_preview
+    //
+    // ★★★ AND IT OUTLIVES THE GESTURE — O63's third piece.
+    //
+    // `f.shape_preview` is the in-flight value and is `None` the moment the
+    // pointer is released. `doc.held_preview_to_draw()` is the same geometry
+    // kept alive until the page raster carries the edit, because the raster
+    // underneath still shows the object where it STARTED for one to two seconds
+    // on the operator's own drawing — so dropping the preview at release makes
+    // the object appear to snap back and then jump forward.
+    //
+    // ★ The in-flight value wins when both are present. A new gesture describes
+    // the document better than a hold from the previous one, and `hold_preview`
+    // replaces rather than accumulates, so the overlap is at most one frame.
+    if let Some(preview) = f.shape_preview.or_else(|| doc.held_preview_to_draw())
         && let Some(page) = doc.pages.get(page_index)
     {
         crate::canvas::shapes::draw(

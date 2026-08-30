@@ -76,6 +76,12 @@ pub struct Previews {
     /// past the cap — in which case [`Self::ghost`]'s bounding outline is the
     /// whole answer, exactly as it was before this field existed.
     pub shape: Option<crate::canvas::shapes::ShapePreview>,
+    /// ★★★ The geometry to **hold** on screen after the gesture ends, until the
+    /// page raster catches up (`OPERATOR_REQUESTS.md` O63).
+    ///
+    /// `Some` on exactly one frame per gesture: the one that raised the Action.
+    /// [`Self::shape`] is `None` on that frame, so the two never both speak.
+    pub hold: Option<crate::canvas::shapes::ShapePreview>,
     /// A ce dimension redrawn at its new placement, in page space.
     pub dimension: Option<Vec<(pdfce_core::vector::Point, pdfce_core::vector::Point)>>,
 }
@@ -223,6 +229,10 @@ pub fn moved(frame: &Frame<'_>, delta: Vec2, phase: Phase, actions: &mut Vec<Act
         // — it is the only place that knows what the release will commit — and
         // this is a wire, not a decision.
         out.shape = preview.shape;
+        // ★★★ O63's third piece: the geometry to keep drawing after the gesture
+        // ends, until the page raster carries the edit. `Some` on exactly one
+        // frame per gesture — see `MovePreview::hold`.
+        out.hold = preview.hold;
     }
     out
 }
