@@ -17,6 +17,27 @@ at a section of it.
 
 ---
 
+## ★★★ THE PACKAGER RUNS `cargo update`, SO THE BUILD IS NOT WHAT YOU TESTED
+
+Read this before the next release, not after it.
+
+`tools/package-portable.py` runs `cargo update -p pdfce-core -p pdfce-render
+-p pdfce-print` **before it builds** — deliberately, and it is the right
+default. The consequence is that a green `cargo test` taken half an hour before
+packaging describes a **different engine** from the one that ships.
+
+★★ On 2026-08-30 that gap shipped a regression. The tests were green on engine
+`49caa88`; the packager pulled `71d13aa` (v0.17.0) and published; re-running the
+tests afterwards found **two failures**, one of which was Bold silently faking
+the weight on pages carrying a real bold face. The build had to be retracted
+from its slot.
+
+⇒ **Run `cargo test --workspace` and `tools/gates/run-all.sh` AFTER packaging,
+before telling him it is published.** Or run `cargo update` on the three engine
+crates first and test on that. Either works; doing neither does not.
+
+---
+
 ## ★★★ FIRST JOB: RUN THE TWO NEW CHECKS — the machine blocked them, not the code
 
 `turning_a_field_right_turns_it_right` and every other input-driving check
@@ -335,7 +356,7 @@ here so you know roughly where you are, not so you can quote it.
 | **★ Two controls have no home but the status bar** | The **selection filter** and the **zoom stepper** are reachable nowhere else — no command, no menu, no chord. `status::fitting` refuses to shed either, and its reachability test is what discovered it. If either gains a ribbon home, add it to `SHED_ORDER` |
 | **Panels** | **12.** Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · Dimension groups · Tool |
 | **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `4c32afe` (**v0.14.0**) — one commit past the revision that shipped `hit_test_point_deep`, `PageObjects::leaves` and the deep `pick_line_in_page`. **Read `Cargo.lock`, not this row** |
-| **Latest build** | `OneDrive\pdfceGUI2`, published 2026-08-30 from shell `1530f0a` on engine `49caa88` — **O61**: the phone-home disclosure, plus O60's redact-by-selection. `pdfceGUI1` holds the previous build as the fallback. Open **About** and read the Build block rather than trusting this row |
+| **Latest build** | `OneDrive\pdfceGUI1`, published 2026-08-30 09:45 from shell `25c98c4` on engine `9281068` (v0.17.0) — **O62b**: Bold uses a real bold font again, plus Settings ▸ Fonts ▸ Faking bold and italic. ★★ It RETRACTED the 09:18 build in the same slot, which shipped with Bold faking the weight; `pdfceGUI2` holds the 08:12 O61 build as the fallback. Open **About** and read the Build block rather than trusting this row |
 
 ### ★★★ THE FORM-XOBJECT SELECTION IS SHIPPED — AND HAS NOT BEEN DRIVEN
 
