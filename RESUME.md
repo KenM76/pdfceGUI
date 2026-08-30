@@ -315,7 +315,7 @@ here so you know roughly where you are, not so you can quote it.
 | **★ Two controls have no home but the status bar** | The **selection filter** and the **zoom stepper** are reachable nowhere else — no command, no menu, no chord. `status::fitting` refuses to shed either, and its reachability test is what discovered it. If either gains a ribbon home, add it to `SHED_ORDER` |
 | **Panels** | **12.** Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · Dimension groups · Tool |
 | **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `4c32afe` (**v0.14.0**) — one commit past the revision that shipped `hit_test_point_deep`, `PageObjects::leaves` and the deep `pick_line_in_page`. **Read `Cargo.lock`, not this row** |
-| **Latest build** | `OneDrive\pdfceGUI1`, published 2026-08-30 from shell `ced42a7` on engine `0eb9119` — **O60**: redact by selecting on the canvas, plus O59's cut/copy/paste for pages and bookmarks. `pdfceGUI2` holds the previous build as the fallback. Open **About** and read the Build block rather than trusting this row |
+| **Latest build** | `OneDrive\pdfceGUI2`, published 2026-08-30 from shell `1530f0a` on engine `49caa88` — **O61**: the phone-home disclosure, plus O60's redact-by-selection. `pdfceGUI1` holds the previous build as the fallback. Open **About** and read the Build block rather than trusting this row |
 
 ### ★★★ THE FORM-XOBJECT SELECTION IS SHIPPED — AND HAS NOT BEEN DRIVEN
 
