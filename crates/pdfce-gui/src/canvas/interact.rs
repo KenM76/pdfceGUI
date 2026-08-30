@@ -132,9 +132,7 @@ use crate::shell::menus::MenuHost;
 // as items so that every call below reads exactly as it did when it lived in
 // `mod.rs` — `overlay::grip_box`, `zoom::arm_anchor`, `keys::canvas_keys` — and
 // so the doc links above and below resolve to the same places they always did.
-use super::{
-    CANVAS_MARGIN, dimdrag, handles, keys, markup, measure, strip, textsel, tool, trace, zoom,
-};
+use super::{CANVAS_MARGIN, dimdrag, keys, markup, measure, strip, textsel, tool, trace, zoom};
 
 /// The three facts about *this frame's canvas* that [`interact`] needs, and
 /// that every part of it must agree on.
@@ -616,69 +614,16 @@ pub(super) fn interact(
     };
 
     // ---- 5. apply the gesture -----------------------------------------
-    let mut marquee = None;
-    let mut ghost = None;
-    // ★ A second preview value beside `ghost` rather than a variant of it,
-    // matching `ink_trail`'s own argument below: a move ghost is one
-    // displacement and a resize ghost is a grip plus two factors, and folding
-    // them into one `enum` would put a branch inside the paint loop for a value
-    // that is `None` on every frame nobody is dragging.
-    let mut resize_ghost: Option<(handles::Grip, (f32, f32))> = None;
-    // The angle a rotate drag has turned through, in SCREEN space, or `None`.
-    // A sixth preview slot, separate for the reason the five before it are: a
-    // rotation is one scalar and a resize is two, and folding them into one
-    // `enum` would put a branch in the paint loop for a value that is `None` on
-    // every frame nobody is dragging.
-    let mut rotate_ghost: Option<f32> = None;
-    // The handle being dragged, if one is: its anchor, its side and where it
-    // now sits in canvas space. A third preview slot beside `ghost` and
-    // `resize_ghost` for the reason those two are separate — three different
-    // shapes of preview, and folding them into one `enum` would put a branch in
-    // the paint loop for a value that is `None` on every frame nobody is
-    // dragging.
-    let mut handle_preview: Option<(usize, pdfce_core::vector::Handle, egui::Pos2)> = None;
-    // A ce dimension being dragged to a new placement, as the PAGE-SPACE
-    // segments it would be drawn as on release. A fourth preview slot for the
-    // same reason as the three above, and one more of its own: this one is not
-    // an outline of an existing shape at all - it is the dimension redrawn from
-    // its own geometry, because moving a dimension line stretches its extension
-    // lines rather than translating a box. A ghost offset by a delta would draw
-    // the wrong picture entirely.
-    let mut dimension_preview: Option<Vec<(pdfce_core::vector::Point, pdfce_core::vector::Point)>> =
-        None;
-    // What a perimeter corner is snapping to while it is being dragged, if
-    // anything. A fifth preview slot, and it is separate from
-    // `dimension_preview` for the reason `dimdrag::VertexDrag` gives: the
-    // polyline is page-space geometry and this is one screen-space glyph, drawn
-    // by a different painter at a different moment.
-    let mut vertex_snap: Option<pdfce_core::vector::snap::SnapCandidate> = None;
-    // A markup annotation being dragged, as the CANVAS-SPACE rectangle it would
-    // occupy on release.
+    // ★★★ **The fourteen pre-commit slots one frame might fill**, extracted
+    // to `canvas::previews` on 2026-08-30 when O63's shape preview pushed
+    // this file past R2's ceiling.
     //
-    // ★★ A seventh preview slot, and it is deliberately not `ghost` even though
-    // it is the same shape -- an `egui::Rect`. `ghost` is the content move's,
-    // and the two can never be non-`None` on one frame, so sharing would work
-    // and would make the painter's question "which kind of thing is this
-    // rectangle about?" answerable only by looking at the selection. Two names
-    // is one fewer place to be wrong, and it is the arrangement the five slots
-    // above already establish.
-    let mut annot_ghost: Option<egui::Rect> = None;
-    // The quads a text-following highlight would cover, in canvas space.
-    //
-    // ★ An eighth preview slot, for the reason the seven above it are separate:
-    // this one is a LIST of rectangles — one per line the drag crosses — where a
-    // band is two points, and the painter draws them with the same wash the
-    // band uses so the two gestures look like one feature.
-    let mut text_marks: Option<Vec<egui::Rect>> = None;
-    let mut band = None;
-    // The freehand trail, already simplified, in canvas space. A second
-    // preview value beside `band` rather than a variant of it, because the two
-    // are different pictures with different painters: a band is two points and
-    // a shape rule, a trail is a polyline of however many points survived
-    // `markup::ink::simplify`. Folding them into one type would put a `Vec` in a
-    // value the band path copies per frame for no benefit.
-    let mut ink_trail: Option<Vec<egui::Pos2>> = None;
-    let mut zoom_region = None;
+    // The seventy lines of argument that used to sit here — why each slot is
+    // its own value and not a variant of another — moved with them, stated
+    // once in that module's header instead of nine times in this function.
+    // `interact` answers *what does this frame's pointer mean*; those answer
+    // *what is drawn while the answer is still provisional*.
+    let mut pv = crate::canvas::previews::Slots::default();
     match outcome {
         // ★ A click is EITHER a measure pick or a selection, never both.
         //
@@ -723,7 +668,7 @@ pub(super) fn interact(
                 .map(|t| t.hit_test_rect(page_index, rect))
                 .unwrap_or_default();
             selection.marquee(page_index, &hits, shift);
-            trace::selection_event(&selection, "marquee", shift);
+            trace::selection_event(&selection, "pv.marquee", shift);
         }
         // ★ The same rubber band, released with the other intent. **The
         // selection is not touched** — not cleared, not replaced, not even
@@ -748,13 +693,13 @@ pub(super) fn interact(
             // doc`. The same constraint the `drop(targets)` below exists for,
             // and the same answer the marquee and the ghost already use —
             // decide here, act once the borrow has ended.
-            zoom_region = Some(rect);
+            pv.zoom_region = Some(rect);
         }
         GestureOutcome::Marquee {
             rect,
             phase: Phase::InFlight,
             ..
-        } => marquee = Some(rect),
+        } => pv.marquee = Some(rect),
         // ★ The move. `moving::drag` owns every rule — which verb the rung
         // reaches, whether the operands qualify, the canvas→page delta — and
         // returns the ghost's canvas-space offset when, and only when, the
@@ -784,9 +729,10 @@ pub(super) fn interact(
                 phase,
                 actions,
             );
-            ghost = previews.ghost;
-            annot_ghost = previews.annot.or(previews.widget);
-            dimension_preview = previews.dimension;
+            pv.ghost = previews.ghost;
+            pv.shape = previews.shape;
+            pv.annot_ghost = previews.annot.or(previews.widget);
+            pv.dimension = previews.dimension;
         }
         // ★ The markup band. `markup::drag` owns every rule — the canvas→page
         // conversion, the degenerate-drag refusal, which endpoints stay raw —
@@ -889,9 +835,9 @@ pub(super) fn interact(
                 },
                 actions,
             );
-            band = previews.band;
-            ink_trail = previews.trail;
-            text_marks = previews.text_marks;
+            pv.band = previews.band;
+            pv.ink_trail = previews.trail;
+            pv.text_marks = previews.text_marks;
         }
         // ★ A text-annotation band. It draws exactly as a markup band does and
         // COMMITS NOTHING — on `Phase::Complete` it raises the request that
@@ -911,7 +857,7 @@ pub(super) fn interact(
             // `MarkupKind` because that is what decides the shape drawn, and
             // both dragged text kinds occupy a rectangle — so this is not a
             // borrowed constant, it is the correct answer.
-            band = Some(markup::band::Preview {
+            pv.band = Some(markup::band::Preview {
                 kind: markup::MarkupKind::Rectangle,
                 from,
                 to,
@@ -958,7 +904,7 @@ pub(super) fn interact(
             to,
             phase,
         } => {
-            band = Some(markup::band::Preview {
+            pv.band = Some(markup::band::Preview {
                 kind: kind.drag_shape(),
                 from,
                 to,
@@ -1011,7 +957,7 @@ pub(super) fn interact(
         // `DimensionVertex`'s note in `needs_targets` applies to it too, and it
         // is in that list.
         GestureOutcome::Rotate { from, at, phase } => {
-            rotate_ghost = crate::canvas::rotating::drag(
+            pv.rotate_ghost = crate::canvas::rotating::drag(
                 &ctx,
                 crate::canvas::rotating::Frame {
                     from,
@@ -1047,7 +993,7 @@ pub(super) fn interact(
         // whole difference from a markup band, and why `canvas::textedit` gets
         // the box rather than `apply` getting an action.
         GestureOutcome::TextBox { from, to, phase } => {
-            band = Some(markup::band::Preview {
+            pv.band = Some(markup::band::Preview {
                 kind: markup::MarkupKind::Rectangle,
                 from,
                 to,
@@ -1064,7 +1010,7 @@ pub(super) fn interact(
         // 2026-08-28 for the reason every other arm here states: this is
         // wiring, and the rules are unit-tested without a window.
         GestureOutcome::Resize { grip, delta, phase } => {
-            resize_ghost = crate::canvas::resizing::drag(
+            pv.resize_ghost = crate::canvas::resizing::drag(
                 crate::canvas::resizing::Frame {
                     // ★ Read live from `egui::Memory`, at the frame the commit
                     // happens. See `canvas::scaling` for why they are a
@@ -1125,14 +1071,14 @@ pub(super) fn interact(
                 },
                 actions,
             );
-            dimension_preview = dragged.segments;
+            pv.dimension = dragged.segments;
             // ★ The candidate travels to the painter rather than being
             // re-queried there, which is `measure::Resolved`'s whole reason for
             // existing: a marker resolved a second time is a second derivation,
             // and this project has already shipped one that sat away from the
             // point it described for four days because a raw screen position
             // and a converted canvas one are the same type.
-            vertex_snap = dragged.snap;
+            pv.vertex_snap = dragged.snap;
         }
         GestureOutcome::Handle {
             node,
@@ -1162,7 +1108,7 @@ pub(super) fn interact(
                 Some(origin) => crate::canvas::constrain::reposition(&ctx, true, origin, at),
                 None => at,
             };
-            handle_preview = crate::canvas::handledrag::drag(
+            pv.handle = crate::canvas::handledrag::drag(
                 crate::canvas::handledrag::Frame {
                     node,
                     handle,
@@ -1305,7 +1251,7 @@ pub(super) fn interact(
     // still zooms — to the ceiling, centred on the region — and the status
     // bar's readout states the scale that was actually pinned. See
     // [`zoom::ZoomOutcome::ceiling_changed_the_answer`].
-    if let Some(rect) = zoom_region {
+    if let Some(rect) = pv.zoom_region {
         let _ = zoom::zoom_to_rect(&ctx, doc, rect, CANVAS_MARGIN, *max_zoom_percent, actions);
     }
 
@@ -1323,17 +1269,18 @@ pub(super) fn interact(
             clip,
             map,
             selection: &selection,
-            marquee,
-            ghost,
-            annot_ghost,
-            resize_ghost,
-            handle_drag: handle_preview,
-            dimension_preview: dimension_preview.as_deref(),
-            vertex_snap,
-            rotate_ghost,
-            band,
-            text_marks: text_marks.clone(),
-            ink_trail,
+            marquee: pv.marquee,
+            ghost: pv.ghost,
+            shape_preview: pv.shape.as_ref(),
+            annot_ghost: pv.annot_ghost,
+            resize_ghost: pv.resize_ghost,
+            handle_drag: pv.handle,
+            dimension_preview: pv.dimension.as_deref(),
+            vertex_snap: pv.vertex_snap,
+            rotate_ghost: pv.rotate_ghost,
+            band: pv.band,
+            text_marks: pv.text_marks.clone(),
+            ink_trail: pv.ink_trail,
             active_tool,
             pen,
             screen_pos,

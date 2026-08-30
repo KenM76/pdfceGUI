@@ -305,6 +305,22 @@ pub mod rulers;
 pub mod selection;
 // The GUI half of snapping: the zoom-invariant catch radius, the master/Alt
 // gates, the Tab cycle, the two-click confirm, and the indicator glyph.
+/// ★★★ **The shape itself, following your hand** — the live geometry preview
+/// (`OPERATOR_REQUESTS.md` O63).
+///
+/// Its header carries the convention it **reverses** by operator ruling —
+/// `handledrag.rs`'s *"a preview shows the cursor, the render shows the
+/// document"* — and the measurement that makes it possible: a rasterised
+/// preview is a second away on a CAD sheet, and this never touches the
+/// rasteriser.
+/// The fourteen **pre-commit** slots one frame of the canvas might fill — the
+/// marquee, the ghosts, the shape preview, the snap marker, the ink trail.
+///
+/// Extracted from [`interact`] under R2; its header carries the one argument
+/// they all share (why each is its own value and not a variant of another) and
+/// the Rule 4 reading that makes every one of them permitted.
+pub mod previews;
+pub mod shapes;
 pub mod snap;
 // Which page the frame is about, in what order the rest should be drawn, and
 // where a navigated-to page lands. The canvas's half of Phase 4's strip.

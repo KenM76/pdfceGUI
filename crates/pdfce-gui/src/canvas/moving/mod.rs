@@ -672,6 +672,35 @@ fn node_point(provider: &ObjectModelProvider, object: usize, node: usize) -> Opt
         .map(|(_, point)| point)
 }
 
+/// **What one frame of a move drag gives the painter.**
+///
+/// Two values rather than one, since `OPERATOR_REQUESTS.md` **O63**, and they
+/// answer different questions:
+///
+/// | field | question |
+/// |---|---|
+/// | [`Self::ghost`] | *where is the selection going?* — the bounding outline, which is the SELECTION indicator |
+/// | [`Self::shape`] | *what will it look like?* — the real geometry, which is what the operator asked for |
+///
+/// ★★ The second is `None` on every rung the shell cannot draw honestly: a text
+/// run, an image, a form XObject, a page that will not decompose, or a selection
+/// past `canvas::shapes`' cap. In every one of those cases the outline alone is
+/// drawn, which is exactly what this canvas did before the shape preview
+/// existed — so the fallback is a known-good behaviour rather than a degraded
+/// one.
+///
+/// ★ Not folded into one enum. `dragroute::Previews` gives the argument and it
+/// applies here: the painter reads each independently, and one value whose
+/// meaning depends on which rung is live is a value the paint loop has to
+/// interrogate.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct MovePreview {
+    /// The canvas-space displacement, for the bounding ghost.
+    pub ghost: Option<Vec2>,
+    /// The selection's own geometry at its new position, in page space.
+    pub shape: Option<crate::canvas::shapes::ShapePreview>,
+}
+
 /// Apply one frame of a move drag: draw the ghost, or commit the command.
 ///
 /// The **only** function here that touches the live object model. It gathers
@@ -686,8 +715,10 @@ fn node_point(provider: &ObjectModelProvider, object: usize, node: usize) -> Opt
 /// * [`Phase::Complete`] — converts the delta to page space, resolves the node
 ///   position if the rung needs one, and pushes exactly one [`Action`].
 ///
-/// Returns `Some(delta)` only when a ghost should be drawn. A drag that is not
-/// eligible draws nothing, which is the visible half of obligation 3.
+/// Returns a [`MovePreview`] carrying the bounding ghost and, since
+/// `OPERATOR_REQUESTS.md` O63, the selection's own **geometry** at its new
+/// position. A drag that is not eligible draws nothing, which is the visible
+/// half of obligation 3.
 ///
 /// # Why the refusal is traced only on release
 ///
@@ -704,7 +735,7 @@ pub fn drag(
     provider: Option<&ObjectModelProvider>,
     page: Option<&Page>,
     actions: &mut Vec<Action>,
-) -> Option<Vec2> {
+) -> MovePreview {
     let outcome = context(selection, page_index, provider)
         .ok_or(Refusal::NoObjectModel)
         .and_then(|ctx| eligible(selection, page_index, ctx));
@@ -715,22 +746,49 @@ pub fn drag(
             if phase == Phase::Complete {
                 decline(selection, reason, actions);
             }
-            return None;
+            return MovePreview::default();
         }
     };
 
     if phase == Phase::InFlight {
-        return Some(delta);
+        // ★★★ THE LIVE SHAPE, `OPERATOR_REQUESTS.md` O63.
+        //
+        // **Ken, 2026-08-30:** *"if I moved the end of a line, it didn't show me
+        // the shape change of the line, it just had a perimeter box around it …
+        // there isn't a real preview like there is in inkscape."*
+        //
+        // Built HERE rather than in the painter, and that placement is the whole
+        // guarantee: `subject` is the value the release hands to `EditSession`,
+        // so there is no way to reach this line without having already decided
+        // what the commit will do. Convention D2 — *derived from commit* —
+        // enforced by control flow rather than by discipline.
+        //
+        // ★ The bounding ghost is returned as well, not instead. It is the
+        // SELECTION indicator and it stays; what changes is that the shape now
+        // moves with it. And on a rung the shape preview cannot serve — a text
+        // run, an image, a form XObject, or a selection past the cap — the
+        // outline is the whole answer, exactly as it was before this existed.
+        let shape = page
+            .and_then(|page| page_delta(delta, page))
+            .zip(provider)
+            .and_then(|(d, provider)| {
+                crate::canvas::shapes::for_move_subject(provider, &subject, d.dx, d.dy)
+            })
+            .filter(|preview| !preview.is_empty());
+        return MovePreview {
+            ghost: Some(delta),
+            shape,
+        };
     }
 
     // ---- commit ------------------------------------------------------
     let Some(page) = page else {
         decline(selection, Refusal::DegeneratePage, actions);
-        return None;
+        return MovePreview::default();
     };
     let Some(delta) = page_delta(delta, page) else {
         decline(selection, Refusal::DegeneratePage, actions);
-        return None;
+        return MovePreview::default();
     };
     // Only the Node rung needs a position, and asking for one costs an
     // allocation over every anchor of the object — 6,681 of them on one
@@ -767,7 +825,11 @@ pub fn drag(
         }
         Err(reason) => decline(selection, reason, actions),
     }
-    None
+    // ★ Nothing on release. The gesture is over; what replaces the preview is
+    // the document, rendered with no marking of any kind. `painting` keeps the
+    // last live preview alive across the raster gap — see O63's third piece —
+    // and that retention is the painter's business, not this function's.
+    MovePreview::default()
 }
 
 /// Report a move that committed nothing, with the reason.

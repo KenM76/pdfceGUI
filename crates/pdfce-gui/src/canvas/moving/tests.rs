@@ -621,8 +621,16 @@ fn a_page_with_no_object_model_declines() {
         &mut actions,
     );
     assert_eq!(
-        ghost, None,
+        ghost.ghost, None,
         "a ghost must not describe an unverifiable move"
+    );
+    // ★ And no SHAPE either, since O63. The two are separate values and a
+    // future edit could plausibly leave one of them populated on a rung that
+    // declines — which would draw the operator a preview of a move that is
+    // about to refuse, the exact "placeholder" failure R9 forbids.
+    assert_eq!(
+        ghost.shape, None,
+        "a shape preview must not describe an unverifiable move either"
     );
     assert!(actions.is_empty());
 }

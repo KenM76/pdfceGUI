@@ -109,6 +109,74 @@ the request wearing the name of the whole thing.
 **Not started.** Raised while O62b was being fixed; this is the largest single
 item on the list and it is architectural rather than additive.
 
+### ★★★ THE THIRD MESSAGE IS THE ONE THAT MATTERS
+
+**Ken, 2026-08-30:** *"yeah do both. but to be clear at least last time I checked
+if I moved the end of a line, it didn't show me the shape change of the line, it
+just had a perimeter box around it. this goes for anything I change right now.
+there isn't a real preview like there is in inkscape."*
+
+★★★ **He is right, and it means the first two messages were being read too
+narrowly.** The complaint is not that the preview arrives late. It is that
+**there is no preview of the SHAPE at all** — every gesture in this shell draws a
+*bounding outline* and nothing else. Drag a line's endpoint and you get a
+rectangle that changes size; you never see the line bend.
+
+That is not an oversight. It is a **written convention being followed**, stated
+at `canvas/handledrag.rs:216-222`:
+
+> *"a preview shows the cursor, the render shows the document."*
+
+⇒ **That convention is now overruled by the operator, explicitly, by
+comparison to Inkscape.** It should be recorded as reversed rather than quietly
+contradicted, because it is repeated in several modules and the next session
+will otherwise re-derive it.
+
+### ★★ AND IT MAKES THE PROBLEM EASIER, NOT HARDER
+
+The whole analysis above assumed a preview had to come from the **rasteriser**,
+which is why *"a two-pixel render costs 691 ms"* looked fatal. It does not.
+
+`vector::decompose_page` already gives this shell the real geometry, and the
+shell already caches it (`app::cache::page_objects`):
+
+| what it carries | why it is enough |
+|---|---|
+| `PathObject::page_subpaths()` | page-space `Line` and `Cubic` segments, control points resolved |
+| `style`, `line_width` | fill/stroke disposition and width |
+| `fill_color`, `stroke_color` | the actual colours |
+
+⇒ **egui can draw that directly, at pointer speed, with no engine call at all.**
+A moved node, a resized box, a rotated shape — transform the cached geometry in
+memory and paint the real path. That is exactly what Inkscape does, and it is
+*not* fuzzy: for geometry it is **exact**.
+
+★ Precedent already in the tree: `painting.rs:437-450` draws page-space segments
+for the ce-dimension placement preview. The mapping and the painter exist; what
+is missing is feeding them the selection's own geometry.
+
+### The design, now that both halves are known
+
+Three pieces, and he asked for all three (*"yeah do both"*, plus the shape):
+
+1. **Draw the real geometry during the gesture.** Transform the cached
+   `PageModel` objects by the live delta / scale / rotation / node move and paint
+   the actual paths. Replaces the bounding outline as the primary affordance;
+   the outline stays as the *selection* indicator, which is what it is for.
+2. **Occlude the old position.** The stale raster underneath still shows the
+   object where it was, so without this the operator sees it twice. This is the
+   *"lift the pixels"* half and it is the one with a failure mode — the hole has
+   to be filled with something, and on a CAD sheet there is usually content
+   underneath.
+3. **Keep it up until the fresh raster lands, and say so.** The preview is
+   retained against the epoch the commit produced and dropped when the texture
+   carrying that epoch arrives; the status line says the page is catching up.
+   This is what removes the *snap-back*.
+
+★★ Piece 1 is the one he actually asked for and the one with no downside. Pieces
+2 and 3 are the O63-as-originally-read half. **Build them in that order** — 1 is
+useful on its own and cannot be wrong; 2 is the only one that can lie.
+
 ### ★★★ MEASURED, 2026-08-30 — AND THE COMFORTABLE ANSWER WAS WRONG
 
 `crates/pdfce-gui/src/app/actions/latency.rs`, release build, on the 5.6 MB CAD

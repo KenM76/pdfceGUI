@@ -70,6 +70,17 @@ pub(super) struct Frame<'a> {
     pub marquee: Option<Rect>,
     /// The move ghost's canvas-space displacement, if a move would commit.
     pub ghost: Option<egui::Vec2>,
+    /// ★★★ **The selection's own geometry at its new position**, in page space
+    /// (`OPERATOR_REQUESTS.md` O63).
+    ///
+    /// Borrowed rather than owned, because a preview of a CAD object can carry
+    /// thousands of segments and this struct is built fresh every frame.
+    ///
+    /// `None` on every rung `canvas::shapes` cannot draw honestly — a text run,
+    /// an image, a form XObject, a page that will not decompose, a selection
+    /// past the cap — in which case [`Self::ghost`] is the whole answer, exactly
+    /// as it was before this field existed.
+    pub shape_preview: Option<&'a crate::canvas::shapes::ShapePreview>,
     /// The handle being dragged, if one is — its anchor, its side and where it
     /// now sits in canvas space.
     ///
@@ -423,6 +434,39 @@ pub(super) fn draw(
         );
     }
 
+    // ★★★ **THE SHAPE ITSELF, FOLLOWING THE POINTER** — O63.
+    //
+    // **Ken, 2026-08-30:** *"if I moved the end of a line, it didn't show me the
+    // shape change of the line, it just had a perimeter box around it … there
+    // isn't a real preview like there is in inkscape."*
+    //
+    // Drawn ABOVE the bounding ghost and below the snap marker. The order is the
+    // reading order of the three: the outline says *which* thing is moving, the
+    // shape says *what it will look like*, and the snap marker says *what it
+    // will line up with*. An operator reads them outward from the object.
+    //
+    // ★★ Rule 4: this is the cursor, not the document. It is a pre-commit
+    // affordance — the same category as the rubber band and the snap indicator,
+    // both explicitly permitted — it is derived from the transform the release
+    // will commit, and it disappears the moment the real thing is rendered.
+    // Nothing already applied to the page is marked, tinted or outlined by it.
+    if let Some(preview) = f.shape_preview
+        && let Some(page) = doc.pages.get(page_index)
+    {
+        crate::canvas::shapes::draw(
+            &painter,
+            preview,
+            page,
+            map,
+            ui.visuals().selection.stroke.color,
+            // ★ The scale is DERIVED by mapping a unit page vector, not read
+            // off the mapping's private zoom. `coords`' standing rule is that a
+            // coordinate is produced by exactly one conversion in exactly one
+            // place, and a stroke width is a coordinate — asking the mapping to
+            // convert a length is the same act as asking it to convert a point.
+            map.page_vec_to_screen(egui::vec2(1.0, 0.0)).x.abs(),
+        );
+    }
     // ★ The ce-dimension placement preview, on the same layer and under the
     // same honesty contract as the two ghosts above: it is `Some` only when
     // `dimdrag::drag` has established that a release would commit, and it is

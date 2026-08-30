@@ -68,6 +68,14 @@ pub struct Previews {
     /// each independently, and one rectangle whose meaning depends on which
     /// selection is live is a value the paint loop has to interrogate.
     pub widget: Option<egui::Rect>,
+    /// ★★★ **The selection's own geometry at its new position**, in page space
+    /// (`OPERATOR_REQUESTS.md` O63).
+    ///
+    /// `None` on every rung `canvas::shapes` cannot draw honestly — a text run,
+    /// an image, a form XObject, a page that will not decompose, a selection
+    /// past the cap — in which case [`Self::ghost`]'s bounding outline is the
+    /// whole answer, exactly as it was before this field existed.
+    pub shape: Option<crate::canvas::shapes::ShapePreview>,
     /// A ce dimension redrawn at its new placement, in page space.
     pub dimension: Option<Vec<(pdfce_core::vector::Point, pdfce_core::vector::Point)>>,
 }
@@ -199,7 +207,7 @@ pub fn moved(frame: &Frame<'_>, delta: Vec2, phase: Phase, actions: &mut Vec<Act
             actions,
         );
     } else {
-        out.ghost = moving::drag(
+        let preview = moving::drag(
             delta,
             phase,
             selection,
@@ -208,6 +216,13 @@ pub fn moved(frame: &Frame<'_>, delta: Vec2, phase: Phase, actions: &mut Vec<Act
             doc.current_page(),
             actions,
         );
+        out.ghost = preview.ghost;
+        // ★★★ O63: the selection's own geometry, moving with the pointer.
+        //
+        // Carried through unchanged. `moving::drag` decides whether there is one
+        // — it is the only place that knows what the release will commit — and
+        // this is a wire, not a decision.
+        out.shape = preview.shape;
     }
     out
 }
