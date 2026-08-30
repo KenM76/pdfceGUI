@@ -80,7 +80,7 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
-## O63 — ⬜ The canvas should keep up with your hand
+## O63 — ⬜ The program should keep up with your hand — EVERYWHERE
 
 **Ken, 2026-08-30:** *"we need to make it so we have a live preview as we drag
 and move and resize and rotate, etc around the canvas. The live preview should
@@ -89,8 +89,164 @@ just cache each one as the user does their edits so to them everything looks
 WYSIWYG and the delay in updating the actual isn't noticable. If the user gets
 too far ahead, then it will pause and update."*
 
-**Not started.** Raised while O62b was being fixed; this is the next piece of
-work and it is the largest single item on the list.
+**Ken, clarifying, 2026-08-30:** *"to clarify live preview request is for
+everything we do."*
+
+★★★ **THE CLARIFICATION CHANGES THE SUBJECT, AND IT IS THE WHOLE POINT.**
+
+The first message names four gestures and reads as a canvas-manipulation
+feature. It is not one. *Everything we do* means every edit that changes what is
+on screen: a colour, a size, a Bold press, a delete, a redaction mark, a field
+moved, a page rotated, a bookmark, an annotation. **The unit of work is not "a
+drag" — it is "an edit".**
+
+⇒ That rules out the cheap answer before it is proposed. Compositing the dragged
+object over the old page texture solves four gestures and **nothing else**;
+there is no sprite to slide when the operator changes a fill colour or deletes a
+run of text. Whatever is built must be general over edits, or it is a fifth of
+the request wearing the name of the whole thing.
+
+**Not started.** Raised while O62b was being fixed; this is the largest single
+item on the list and it is architectural rather than additive.
+
+### ★★★ MEASURED, 2026-08-30 — AND THE COMFORTABLE ANSWER WAS WRONG
+
+`crates/pdfce-gui/src/app/actions/latency.rs`, release build, on the 5.6 MB CAD
+site plan. Written before any design work, because the last time this project
+answered a performance question from architecture it was wrong.
+
+| call | ordinary A1 title block | **dense CAD site plan** |
+|---|---:|---:|
+| `Document::load` | 0.4 ms | **3.6 ms** |
+| `EditSession::view` | 0.000 ms | **0.000 ms** |
+| `decompose_page` | 0.5 ms | **500.9 ms** |
+| `move_objects` | 0.9 ms | **434.3 ms** |
+
+**The prior was "it is obviously the raster". It is not.** One drag-move on this
+drawing costs the engine **430 ms before anything is drawn at all**, and it runs
+**on the UI thread** — so it is not a delay, it is a **freeze**: the window stops
+answering the pointer for half a second, per edit, on a drawing he uses daily.
+
+Three findings, in order of how much they change the plan:
+
+1. **Opening is free, reading is free.** 3.6 ms to load 5.6 MB; `view()` is
+   unmeasurable. ⇒ the cost is **the content stream**, not the file and not the
+   object graph.
+2. **`decompose_page` (501 ms) and `move_objects` (434 ms) are within 15 % of
+   each other**, which reads as *the verb's cost is essentially one
+   decomposition*. If so, every content edit on this page carries the same
+   ~450 ms floor — moving one line costs what moving ten thousand costs.
+3. ★★ **The shell then pays for a second one.** `app::cache::page_objects` is
+   keyed on `(page, edit_epoch)` and the commit bumps the epoch, so the
+   decomposition is discarded at the moment the verb returns and rebuilt on the
+   next frame. **~500 ms of duplicated work per edit, pure loss** — the same
+   stream parsed twice because the two parsers cannot see each other across the
+   crate boundary. Filed:
+   `request_one_edit_costs_two_decompositions_of_the_same_page.md`.
+
+### The bill for one drag-move on that drawing
+
+| step | cost | thread |
+|---|---:|---|
+| `render_worker.cancel_and_wait()` | 28.9 ms | **UI** |
+| `move_objects` | ~430 ms | **UI** |
+| re-`decompose_page` for the selection outlines | ~500 ms | **UI** |
+| re-rasterise the page | ~1,000 ms | worker — stale frame stays up |
+
+**≈ 1 s frozen, then ≈ 1 s stale.** Only the last row is already handled.
+
+### ★★ AND THE PREVIEW IS DISCARDED AT EXACTLY THE WRONG MOMENT
+
+Found while mapping the canvas. Every drag module returns before touching the
+document while the gesture is in flight (`moving/mod.rs:722`, `resizing.rs:521`,
+`rotating.rs:340`, and five more), draws an **outline ghost** at the new
+position, and on release **discards the ghost and raises the Action**.
+
+But the raster underneath still shows the **old** position for the next second
+or two. So what the operator sees on release is:
+
+> the ghost vanishes → the object is back where it started → *(a pause)* → the
+> object jumps to where they put it.
+
+★★★ **The object appears to snap back.** That is very likely the largest part of
+what he is describing, it is not a rendering problem, and it is exactly his own
+sentence: *"the live preview should remain while the update to the pdf structure
+runs in the background."* The preview must **outlive the commit** — retained
+against the epoch the commit produced, and dropped only when the raster carrying
+that epoch lands.
+
+### What already exists, and is better than expected
+
+* **A stale-frame fallback, three tiers.** `funnel.rs:60-72` (an edit no longer
+  blanks the texture — that fixed *"the page goes blank and flashes after every
+  change"*), a 12 ms inline render budget then async (`worker.rs:706`), and a
+  kept low-resolution whole-page backdrop under the sharp one (`backdrop.rs:88`).
+* **Region rendering.** `RenderKey::region`, `render/strip.rs`, and a painter
+  already willing to draw the raster at a rect other than the page's
+  (`present.rs:726-757`).
+* **One gesture is already one undo entry**, decided in the gesture modules and
+  enforced by the plural verbs taking slices (`moving/mod.rs:9-16`).
+
+### The obstacle nobody had written down
+
+`vector_edit` **begins** with `doc.render_worker.cancel_and_wait()` — it *joins
+the render thread*, because `Arc::get_mut(&mut doc.session)` fails while a
+worker holds a clone. Measured at **28.9 ms**. So any design that commits
+per-frame during a drag would cancel and join a render **every frame**.
+
+⇒ That rules out "commit continuously and let the engine catch up" in its
+simplest form, and it is why the engine has been asked whether a mutating verb
+can run off the UI thread at all.
+
+### The old plan, kept for the record
+
+### ★★ MEASURE FIRST, AND THE MEASUREMENT DECIDES THE DESIGN
+
+`BENCHMARK.md` exists because an earlier session asserted a performance weakness
+from architecture and was wrong. The same trap is open here, so the first job is
+an instrument, not a plan. The question is **which half is slow**:
+
+| candidate | what it would mean |
+|---|---|
+| **(a) the engine commit** — `EditSession`'s verb rewriting content streams and the object graph | his description is right as written: an optimistic edit model with a queue and backpressure |
+| **(b) the re-rasterisation** — `pdfce-render` redrawing the page after the edit epoch moves | a much smaller and much safer change: keep showing the last good frame, render the new one behind it, swap when ready. No optimism, no queue, no divergence between screen and document |
+| **(c) both** | (b) first, because it is cheap and it may be the whole of what he can feel |
+
+★ On a 129,758-object CAD sheet the prior is strongly **(b)** — but a prior is
+not a measurement, and `tools/render-profile` is the standing instrument.
+
+★★★ **If it is (b), most of the risk below evaporates.** The document is never
+ahead of or behind the screen; the screen is simply a frame or two stale, which
+is what every drawing program does. No refusal can arrive for an edit already
+shown, because the edit really did happen before the frame was requested.
+
+### The open questions, in the order they have to be answered
+
+1. **Which half is slow.** See above. Everything below is conditional on (a).
+2. **What the preview IS** for a non-geometric edit. There is no sprite for
+   "this text is now bold"; the only general preview of an edit is *the page
+   rendered with the edit applied*, which is the expensive thing being deferred.
+3. **What happens when the engine REFUSES** an edit the preview already showed.
+   This has no honest answer yet and it decides the design. Note it is
+   **entirely a problem of (a)** — under (b) the engine has already accepted
+   before anything is drawn.
+4. **The queue depth**, and what *"pause"* looks like. A frozen pointer is worse
+   than a slow one.
+5. **Undo grouping.** One entry per gesture, not per frame — and `EditSession`
+   has no grouping verb, which is already filed.
+
+### ★★★ Rule 4 binds this hard, in the direction that is easy to get backwards
+
+A preview must render **exactly** as the committed result will render. No ghost,
+no outline, no provisional tint, no dashed rectangle, no "pending" badge. His own
+words, recorded when redaction was scoped: *"the nagging and red flagging in the
+original GUI made for a lot of extra bugs in the visibility when editing."*
+
+A preview drawn differently from the commit is a **second rendering path for the
+same content**, and two paths drift. The one-line test: *would a screenshot of
+the canvas mid-preview differ from a screenshot of the same document after the
+commit lands?* If yes, and the difference is pdfce marking its own uncertainty,
+that is the defect.
 
 ★★ What he described is not a rendering optimisation, it is a **decoupling**:
 the picture the operator is dragging and the document pdfce is rewriting stop

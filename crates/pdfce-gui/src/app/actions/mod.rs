@@ -194,6 +194,14 @@ mod redactsel;
 ///
 /// `pub` because [`action::Action::TextStyle`] names its `StyleChange` and the
 /// Properties panel constructs one.
+/// **An instrument, not a feature** — how long the engine takes to accept one
+/// edit, measured rather than reasoned. `#[cfg(test)]` and `#[ignore]`d; it
+/// exists because `OPERATOR_REQUESTS.md` O63's whole design turns on whether
+/// the delay an operator feels is the commit or the raster, and `BENCHMARK.md`
+/// exists because the last time this project answered that from architecture it
+/// was wrong.
+#[cfg(test)]
+mod latency;
 pub mod textstyle;
 
 pub mod vector;

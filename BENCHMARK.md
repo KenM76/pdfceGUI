@@ -13,6 +13,86 @@ prompted this measurement, and **the operator was right**.
 
 ---
 
+## ★★★ 2026-08-30 — the EDIT half, measured for the first time
+
+**Instrument:** `crates/pdfce-gui/src/app/actions/latency.rs`, a `#[ignore]`d
+release-mode test. Run it with:
+
+```
+cargo test -p pdfce-gui --release edit_latency -- --ignored --nocapture
+```
+
+**Why it was written.** `OPERATOR_REQUESTS.md` **O63** asks for a live preview
+that stays on screen *"while the update to the pdf structure runs in the
+background"*. Two completely different fixes follow depending on whether the
+delay an operator feels is the **commit** (`pdfce-core` rewriting the page) or
+the **raster** (`pdfce-render` redrawing it). Nobody had a number for the
+commit. This file exists because the last time this project answered a
+performance question from architecture rather than measurement, it was wrong.
+
+### The numbers
+
+| | ordinary A1 title block | **dense CAD site plan** |
+|---|---:|---:|
+| `Document::load` | 0.4 ms | **3.6 ms** |
+| `EditSession::new` (incl. load) | 0.3 ms | 3.6 ms |
+| `EditSession::view` | 0.000 ms | **0.000 ms** |
+| `decompose_page` | 0.5 ms | **500.9 ms** |
+| `move_objects` (incl. load + session) | 0.9 ms | **434.3 ms** |
+
+Medians of 3–5 samples. Same machine, same session, release build.
+
+### ★★★ What this says, and it is not what the prior said
+
+**The prior was wrong.** *"It is obviously the raster"* was the comfortable
+answer — a second to rasterise this page is already recorded above — and it is
+**not** the whole story. One drag-move on this drawing costs the engine
+**430 ms** before anything is drawn at all.
+
+Three findings, in order of how much they change the plan:
+
+1. **The commit half is real and it is on the UI thread.** `vector_edit` runs
+   `move_objects` synchronously inside the frame. Four hundred and thirty
+   milliseconds is not a delay, it is a **freeze** — the window stops answering
+   the pointer. Nothing about a preview fixes that; it has to move off the UI
+   thread, or get cheaper, or both.
+
+2. **Opening the file is free and reading it is free.** `Document::load` is
+   3.6 ms on a 5.6 MB drawing and `EditSession::view` is *unmeasurably* fast.
+   ⇒ **The cost is not the file and it is not the object graph. It is the
+   CONTENT STREAM.** `decompose_page` — parsing 129,758 objects' worth of
+   operators — is 501 ms, and `move_objects` is 434 ms, and the two numbers
+   being within 15 % of each other is the whole story: **the verb's cost is
+   essentially one decomposition.**
+
+3. ★★ **And the shell then pays for a second one.** `app::cache::page_objects`
+   is keyed on `(page, edit_epoch)` and `vector_edit` bumps the epoch, so every
+   commit throws away the decomposition it just implicitly performed and the
+   next frame rebuilds it from scratch. **That is ~500 ms of duplicated work per
+   edit, and it is pure loss** — the same page, the same content, parsed twice
+   because the two parsers cannot see each other across the crate boundary.
+
+### The bill for one drag-move on this drawing
+
+| step | cost | where |
+|---|---:|---|
+| `render_worker.cancel_and_wait()` | 28.9 ms | shell, UI thread (`worker.rs:836`) |
+| `move_objects` | ~430 ms | engine, UI thread |
+| re-`decompose_page` for the selection outlines | ~500 ms | shell, UI thread |
+| re-rasterise the page | ~1,000 ms | engine, **worker thread**, stale frame stays up |
+| **≈ 1 s frozen, then ≈ 1 s stale** | | |
+
+★ Only the last row is already off the UI thread, and it is the only row O63's
+existing machinery covers. The first three are the freeze.
+
+### What has been filed as a result
+
+`request_one_edit_costs_two_decompositions_of_the_same_page.md` — the engine
+cannot see the shell's decomposition and the shell cannot see the engine's, so
+one edit parses one content stream twice. Neither side can fix that alone.
+
+---
+
 ## The document
 
 | Property | Value |
