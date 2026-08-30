@@ -80,6 +80,74 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O59 — ⬜ Cut, copy and paste for **everything**: the engine shipped it, the shell has not consumed it
+
+**Ken, 2026-08-29, to the engine session:** *"can you make sure we have cut,
+copy, and paste available for everything and if not implement?"* → *"yes do all
+without stopping."* Then to this session: *"latest release of core engine
+ready."*
+
+The engine did all of it. **This shell has consumed none of it yet**, and the
+row exists so that fact is on paper rather than in a chat reply.
+
+### Measured at pin `0eb9119`, not assumed
+
+`tools/verb-coverage.py`: **173 verbs, 152 named somewhere here, 21 named
+nowhere** — up from 10 unconsumed this morning. Fourteen of the eleven new
+misses are this one release's clipboard family:
+
+```
+copy_pages      cut_pages      paste_pages
+copy_outline_item cut_outline_item paste_outline_item
+copy_attachment cut_attachment paste_attachment
+cut_annotations cut_selection  cut_field
+```
+
+### What is newly possible, in your terms
+
+| | today in the shell | now possible |
+|---|---|---|
+| **Cut a comment** | copy, then a separate delete — **two undo entries** | one gesture, **one** undo entry, labelled *cut* |
+| **Sticky notes, text boxes, stamps** | copy refused | copy, cut and paste, keeping the author, the date, the note text and the opacity |
+| **Links** | copy refused | copied, and the destination **checked** on paste — dropped and disclosed if it does not resolve here, where Acrobat drops it somewhere arbitrary |
+| **Whole pages** | nothing | copy, cut, paste — and the clip **is a PDF**, so it opens in anything |
+| **Bookmarks and their subtrees** | nothing | copy, cut, paste, **between two documents** — which Acrobat cannot do at all, by Adobe's own documentation |
+| **Attachments** | nothing | copy, cut, paste |
+| **A copied comment in a saved clip** | silently lost | carried — the clip file used to drop every annotation |
+
+### ★★★ Three things that must be asked BEFORE the press, not reported after
+
+The engine named these itself, and each produces *a document that looks right
+and is not*:
+
+1. **Cut must be greyed, not failed.** A copy of something pdfce cannot carry
+   is free — the original stays. A cut of the same thing is a deletion wearing
+   a clipboard's clothes, and the engine refuses it by name. So the control has
+   to be disabled with the reason, which means asking `copy_selection` first and
+   looking for an `Unsupported` marker.
+2. **Pasting pages brings orphaned form-field boxes.** A page's `/Annots`
+   reaches its widgets; the `/AcroForm` that owns them does not travel. They
+   draw like fields and nothing can fill them. The engine measured two on its
+   own smoke test.
+3. **A pasted bookmark whose page does not exist here is silently dead.** It
+   still shows, still has its title, and does nothing when clicked. Ask
+   `deepest_page()` against the page count first.
+
+### Six engine defects fixed on the way, two of which were ours to trip over
+
+`copy_annotations` used to require the page to have **content** — so a comment
+on a blank sheet could not be copied at all — and `paste_objects` required the
+page to have `/Resources`. Both were the content path's preconditions applied
+to a gesture that is not a content gesture. Neither had been reported from
+here, which means neither had been hit yet; both would have looked like our
+bug.
+
+**Status:** ⬜ **OPEN — engine ready, shell not started.** The pin is updated
+and verified (2,662 tests, 19/19 gates, both driven clipboard checks green at
+`0eb9119`), and nothing has regressed. What is not done is *using* any of it.
+
+---
+
 ## O58 — ✅ Copy and paste a form field: `Ctrl+V` pastes a NEW field, `Ctrl+Shift+V` pastes a DUPLICATE
 
 **Ken, 2026-08-29:** *"wire the request. ctrl v for paste as new. ctrl shift v

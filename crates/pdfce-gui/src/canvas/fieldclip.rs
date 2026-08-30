@@ -176,12 +176,21 @@ pub enum Refusal {
 /// 1. `egui::Memory` wants `Clone + Send + Sync + 'static`; bytes are all four
 ///    without asking anything of the engine's type.
 /// 2. `Clipped` derives `PartialEq`, which bytes give for free.
-/// 3. **`FieldClip::to_bytes` is total.** Unlike `ObjectClip`, whose `to_bytes`
-///    drops its annotations because they are modelled as rich Rust enums, a
-///    field clip is dictionaries and streams — the engine tests that a clip
-///    through bytes and a clip that stayed in memory produce **byte-identical
-///    documents**. So this representation loses nothing, and it is the same one
-///    a private OS clipboard format will take.
+/// 3. **`FieldClip::to_bytes` is total.** A field clip is dictionaries and
+///    streams, and the engine tests that a clip through bytes and one that
+///    stayed in memory produce **byte-identical documents**. So this
+///    representation loses nothing, and it is the same one a private OS
+///    clipboard format will take.
+///
+/// ★ This used to add *"unlike `ObjectClip`, whose `to_bytes` drops its
+/// annotations"*, and **that stopped being true on 2026-08-29** — clip format
+/// version 2 carries them, and `annotations_survive_serialisation()` now
+/// answers `true` for every clip. Corrected here rather than deleted, because
+/// the contrast was the reason this field is bytes and a reader who finds the
+/// claim elsewhere should know it expired rather than that it was wrong. It is
+/// the third stale absence-claim about `pdfce-core` this project has corrected
+/// in a week: **an absence claim about a crate you do not build has a shelf
+/// life**, and what catches it is reading the reply, not re-deriving the claim.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClippedField {
     /// `FieldClip::to_bytes` — magic `PDFCEFLD…`, versioned, count-guarded.

@@ -162,7 +162,7 @@ O49)** and none of them blocks anything.
 
 **Measured now (2026-08-29, re-run):** **2,662 passing tests across the
 workspace** (2,074 GUI lib + 421 shell + the rest), **19/19 gates**, **112 registered
-driven checks**. Engine pinned at `3ac9dd7` (re-measured 2026-08-29 from `Cargo.lock`). Scaffold list **5**.
+driven checks**. Engine pinned at `0eb9119` (re-measured 2026-08-29 from `Cargo.lock`). ★ **21 verbs named nowhere here, up from 10** — the whole cut/copy/paste-for-everything release is unconsumed; see `OPERATOR_REQUESTS.md` **O59**. Scaffold list **5**.
 
 **What shipped:** Tools ▸ Embed fonts and Tools ▸ Remove embedded fonts, both
 driven end to end; dragging an ordinary markup annotation; the Bold retry using
