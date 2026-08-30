@@ -38,6 +38,34 @@ crates first and test on that. Either works; doing neither does not.
 
 ---
 
+## ★★★ THE ENGINE SHIPPED BUTTON ACTIONS — `Pass 183.0`, unconsumed
+
+`cff102a`, pulled in by the release build on 2026-08-30 and **not yet used**:
+
+> *"submit, and every other button action that needs no JavaScript — with the
+> safeguards the plan actually named"*
+
+That is the answer to
+`request_a_push_button_that_does_nothing_is_the_only_kind_we_can_make.md`.
+Until this, the only push button pdfce could author was an inert one, which is
+why the button work stopped where it did. **Read that Pass's note before
+anything else next session** — it is the largest closed gap on the list.
+
+★★ And `note_widgets_rotate_now_and_three_verbs_you_could_not_reach.md` was
+audited on 2026-08-30 against the shell. Most of it is already built. The
+finding that is **not**, and it is cross-cutting:
+
+> **Every engine refusal reaches the operator as SILENCE.** `funnel.rs` traces
+> the `EditError` and says nothing. A worded-decline surface exists with fifteen
+> recorders, and not one of them covers a ce-dimension verb or `rotate_widget`.
+
+So `DimensionGroupIsDefault`, `DimensionGroupNotFound` — the stale-group id the
+engine warns *"will surface as a new error dialog"*, which here surfaces as
+nothing — all three `DimensionLabel*` refusals and `SidecarWrittenByNewerBuild`
+land in silence. Precedent for the fix: `app/actions/annots.rs:327-334`.
+
+---
+
 ## ✅ THE FOREGROUND CAME BACK — the blocked checks run, and they pass
 
 The 2026-08-30 blockage (*"the window could not be brought to the front"*) was
@@ -357,7 +385,7 @@ here so you know roughly where you are, not so you can quote it.
 | **★ Two controls have no home but the status bar** | The **selection filter** and the **zoom stepper** are reachable nowhere else — no command, no menu, no chord. `status::fitting` refuses to shed either, and its reachability test is what discovered it. If either gains a ribbon home, add it to `SHED_ORDER` |
 | **Panels** | **12.** Pages · Bookmarks · Layers · Signatures · Fonts · Objects · Properties · Forms · Comments · Redact · Dimension groups · Tool |
 | **Engine** | `D:\Dev\pdfce` local `main`, taken as a **git** dependency, pinned at `4c32afe` (**v0.14.0**) — one commit past the revision that shipped `hit_test_point_deep`, `PageObjects::leaves` and the deep `pick_line_in_page`. **Read `Cargo.lock`, not this row** |
-| **Latest build** | `OneDrive\pdfceGUI1`, published 2026-08-30 09:45 from shell `25c98c4` on engine `9281068` (v0.17.0) — **O62b**: Bold uses a real bold font again, plus Settings ▸ Fonts ▸ Faking bold and italic. ★★ It RETRACTED the 09:18 build in the same slot, which shipped with Bold faking the weight; `pdfceGUI2` holds the 08:12 O61 build as the fallback. Open **About** and read the Build block rather than trusting this row |
+| **Latest build** | `OneDrive\pdfceGUI2`, published 2026-08-30 13:50 from shell `33e1879` on engine `cff102a` (v0.17.0+) — **O63**: the live shape preview, the erase, the hold, the delete preview and the catching-up line. `pdfceGUI1` holds the 09:45 O62b build as the fallback. Tested and gated **after** packaging as well as before, per the `cargo update` trap below |
 
 ### ★★★ THE FORM-XOBJECT SELECTION IS SHIPPED — AND HAS NOT BEEN DRIVEN
 
