@@ -175,6 +175,62 @@ runs in the background."* The preview must **outlive the commit** — retained
 against the epoch the commit produced, and dropped only when the raster carrying
 that epoch lands.
 
+### ★★★ AND THE OBVIOUS FIX IS DEAD — re-rendering just the changed region buys nothing
+
+The natural plan, once the numbers above are in front of you, is: *after the
+commit, re-raster only the area that changed — old bounding box ∪ new bounding
+box — blit it into the standing texture, and do the full page behind that.* The
+machinery for it already exists (`RenderKey::region`, `render/strip.rs`).
+
+**It does not work on this drawing, and this project already measured why.**
+From the superseded-tiling note earlier in `BENCHMARK.md`, measured by the
+engine team with `render_page_region`:
+
+| case | pixels | time |
+|---|---:|---:|
+| full page, scale 1 | 1,002,822 | 877 ms |
+| region 400 × 300 pt | 120,701 | 699 ms |
+| **a 1 × 1 POINT region** | **2** | **691 ms** |
+
+**A two-pixel render costs 691 ms.** On a dense CAD sheet ~99 % of render cost
+is **area-independent** — it is content-stream interpretation, not fill. So a
+region render of a moved object costs essentially what the whole page costs.
+
+⇒ On this drawing there is **no way to produce a correct picture in under ~0.7 s
+after any edit**, by any arrangement of the existing renderer. That is not a
+shell problem and it is not fixable by scheduling.
+
+### ★★ WHICH FORCES THE REAL QUESTION, AND IT IS A TASTE DECISION, NOT A TECHNICAL ONE
+
+If an exact picture is unavailable for ~1 s, then what he is asking for is
+**necessarily a lower-fidelity transitional picture** — and the only question
+left is *what the honest fuzzy looks like*.
+
+The project already has the vocabulary and the precedent. `backdrop.rs` keeps a
+low-resolution whole-page texture and paints it under the sharp one, and states
+the rule: **"fuzzy is allowed, sneaky is not."** A *less sharp* version of the
+truth is fine. A *differently-meaning* version is not.
+
+Three candidate answers, and **this is an operator call**:
+
+1. **Outline only, held until the raster lands.** Cheapest, honest, already
+   drawn — but the stale raster still shows the object at its **old** position
+   underneath, so the operator sees the object in two places at once. Probably
+   worse than what happens today.
+2. **Lift the pixels.** Copy the object's rectangle out of the current texture,
+   paint it at the new position, and fill the hole it left with the page
+   background. Looks genuinely WYSIWYG for a move. ★ **The hole is a lie
+   whenever something was underneath the object** — on a CAD sheet, usually
+   something is. It is fuzzy *and* slightly sneaky, and it is the option that
+   will look best in the ordinary case and worst in the surprising one.
+3. **Freeze the picture and show that work is happening.** Do not attempt a
+   preview at all; make the ~1 s legible instead of invisible. Cheapest to get
+   right, and the only one with no failure mode — and the one furthest from what
+   he asked for.
+
+★ Note (2) and (3) are not exclusive: lift the pixels *and* let the status line
+say the page is catching up.
+
 ### What already exists, and is better than expected
 
 * **A stale-frame fallback, three tiers.** `funnel.rs:60-72` (an edit no longer
