@@ -142,7 +142,51 @@ to a gesture that is not a content gesture. Neither had been reported from
 here, which means neither had been hit yet; both would have looked like our
 bug.
 
-**Status:** ⬜ **OPEN — engine ready, shell not started.** The pin is updated
+### ✅ 1 of 3 — Cut is greyed with a reason, and the chord is refused too (2026-08-29)
+
+**Selecting a redaction mark now greys Cut**, and pressing `Ctrl+X` on one is
+refused with a sentence naming what it was and offering Delete instead.
+
+★★★ **Greying the button is not the fix, and that gap is what the driven check
+is about.** A chord is dispatched through the keymap **without consulting
+command enablement**, so `Ctrl+X` reaches the handler whatever the ribbon is
+showing. A build that greyed the button and left the chord alone would look
+perfect in every screenshot, pass every unit test of the gate, and delete a
+redaction mark while putting nothing on the clipboard.
+
+★★ **And it refuses BEFORE the copy**, which the check asserts separately. A cut
+that refused *after* copying would leave the mark on the page **and a copy of it
+on the clipboard** — so the next `Ctrl+V` arms a redaction nobody reviewed
+somewhere else. That is the exact outcome the refusal exists to prevent, and
+asserting only the refusal would have missed it.
+
+**The gate mirrors the engine's rule rather than calling it, and that was a
+measurement, not a preference.** The engine's advice was *"copy the selection
+first, then look for an `Unsupported` entry"* — right about the oracle, wrong
+about the budget: `copy_selection` decomposes the page with no cache anywhere,
+and a ribbon condition is rebuilt **every frame**. On the benchmark drawing that
+is a full decomposition per frame to decide whether one button is grey. The
+mirror asks the same question from one dictionary read.
+
+★ **The mirror is deliberately permissive**, and its test says why: the engine's
+carryable set **grew** the same day — sticky notes, text boxes and stamps all
+became copyable — so a mirror written a day earlier would have been greying Cut
+over things that had since become perfectly cuttable, with nothing failing to
+say so. A mirror that is too permissive costs one refusal sentence; one that is
+too strict costs a capability, silently.
+
+**Driven and falsified:** `cutting_a_redaction_mark_is_refused_before_anything_is_removed`,
+against the engine's own three-mark fixture. With the gate stubbed out it fails
+on its first assertion.
+
+**Housekeeping:** `canvas/mod.rs` hit R2's ceiling for the **second time in one
+day**, so the thousand lines of drawing moved to `canvas/present.rs` and that
+file is now purely a module index. The first time, the fix was to shorten a doc
+comment with a note saying the real seam was elsewhere — it was, and the note
+was right.
+
+**Status:** ⬜ **OPEN — 1 of 3 done.** Pages next, then bookmarks.
+**Was:** ⬜ **OPEN — engine ready, shell not started.** The pin is updated
 and verified (2,662 tests, 19/19 gates, both driven clipboard checks green at
 `0eb9119`), and nothing has regressed. What is not done is *using* any of it.
 

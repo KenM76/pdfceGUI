@@ -265,6 +265,25 @@ pub enum Refusal {
     /// `app::status::decline`, which is the same surface the three other doors
     /// onto this verb use.
     DeleteRefused(crate::panels::properties::annotdelete::Refusal),
+    /// ★★★ **The clipboard could not carry it, so the cut was refused before
+    /// anything was removed.**
+    ///
+    /// `pdfce-core`'s `CutWouldNotSurvive { subtype }`, and the subtype travels
+    /// so the sentence can name it — a greyed button has one static tooltip and
+    /// the operator may have several things selected.
+    ///
+    /// # Why a cut is refused where a copy is not
+    ///
+    /// The engine's own words: *"a copy of something pdfce cannot carry costs
+    /// nothing — the original stays, the clip carries an `Unsupported` marker,
+    /// the paste declines by name. A cut of the same thing is a deletion
+    /// wearing a clipboard's clothes."*
+    ///
+    /// ★ `&'static str` rather than an enum, matching `canvas::cutgate::Blocker`
+    /// and for its reason: the set of subtypes is the file format's, and a
+    /// second taxonomy here would be one more thing to keep in step with
+    /// another crate.
+    CutWouldNotSurvive(&'static str),
     /// Nothing is selected.
     NothingSelected,
     /// The engine refused to copy the selection.
@@ -500,6 +519,30 @@ pub fn cut(
     // the delete arm is reached by four routes and must stay a routing arm, but
     // only this route has a **second half to call off**. Gating inside the arm
     // would refuse the delete and leave the copy already on the clipboard.
+    // ★★★ AND WHETHER THE CLIPBOARD COULD CARRY IT AT ALL — the second half of
+    // the same question, added 2026-08-29 when `pdfce-core` shipped cut for
+    // every class and asked for exactly this.
+    //
+    // First, before the delete gate below and before the copy, because it is
+    // the cheaper question and because the two refusals are about different
+    // things: that one is *"this document forbids removing it"*, this one is
+    // *"pdfce could not put it back"*. An operator meeting the wrong one of the
+    // two goes looking in the wrong place.
+    //
+    // ★ `edit.cut` is already greyed on this predicate (`selection.cut_permitted`),
+    // so a pointer never reaches here. A CHORD does: `Ctrl+X` is dispatched
+    // through the keymap without consulting command enablement. Greying removes
+    // the invitation; this removes the silence.
+    if let Some(blocker) = crate::canvas::cutgate::blocker(doc) {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            format!(
+                "clipboard-cut-refused reason=would-not-survive subtype={}",
+                blocker.subtype
+            )
+        });
+        return Err(Refusal::CutWouldNotSurvive(blocker.subtype));
+    }
     if let Some(selected) = doc.selection.annot()
         && let Some(why) = crate::panels::properties::annotdelete::gate(doc, &selected.target)
     {

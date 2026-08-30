@@ -458,6 +458,14 @@ mod tests {
             // predicates, two questions, and R9 decides which gets greying and
             // which gets absence. See `PdfceApp::conditions`.
             "selection.delete_permitted",
+            // ★★★ **NOT a refinement of the one above, and they disagree in
+            // BOTH directions.** A redaction mark can be deleted and cannot be
+            // cut — deleting it removes a pending operation, which is a thing
+            // an operator may want; cutting it would put it on a clipboard that
+            // could arm it somewhere else. A locked annotation can be neither.
+            // Default TRUE, cleared only for what the clipboard cannot carry.
+            // Asked by `pdfce-core` by name; see `canvas::cutgate`.
+            "selection.cut_permitted",
             // Not a refinement of `selection.any` — see `PdfceApp::conditions`.
             // A selection can exist and resolve to no box.
             "selection.bounds",

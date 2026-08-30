@@ -208,6 +208,7 @@ pub mod widget_move;
 /// operator's headline complaint: a click inside a form XObject must select
 /// what is drawn there, and a click on blank paper inside one must select
 /// nothing.
+pub mod cut_gate;
 pub mod field_clipboard;
 pub mod form_selection;
 /// ★ Markup ▸ Style — a ribbon group whose one item the manifest declared at S2
@@ -1069,6 +1070,10 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // clear, select), so if those are broken this check should not be the
         // first thing to say so — it would name the clipboard for a selection
         // defect. Its own SKIP messages distinguish the two.
+        // ★ O59's first item, before the clipboard pair: it is the one whose
+        // failure is DESTRUCTIVE. The other two prove a capability works; this
+        // proves one cannot happen.
+        Box::new(cut_gate::CuttingARedactionMarkIsRefusedBeforeAnythingIsRemoved),
         Box::new(field_clipboard::AFormFieldCanBeCopiedAndPastedBothWays),
         // ★★ Immediately after its sibling, and it is the MIRROR of it: same
         // gestures, opposite expectations, one environment variable apart. A

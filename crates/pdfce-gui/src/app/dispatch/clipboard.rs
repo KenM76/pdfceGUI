@@ -178,10 +178,7 @@ fn copy_or_cut(app: &mut PdfceApp, ctx: &egui::Context, id: &str, actions: &mut 
         crate::canvas::clipboard::copy(ctx, doc).map(|_| ())
     };
     if let Err(refusal) = outcome {
-        crate::app::actions::record_note(
-            doc.edit_epoch,
-            crate::text::clipboard::refusal(refusal).to_owned(),
-        );
+        crate::app::actions::record_note(doc.edit_epoch, crate::text::clipboard::refusal(refusal));
     }
 }
 
@@ -260,10 +257,7 @@ fn paste(
     // second sense to duplicate into, so the paste is the honest answer to the
     // more specific chord.
     if let Err(refusal) = crate::canvas::clipboard::paste(ctx, page, actions) {
-        crate::app::actions::record_note(
-            epoch,
-            crate::text::clipboard::refusal(refusal).to_owned(),
-        );
+        crate::app::actions::record_note(epoch, crate::text::clipboard::refusal(refusal));
     }
 }
 

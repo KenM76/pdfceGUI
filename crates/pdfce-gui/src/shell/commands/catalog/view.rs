@@ -195,9 +195,31 @@ pub(super) fn band() -> Vec<Command> {
         // sentence when pressed. The refusals are `canvas::clipboard::Refusal`,
         // on the status row, which is the same posture the six resize refusals
         // take.
+        // ★★★ TWO conditions, so `edit.cut` is greyed over something the
+        // clipboard cannot carry — asked for by `pdfce-core` by name, because a
+        // cut of an uncarryable thing is a deletion wearing a clipboard's
+        // clothes.
+        //
+        // `Enable::Custom` rather than a string, because the predicate language
+        // is one name with an optional `!` and *"anything richer belongs in
+        // Custom, because a grammar in a string is a parser and a parser is a
+        // thing that has its own bugs"*. Two names ANDed is exactly that case.
+        //
+        // ★ `selection.cut_permitted` defaults to TRUE, so this is `doc.pages`
+        // on every ordinary document and every ordinary selection. It clears
+        // only for a redaction mark and its two unreachable siblings. See
+        // `canvas::cutgate`.
+        //
+        // ★★ Greying does NOT make the refusal redundant. A chord is dispatched
+        // through the keymap without consulting enablement, so `Ctrl+X` reaches
+        // the handler whatever the ribbon shows — which is why
+        // `dispatch::clipboard` still names the reason on the status row, and
+        // why that sentence carries the SUBTYPE the greyed button cannot.
         command("edit.cut", t::edit_cut(), 403)
             .with_icon("cut")
-            .enabled_when("doc.pages"),
+            .with_enable(egui_shell::commands::Enable::Custom(std::sync::Arc::new(
+                |c| c.is_set("doc.pages") && c.is_set("selection.cut_permitted"),
+            ))),
         command("edit.copy", t::edit_copy(), 404)
             .with_icon("copy")
             .enabled_when("doc.pages"),

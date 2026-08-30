@@ -243,6 +243,29 @@ impl PdfceApp {
             if !delete_refused {
                 set.set("selection.delete_permitted");
             }
+            // ★★★ **`selection.cut_permitted` — default TRUE, like its
+            // neighbour above, and cleared only for the handful of things the
+            // clipboard cannot carry.**
+            //
+            // The engine asked for this by name: *"do not offer Cut as enabled
+            // and let it fail. A copy of something pdfce cannot carry costs
+            // nothing — the original stays. A cut of the same thing is a
+            // deletion wearing a clipboard's clothes."*
+            //
+            // ★ It is NOT a refinement of `selection.delete_permitted`, and the
+            // two disagree in both directions. A redaction mark can be
+            // **deleted** and cannot be **cut**: deleting it removes a pending
+            // operation, which is a thing an operator may want, while cutting it
+            // would put it on a clipboard that could arm it somewhere else. And
+            // a locked annotation can be neither. Two questions, two names.
+            //
+            // ★★ Cheap by construction — one dictionary read — because this is
+            // rebuilt every frame and the honest oracle (`copy_selection`)
+            // decomposes the page. `canvas::cutgate`'s header carries the
+            // measurement and the reason the mirror is permissive.
+            if crate::canvas::cutgate::blocker(doc).is_none() {
+                set.set("selection.cut_permitted");
+            }
             // ★★ **Something selected on this page lives inside a form
             // XObject**, so `format.select_form` has a container to offer.
             //

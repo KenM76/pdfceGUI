@@ -26,9 +26,20 @@ use crate::canvas::clipboard::Refusal;
 
 /// The sentence for a refusal.
 #[must_use]
-pub const fn refusal(reason: Refusal) -> &'static str {
+/// ★ Returns an owned `String` since 2026-08-29, not `&'static str`.
+///
+/// One variant — [`Refusal::CutWouldNotSurvive`] — carries a **subtype**, and
+/// its sentence is built around it. The alternative was a second function for
+/// the one data-carrying case, which would put two clipboard refusals on two
+/// surfaces and invite them to word the same idea differently.
+///
+/// Every other arm is still a literal, so `check-ui-strings` still sees them
+/// all in this file.
+pub fn refusal(reason: Refusal) -> String {
     match reason {
-        Refusal::NothingSelected => "Nothing is selected. Click something on the page first.",
+        Refusal::NothingSelected => {
+            "Nothing is selected. Click something on the page first.".to_owned()
+        }
         // ★★★ **The cut's delete half would be refused, so its copy half did
         // not run either** — and the sentence comes from `annotdelete`'s
         // catalog rather than being written again here.
@@ -43,7 +54,11 @@ pub const fn refusal(reason: Refusal) -> &'static str {
         // ★ It does not say *"nothing was copied"*, though nothing was: the
         // operator pressed cut, and what they need is the reason the document
         // will not allow it, not an inventory of what did not happen.
-        Refusal::DeleteRefused(why) => why.line(),
+        Refusal::DeleteRefused(why) => why.line().to_owned(),
+        // ★ Owned, so this function returns `String` rather than
+        // `&'static str` -- the subtype is data and the sentence is built
+        // around it. See `cut_would_not_survive`.
+        Refusal::CutWouldNotSurvive(subtype) => cut_would_not_survive(subtype),
         // ★★★ THIS SENTENCE WAS RETIRED ON 2026-08-20, AND IT WAS THE
         // OPERATOR'S OLDEST OPEN REQUEST.
         //
@@ -74,14 +89,66 @@ pub const fn refusal(reason: Refusal) -> &'static str {
             "pdfce could not copy what is selected. Some things on a page are drawn in a way it \
              cannot lift off and put back, and it will not offer you a paste that would not \
              work."
+                .to_owned()
         }
         Refusal::Unreadable => {
             "That annotation is not one pdfce authors — a link, a form field or an attachment — \
              so there is nothing for it to copy."
+                .to_owned()
         }
         Refusal::NothingCopied => {
             "Nothing has been copied yet. Select something on the page and press Ctrl+C first."
+                .to_owned()
         }
+    }
+}
+
+/// **Why a cut was refused: the thing selected cannot survive the round trip.**
+///
+/// `pdfce-core`'s `CutWouldNotSurvive { subtype }`, in the operator's terms.
+///
+/// # ★★★ Why this exists even though the button is greyed
+///
+/// Because **a chord is not a button.** `Ctrl+X` is dispatched through the
+/// keymap without consulting command enablement, so it reaches the handler
+/// whatever the ribbon is showing. Greying the control removes the *invitation*;
+/// this removes the *silence*.
+///
+/// ⇒ And it carries what greying cannot: **which** thing. A greyed button has
+/// one static tooltip and the operator may have several things selected.
+///
+/// # Why each subtype earns its own sentence
+///
+/// A generic *"that cannot be cut"* is true and useless: the operator's next
+/// move differs completely between the three, and only one of them is a
+/// limitation at all.
+///
+/// ★ The `Redact` case is the one that will actually happen, and it is not an
+/// apology. Refusing to put a redaction mark on the clipboard is pdfce
+/// protecting them from arming a destructive operation somewhere they did not
+/// review — so the sentence says what it is *for*, and offers Delete, which is
+/// almost certainly what they wanted.
+#[must_use]
+pub fn cut_would_not_survive(subtype: &str) -> String {
+    match subtype {
+        "Redact" => "A redaction mark cannot be cut, because pasting one would arm a redaction \
+             nobody had reviewed. Copy it if you want it elsewhere, or press Delete to remove it \
+             from here."
+            .to_owned(),
+        "Widget" => "A form field cannot be cut this way \u{2014} it has its own clipboard. Click \
+             the field and press Ctrl+X."
+            .to_owned(),
+        "Popup" => "A comment's pop-up window cannot be cut on its own. Cut the comment it \
+             belongs to and the pop-up goes with it."
+            .to_owned(),
+        // ★ A named catch-all, not a guess. The engine may refuse a subtype
+        // this shell has never seen -- a ce dimension whose sidecar record is
+        // missing is the documented fourth case -- and the honest answer names
+        // what it was rather than inventing a reason for it.
+        other => format!(
+            "That {other} cannot be cut: pdfce could not put it back afterwards. Copy it \
+             instead, or press Delete to remove it."
+        ),
     }
 }
 

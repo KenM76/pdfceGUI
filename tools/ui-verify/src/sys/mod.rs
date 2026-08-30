@@ -153,6 +153,14 @@ pub mod vk {
     /// PICK rather than a selection, so any check that needs to select
     /// something it just authored has to disarm first.
     pub const V: u16 = 0x56;
+    /// `X`, for `Ctrl+X` — cut.
+    ///
+    /// ★ Added 2026-08-29 for `checks::cut_gate`, following the closed-list
+    /// rule above: each letter is here because one named check drives it. `C`
+    /// and `V` were added when the object clipboard landed and `X` was not,
+    /// because nothing drove a cut until the cut GATE needed proving — which is
+    /// the shape of gap this list makes visible rather than hides.
+    pub const X: u16 = 0x58;
     /// See [`D`].
     pub const I: u16 = 0x49;
     /// See [`D`].
