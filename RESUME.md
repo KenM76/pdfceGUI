@@ -38,23 +38,24 @@ crates first and test on that. Either works; doing neither does not.
 
 ---
 
-## ★★★ FIRST JOB: RUN THE TWO NEW CHECKS — the machine blocked them, not the code
+## ✅ THE FOREGROUND CAME BACK — the blocked checks run, and they pass
 
-`turning_a_field_right_turns_it_right` and every other input-driving check
-reported, at the end of 2026-08-30:
+The 2026-08-30 blockage (*"the window could not be brought to the front"*) was
+the workstation being locked, not the code. **A Windows restart cleared it.**
+`turning_a_field_right_turns_it_right` now passes, asserting **270** after one
+right turn — the single number that catches a missing counterclockwise negation.
 
-> *the window containing (1224, 538) could not be brought to the front. Windows
-> refuses `SetForegroundWindow` to a process without foreground rights.*
+★★ It failed the first time it ran, and the cause was **the harness, not the
+shell**: the rotation buttons published a plain `ui_rect` rather than the
+visibility-gated form, so the trace carried a rect at the control's *content*
+position — y = 1,253 in a 758-point window — and the check aimed the real
+pointer outside the window, pressed nothing, and reported the feature as inert.
+Gated now; the check scrolls to the row and says so if it cannot get there.
 
-★★ **Including checks that had passed an hour earlier in the same session,
-unchanged.** `a_form_field_can_be_copied_and_pasted_both_ways` was green and then
-skipped identically. That is the evidence it is the **fifth documented way to run
-this suite wrongly — a busy foreground** — and not a defect in the widget
-rotation or the dimension label that shipped that day.
-
-⇒ **Both features are built, gate-clean and NOT DRIVEN.** Run those two checks
-before anything else; if they pass, `OPERATOR_REQUESTS.md` **O62** moves from ◐
-to ✅ and nothing else is owed. If they fail, believe them.
+⇒ **That module's own header already stated the rule** — *"the per-control
+regions below take the gated form, because a check clicks those"* — sixty lines
+above the code that broke it. A rule written next to the code it governs is not
+a mechanism either.
 
 ---
 

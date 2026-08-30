@@ -82,6 +82,34 @@ const ROTATE_RIGHT_REGION: &str = "properties.widget_edit.rotate_right";
 /// The engine's own report.
 const APPLIED: &str = "rotate-widget-applied";
 
+/// The properties panel's own body, for scrolling.
+///
+/// ★★★ The first version of this check did not scroll, and that is why it
+/// reported the feature as inert on 2026-08-30 while the feature worked.
+///
+/// The properties panel on a selected form field is well over a thousand points
+/// of content in a dock slot a few hundred tall. The rotation row sits with the
+/// geometry rows, **below the fold**, and a control below the fold is published
+/// at its *content* position — outside the window entirely. Clicking that
+/// coordinate presses whatever is there instead, which is nothing.
+///
+/// ⇒ Scroll until the row is inside the panel, and if it never gets there say
+/// **that**, because a control an operator cannot reach is a control that does
+/// not exist whatever its click arm does. `adopt_widget` set this pattern after
+/// the same mistake produced three false defect reports in one day.
+// ui-text-exempt: trace region name, never displayed
+//
+/// ★ `file.properties`, NOT `view.panel_properties`. The properties panel is
+/// the one command in the ribbon whose id names the *File* group rather than
+/// the View group, because it is the document's own properties surface; the
+/// dock body takes the command id verbatim. `app::panels` records the same
+/// trap. Guessing the obvious name here produced a SKIP that read as
+/// "the panel is closed" while it was open the whole time.
+const PANEL_BODY: &str = "dock.body.file.properties";
+
+/// How many wheel turns before the check gives up and reports it.
+const MAX_SCROLL: usize = 20;
+
 /// Where the field is placed, as page fractions.
 const PLACE_AT: (f64, f64) = (0.30, 0.45);
 
@@ -194,23 +222,39 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     // adding one would place a second field because the tool stays armed.
     report.note("★ placed a field; it is selected, so the widget section is showing");
 
-    // --- press TURN RIGHT ---------------------------------------------------
-    let mut button = None;
-    for _ in 0..12 {
-        if let Some(rect) = declared(&session.trace()?, ui_rect, ROTATE_RIGHT_REGION) {
-            button = Some(rect);
-            break;
-        }
-        session.settle(10);
+    // --- scroll the rotation row into view ----------------------------------
+    //
+    // ★★ The region is published only when it is VISIBLE, since 2026-08-30. So
+    // its absence here is not "the button does not exist" — it is "the button is
+    // below the fold", which is a different finding and has a different remedy.
+    let panel = declared(&session.trace()?, ui_rect, PANEL_BODY);
+    let mut button = declared(&session.trace()?, ui_rect, ROTATE_RIGHT_REGION);
+    let mut turns = 0;
+    while button.is_none() && turns < MAX_SCROLL {
+        let Some(panel) = panel else {
+            return Err(Error::new(format!(
+                "no `{PANEL_BODY}` region, so there is nowhere to point the wheel. The properties \
+                 panel is either closed or docked under a name this check does not know. SKIPPED \
+                 rather than reported as a defect in the button."
+            )));
+        };
+        driver.scroll_at(session.frame()?.declared_center(panel), -3)?;
+        session.settle(12);
+        turns += 1;
+        button = declared(&session.trace()?, ui_rect, ROTATE_RIGHT_REGION);
     }
     let Some(button) = button else {
         let names = declared_names(&session.trace()?, ui_rect, "properties.widget_edit");
         return Ok(Some(format!(
-            "no `{ROTATE_RIGHT_REGION}` region, so the Turn right button is not drawn in the widget properties section. Regions beginning `properties.widget_edit`: {}. Trace: {}",
+            "after {MAX_SCROLL} wheel turns there is still no VISIBLE `{ROTATE_RIGHT_REGION}` \
+             region, so the Turn right button cannot be reached by scrolling either. A control an \
+             operator cannot get to is a control that does not exist, whatever its click arm does. \
+             Visible regions beginning `properties.widget_edit`: {}. Trace: {}",
             list(&names),
             session.trace_path().display()
         )));
     };
+    report.note(format!("★ scrolled {turns} wheel turn(s) to reach the row"));
     report.note(format!("the Turn right button is at {button:?}"));
     driver.click_at(session.frame()?.declared_center(button))?;
     session.settle(30);

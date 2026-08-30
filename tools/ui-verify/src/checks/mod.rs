@@ -425,6 +425,11 @@ pub mod rotate;
 /// `Scale line weight`, from the checkbox to the engine's `/BS /W`. Three of
 /// the five links in front of the verb are wiring no unit test can see.
 pub mod scale_switch;
+/// ★★★ **The shape follows your hand** — `OPERATOR_REQUESTS.md` O63. Asserts
+/// the live geometry preview is BUILT, that it reaches the PAINTER, and that it
+/// OUTLIVES the release; its header carries why "built and never painted" needs
+/// a trace line of its own.
+pub mod shape_preview;
 /// ★★★ **The chooser offers a face the document does not contain** —
 /// `pdfce-core` v0.15.0's standard-14 authoring, reached from a font list.
 ///
@@ -985,6 +990,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(std14_face::TheFaceChooserOffersAFaceTheDocumentDoesNotContain),
         Box::new(font_group::TheFormatTabOffersFontControlsForSweptText),
         Box::new(multi_node::MultiNodeMoveMovesEveryPickedAnchor),
+        Box::new(shape_preview::DraggingANodeBendsTheLine),
         Box::new(bezier_handle::BezierHandleDragChangesACurve),
         Box::new(tool_row::TheTextToolTypesOnOneClick),
         Box::new(tool_row::ThePointsToolShowsPointsOnOneClick),

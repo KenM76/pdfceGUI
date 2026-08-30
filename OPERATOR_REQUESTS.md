@@ -80,7 +80,41 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
-## O63 — ⬜ The program should keep up with your hand — EVERYWHERE
+## O63 — DONE SO FAR, 2026-08-30 (read this before the analysis below)
+
+All three pieces he approved are **built, gate-clean and DRIVEN**:
+
+| piece | what it does | proof |
+|---|---|---|
+| **the shape** | drag a line's end and the line bends; the real geometry, at pointer speed, no engine call | `dragging_a_node_bends_the_line` |
+| **the erase** | the object's old footprint stops showing, so it is not on screen twice | same check (`erased=` on `canvas-shape-drawn`) |
+| **the hold** | the preview outlives the release until the raster catches up, so nothing snaps back | same check, third assertion |
+
+★★ **And the check was falsified**, which is the part that makes the green mean
+anything: run against the **previous release** — which has none of this — it
+fails on the first assertion and names it. A check that passes on both builds
+would be measuring nothing.
+
+★ `turning_a_field_right_turns_it_right` also passes now (O62), asserting
+**270** after one right turn. The foreground rights that blocked every driven
+check came back after a Windows restart.
+
+### What is still open under this row
+
+1. **Everything that is not a canvas gesture.** *"Live preview for everything we
+   do"* also covers a colour change, a Bold press, a delete, a redaction mark.
+   None of those has a sprite to slide and none is covered yet — see the
+   analysis below on why a *rendered* preview is a second away.
+2. **The engine's 430 ms commit, on the UI thread.** Filed; unanswered at the
+   time of writing. Until it moves off the UI thread the window still stops
+   answering the pointer for half a second per edit on a dense drawing, and no
+   preview fixes that.
+3. **Saying the page is catching up.** The third piece holds the picture; it
+   does not yet say why. One sentence on the status line, owed.
+
+---
+
+## O63 — ◑ The program keeps up with your hand on the CANVAS — the rest is open
 
 **Ken, 2026-08-30:** *"we need to make it so we have a live preview as we drag
 and move and resize and rotate, etc around the canvas. The live preview should

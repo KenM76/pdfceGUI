@@ -276,7 +276,23 @@ fn rotation_row(
 
     let mut turn = |ui: &mut Ui, label: &str, region: &str, delta: i64| {
         let response = ui.button(label);
-        crate::diag::ui_rect(region, response.rect);
+        // ★★★ The GATED form, and using the plain one shipped an unreachable
+        // control on 2026-08-30.
+        //
+        // This module's own header states the rule two hundred lines above:
+        // *"the per-control regions below take the gated form, because a check
+        // clicks those."* `rotation_row` used the plain one, so the trace
+        // published a rect at the button's **content** position — y = 1,253 in
+        // a 758-point window — and the driven check aimed the real pointer at a
+        // coordinate outside the window, pressed nothing, and reported the
+        // feature as inert.
+        //
+        // ⇒ A harness limitation reporting as an application defect, which is
+        // the failure mode `tools/ui-verify` exists to remove rather than
+        // produce. Gated, an off-screen button is **absent** from the trace,
+        // which is a fact a check can act on: scroll to it, or say it cannot be
+        // reached.
+        crate::diag::ui_rect_visible(region, response.rect, ui.clip_rect());
         if response.clicked() {
             // ★ Normalised HERE as well as by the engine, so the number in the
             // trace is the one the file will carry. `rotate_widget` accepts any
@@ -307,7 +323,10 @@ fn rotation_row(
             turn(ui, t::widget_rotate_right(), ROTATE_RIGHT_REGION, -90);
         })
         .response;
-    crate::diag::ui_rect(ROTATION_REGION, response.rect);
+    // Gated for the reason the two buttons above are: a check reads this row to
+    // learn the current angle, and a readout published where nobody can see it
+    // is a readout that answers a question about a different screen.
+    crate::diag::ui_rect_visible(ROTATION_REGION, response.rect, ui.clip_rect());
     ui.small(t::widget_rotation_hint());
 }
 

@@ -481,6 +481,28 @@ pub fn draw(
     colour: egui::Color32,
     scale: f32,
 ) {
+    // ★★ The census: what actually reached the PAINTER.
+    //
+    // Distinct from `canvas-shape-preview`, which says what was BUILT, and the
+    // distinction is the whole reason there are two lines. A preview that is
+    // built and never painted — a `None` on the way through `interact`, a
+    // painter arm never reached, a page index that does not match — looks
+    // exactly like a preview that was never built, to anything reading one
+    // trace. Two lines make "built but not drawn" a state a check can name.
+    //
+    // ★ Written only when there is something to draw, so it costs nothing on
+    // the frames nobody is dragging — which is almost all of them.
+    if !preview.shapes.is_empty() {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            format!(
+                "canvas-shape-drawn shapes={} segments={} erased={}",
+                preview.shapes.len(),
+                preview.segment_count(),
+                preview.erase.len()
+            )
+        });
+    }
     // ★★★ THE ERASE PASS — the object's old footprint, in paper.
     //
     // See [`ShapePreview::erase`] for why this is necessary and what it costs.
