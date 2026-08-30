@@ -202,6 +202,15 @@
                     collapse: 2,
                 ),
                 (
+                    id: "page-clipboard",
+                    caption: "Clipboard",
+                    items: [
+                        Command(id: "pages.cut"),
+                        Command(id: "pages.copy"),
+                        Command(id: "pages.paste"),
+                    ],
+                ),
+                (
                     id: "organise",
                     caption: "Organise",
                     items: [

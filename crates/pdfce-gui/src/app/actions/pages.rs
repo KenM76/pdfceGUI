@@ -238,6 +238,40 @@ pub enum PageAction {
     /// application consults before a destructive path, the engine records the
     /// removal as an undoable command already, and **nothing is written to
     /// disk** — the operator's file on disk is untouched until they save a
+    /// ★★★ **Put copied pages into this document**, after `after`.
+    ///
+    /// `OPERATOR_REQUESTS.md` **O59**, item 2. Raised by
+    /// `app::dispatch::pageclip::paste` and by nothing else.
+    ///
+    /// # ★★ It carries BYTES, and those bytes are a whole PDF
+    ///
+    /// `PageClip::bytes` is a complete document. The engine chose that
+    /// deliberately — `pageops::assemble` already does object copying,
+    /// reference remapping and page-tree construction on every split and merge,
+    /// so a private page format would have been a second implementation of the
+    /// most-exercised code in that crate.
+    ///
+    /// The clip travels as bytes rather than as a `PageClip` for `Action`'s own
+    /// requirements (`Clone`, `PartialEq`) and because that is what the
+    /// clipboard is holding. It is re-parsed at apply time, which is one
+    /// document parse per paste and is the same cost `paste_pages` pays
+    /// internally anyway.
+    ///
+    /// # What the arm must surface, and why it is not optional
+    ///
+    /// `InsertOutcome::orphaned_widgets`. A page's `/Annots` reaches its
+    /// form-field boxes, so they travel; the `/AcroForm` that owns them is a
+    /// catalog entry and does not. The boxes arrive drawn, positioned and
+    /// looking exactly like working fields, belonging to nothing — so nothing
+    /// can fill them and no viewer complains. The engine measured **two** on
+    /// its own smoke test, which makes this the ordinary case for pasting a
+    /// page out of a form rather than an exotic one.
+    PastePages {
+        /// The clip — a complete PDF document.
+        bytes: Vec<u8>,
+        /// The 0-based page to insert **after**.
+        after: usize,
+    },
     /// copy, which is a separate deliberate act with its own dialog.
     DeletePages {
         /// 0-based page indices, ascending and unique.
@@ -1009,6 +1043,65 @@ pub(super) fn apply(
         // they choose to save a copy. A modal here would be the only one
         // in the application and would be asking about the one destructive
         // act that is already reversible in the session.
+        // ★★★ **The page paste** — O59 item 2 — and it is three lines because
+        // it is a THIRD SOURCE for a path that already exists.
+        //
+        // `insert_from_view` was split out of `insert_from_file` on 2026-08-19
+        // when a page dragged between two open documents became a second way to
+        // reach it. A clipboard paste is the third, and it wants every single
+        // thing that function already does: the landing calculation done before
+        // the edit, `orphaned_widgets` and `orphaned_widgets_unrecoverable`
+        // reported as two different pieces of news, the dropped outline and page
+        // labels, and the jump to what was inserted.
+        //
+        // ⇒ Writing a fourth of those would have been a second wording of the
+        // most consequential disclosure in this file — the orphaned widgets the
+        // engine flagged as *"the one that produces a document that looks right
+        // and is not"*.
+        PageAction::PastePages { bytes, after } => {
+            // Loaded OUTSIDE the call for `insert_from_file`'s reason: the view
+            // borrows it and must outlive the insert.
+            let source = match pdfce_core::document::Document::from_bytes(bytes) {
+                Ok(source) => source,
+                Err(error) => {
+                    let detail = error.to_string();
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed in the UI
+                        format!("paste-pages-refused reason={detail}")
+                    });
+                    super::record_note(doc.edit_epoch, crate::text::pages::insert_failed(&detail));
+                    return;
+                }
+            };
+            let view = source.view();
+            // ★ EVERY page of the clip, because the clip is exactly what was
+            // copied — the operator already chose which sheets when they pressed
+            // Copy, and asking again at the paste would be a second selection
+            // for one decision.
+            // ★ `pages_in` returns the page list or a tree error, and a clip
+            // whose page tree will not walk is a clip that cannot be pasted at
+            // all -- reported rather than silently pasting nothing, because the
+            // operator pressed Paste and is owed an answer either way.
+            let count = match pdfce_core::page_tree::pages_in(&source) {
+                Ok(pages) => pages.len(),
+                Err(error) => {
+                    let detail = error.to_string();
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed in the UI
+                        format!("paste-pages-refused reason=page-tree detail={detail}")
+                    });
+                    super::record_note(doc.edit_epoch, crate::text::pages::insert_failed(&detail));
+                    return;
+                }
+            };
+            let pages: Vec<usize> = (0..count).collect();
+            insert_from_view(
+                doc,
+                &view,
+                &pages,
+                pdfce_core::pageops::InsertPosition::After(after),
+            );
+        }
         PageAction::DeletePages { pages } => {
             if !pages.is_empty() {
                 let first = pages.first().copied().unwrap_or(0);

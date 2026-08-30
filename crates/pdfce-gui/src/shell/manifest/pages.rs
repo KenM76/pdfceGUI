@@ -84,6 +84,36 @@ pub(super) fn tab() -> Tab {
             //
             // `Replace…` is **N** and would sit after Extract.
             // ---------------------------------------------------------------
+            // ---------------------------------------------------------------
+            // ★★ Clipboard — O59 item 2, 2026-08-29.
+            //
+            // Its own band rather than three more entries in Organise, and the
+            // reason is the same one that put Delete first in that band: an
+            // operator comes to a band because of what it is called. Cut, Copy
+            // and Paste under a caption reading *"Organise"* are three commands
+            // nobody scanning for a clipboard would look at.
+            //
+            // ★ Before Organise, because a copy is the non-destructive one and
+            // because Organise's own note explains that IT leads with the
+            // destructive verb deliberately -- putting a second destructive band
+            // in front of it would undo that argument.
+            //
+            // ★★★ These are the only clipboard controls in the program that are
+            // NOT also a chord, and that is not an omission. `Ctrl+C` belongs to
+            // the canvas: the `pages.*` operand rule always resolves -- picked
+            // sheets, else the current one -- so a chord rung consulting it
+            // would answer *yes* on every document and take the clipboard from
+            // the canvas permanently. See `app::dispatch::pageclip`.
+            // ---------------------------------------------------------------
+            group(
+                "page-clipboard",
+                ribbon::group_pages_clipboard(),
+                [
+                    command("pages.cut"),
+                    command("pages.copy"),
+                    command("pages.paste"),
+                ],
+            ),
             group(
                 "organise",
                 ribbon::group_pages_organise(),

@@ -95,5 +95,23 @@ pub(super) fn band() -> Vec<Command> {
         command("pages.rotate_right", t::pages_rotate_right(), 321)
             .with_icon("rotate-cw")
             .enabled_when("doc.pages"),
+        // ★★ The PAGE clipboard — O59 item 2. Three commands rather than a
+        // chord: `app::dispatch::pageclip`'s header carries why, and the short
+        // form is that the `pages.*` operand rule always resolves, so a chord
+        // rung reading it would take Ctrl+C from the canvas for ever.
+        //
+        // ★ Gated on `doc.pages` alone. There is no "are any picked" condition
+        // and there must not be: with nothing picked these act on the current
+        // sheet, which is a defined answer rather than a disabled state --
+        // exactly as `pages.delete` and `pages.rotate_*` already behave.
+        command("pages.copy", t::pages_copy(), 322)
+            .with_icon("copy")
+            .enabled_when("doc.pages"),
+        command("pages.cut", t::pages_cut(), 323)
+            .with_icon("cut")
+            .enabled_when("doc.pages"),
+        command("pages.paste", t::pages_paste(), 324)
+            .with_icon("paste")
+            .enabled_when("doc.pages"),
     ]
 }

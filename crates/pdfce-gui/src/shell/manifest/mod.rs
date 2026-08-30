@@ -834,8 +834,12 @@ mod tests {
         assert_eq!(shell.contextual_tabs().len(), 1, "one contextual tab");
         assert_eq!(
             shell.all_tabs().flat_map(Tab::groups).count(),
-            33,
-            "thirty-three groups"
+            34,
+            "thirty-four groups. ★ 33 → 34 on 2026-08-29: Pages ▸ Clipboard (O59 item 2). \
+             Its own band rather than three more entries under Organise, for the reason that \
+             band's own note gives about Delete leading it — an operator comes to a band \
+             because of what it is CALLED, and Cut/Copy/Paste under a caption reading \
+             `Organise` are three commands nobody scanning for a clipboard would look at"
         );
         assert_eq!(shell.modes().len(), 3, "three modes");
         assert_eq!(

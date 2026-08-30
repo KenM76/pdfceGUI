@@ -241,6 +241,39 @@ pub enum Clipped {
     /// respectively, so boxing keeps the variants the same order of size and
     /// stops `clippy::large_enum_variant` from being right.
     FormField(Box<crate::canvas::fieldclip::ClippedField>),
+    /// ★★★ **Whole pages** — `OPERATOR_REQUESTS.md` O59, 2026-08-29.
+    ///
+    /// # ★★ The bytes ARE a PDF, and that is not an implementation detail
+    ///
+    /// `PageClip::bytes` is a complete document, openable by anything — the
+    /// engine's own choice, because `pageops::assemble` already does object
+    /// copying, reference remapping and page-tree construction on every split
+    /// and merge, and a private page format would have been a second
+    /// implementation of the most-exercised code in that crate.
+    ///
+    /// The consequence for this shell is that the day a private OS clipboard
+    /// format is registered, **this variant needs no new serialisation at
+    /// all** — and `application/pdf` is a flavour other programs already read.
+    ///
+    /// # Why it is in this enum rather than a key of its own
+    ///
+    /// One clipboard holds one thing, which is [`Self::FormField`]'s reason
+    /// verbatim. But the collision it prevents is different here and worth
+    /// naming: page copy and object copy are reached by **different controls**
+    /// — `pages.copy` on the Pages tab, `Ctrl+C` on the canvas — so an
+    /// operator can plausibly believe both are live at once. Sharing one slot
+    /// makes the last one they pressed the one that pastes, which is the only
+    /// rule they can hold in their head.
+    Pages {
+        /// The clip, as a complete PDF document.
+        bytes: Vec<u8>,
+        /// How many pages it holds, for the sentence and the trace.
+        ///
+        /// Carried rather than re-derived because reading it back means
+        /// parsing a document, and the count is wanted in places that have no
+        /// reason to.
+        count: usize,
+    },
 }
 
 /// Why a copy or a cut could not happen.
@@ -459,7 +492,7 @@ fn copy_content(ctx: &egui::Context, doc: &OpenDoc) -> Result<Clipped, Refusal> 
         // the wrong typeface, and it is several hundred bytes shorter.
         let bytes = match &clipped {
             Clipped::Content { bytes, .. } => bytes.len(),
-            Clipped::Markup { .. } | Clipped::FormField(_) => 0,
+            Clipped::Markup { .. } | Clipped::FormField(_) | Clipped::Pages { .. } => 0,
         };
         format!(
             "clipboard-copy kind=content page={page} objects={} bytes={bytes}",
@@ -606,6 +639,17 @@ pub fn cut(
         // use, because one field can draw boxes on three pages. Reaching this
         // arm means `app::dispatch::clipboard` routed a field copy into the
         // markup path.
+        // ★ A page cut is `dispatch::pageclip`, which raises
+        // `PageAction::DeletePages` -- pages are addressed by index in the
+        // document, not by an `ObjId` on a page, so nothing in this arm's
+        // vocabulary can express one. Same tripwire as the field arm below.
+        (Clipped::Pages { .. }, _) => {
+            debug_assert!(
+                false,
+                // ui-text-exempt: a debug_assert message for a developer; never rendered.
+                "a page cut must route to app::dispatch::pageclip; the canvas clipboard has no page vocabulary"
+            );
+        }
         (Clipped::FormField(_), _) => {
             debug_assert!(
                 false,
@@ -622,6 +666,7 @@ pub fn cut(
                 Clipped::Markup { .. } => "markup",
                 Clipped::Content { .. } => "content",
                 Clipped::FormField(_) => "form-field",
+                Clipped::Pages { .. } => "pages",
             }
         )
     });
@@ -656,6 +701,17 @@ pub fn paste(ctx: &egui::Context, page: usize, actions: &mut Vec<Action>) -> Res
         // field could not carry -- which this function does not take and must
         // not grow, because every other paste here is a pure function of the
         // clip. `app::dispatch::clipboard` branches before calling either.
+        // ★ Same fork, same tripwire. A page paste needs `&mut PdfceApp` for
+        // the current page index and raises a `PageAction`; this function is a
+        // pure function of the clip.
+        Some(Clipped::Pages { .. }) => {
+            debug_assert!(
+                false,
+                // ui-text-exempt: a debug_assert message for a developer; never rendered.
+                "a page paste must route to app::dispatch::pageclip"
+            );
+            return Err(Refusal::NothingCopied);
+        }
         Some(Clipped::FormField(_)) => {
             debug_assert!(
                 false,

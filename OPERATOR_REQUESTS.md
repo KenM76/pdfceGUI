@@ -185,7 +185,63 @@ file is now purely a module index. The first time, the fix was to shorten a doc
 comment with a note saying the real seam was elsewhere — it was, and the note
 was right.
 
-**Status:** ⬜ **OPEN — 1 of 3 done.** Pages next, then bookmarks.
+### ✅ 2 of 3 — Whole pages can be cut, copied and pasted (2026-08-29)
+
+**Pages ▸ Clipboard**, three controls: Cut, Copy, Paste. With sheets picked in
+the Pages panel they act on those; with none picked, on the sheet you are
+looking at — the same operand rule every other `pages.*` verb uses, so there is
+one rule to know rather than two. A paste lands **after the current sheet**.
+
+★ **What pdfce holds is a complete PDF.** The engine chose that deliberately, so
+a copied set of sheets is a document — which is worth knowing because it means
+the eventual "paste into another program" costs no new work at all.
+
+### ★★★ These are the only clipboard controls with no keyboard shortcut, and that is a decision
+
+`Ctrl+C` belongs to the canvas and could not be shared. Every `pages.*` verb
+falls back to the current page when nothing is picked, so a rule that asked
+*"are there pages to copy?"* would answer **yes on every document** — and the
+canvas would lose its clipboard permanently, with no state you could reach to
+get it back.
+
+Acrobat solves the same collision by **focus**: `Ctrl+C` in its thumbnails
+copies pages. That is a good answer and it is not available here — this shell's
+thumbnails are a dock panel whose focus egui does not model in a way a chord
+dispatcher can read, and inventing a focus notion to serve one chord would have
+it owning every other chord too. Named and rejected rather than quietly not
+done; say the word if you want it and it becomes its own piece of work.
+
+### Two things you will be told that you cannot see
+
+- **at the copy** — a form field left behind, because parts of it sit on sheets
+  you did not pick. Said then rather than at the paste, because at the copy you
+  can still widen the pick; by the paste it is an autopsy.
+- **at the paste** — boxes that look like form fields and belong to nothing. A
+  page's annotations reach its field boxes; the form definition that owns them
+  is a document-level entry and does not travel. They draw exactly like working
+  fields and nothing can fill them. The engine flagged this as *"the one that
+  produces a document that looks right and is not"*, and measured two on its own
+  test. The sentence points at the Forms panel, which lists them and can adopt
+  them.
+
+**Driven:** `pages_can_be_copied_and_pasted` — copy, paste, and the document
+goes from **4 pages to 5**. The oracle is the page count, not the trace lines:
+every intent line would be present and correct on a paste that inserted nothing.
+
+**One workaround reported to the engine.** `PageClip` is `#[non_exhaustive]`
+with no way back from bytes, so a shell holding only the clip cannot rebuild one
+to call `paste_pages` — which is odd for a type whose whole selling point is
+that it *is* a PDF. The paste goes through `insert_from_view` instead, which is
+what `paste_pages` does internally anyway, and reuses this shell's existing
+insert disclosures rather than writing a second wording of the most consequential
+one.
+
+**Housekeeping:** the reach checker failed closed for the **sixth** time the
+moment the three commands were registered, and `reach.rs` crossed R2's ceiling,
+so the guard chain moved to `reach/guards.rs` — its header records what six
+instances of the same lesson are evidence for.
+
+**Status:** ⬜ **OPEN — 2 of 3 done.** Bookmarks next.
 **Was:** ⬜ **OPEN — engine ready, shell not started.** The pin is updated
 and verified (2,662 tests, 19/19 gates, both driven clipboard checks green at
 `0eb9119`), and nothing has regressed. What is not done is *using* any of it.

@@ -296,6 +296,17 @@ pub fn group_pages_insert() -> &'static str {
     "Insert"
 }
 
+/// Pages ▸ Clipboard.
+///
+/// ★ The same caption as Edit ▸ Clipboard, deliberately. Two bands on two tabs
+/// with one name is normally a smell; here it is the point — an operator
+/// looking for a clipboard finds a band called Clipboard on whichever tab they
+/// happen to be on, and the tab tells them what it acts on.
+#[must_use]
+pub fn group_pages_clipboard() -> &'static str {
+    "Clipboard"
+}
+
 /// Pages ▸ Organise.
 ///
 /// British spelling, matching `RIBBON_IA.md` §5.3 and the rest of this

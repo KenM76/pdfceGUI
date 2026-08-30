@@ -198,6 +198,43 @@ pub const fn edit_paste_duplicate() -> CommandText {
     )
 }
 
+/// `pages.copy` — copy the picked sheets.
+///
+/// ★ The tooltip names the OPERAND RULE, because it is the one thing an
+/// operator cannot see: with sheets picked it copies those, with none picked it
+/// copies the one they are looking at. Every `pages.*` verb works that way and
+/// none of them says so anywhere else.
+#[must_use]
+pub const fn pages_copy() -> CommandText {
+    CommandText::new(
+        "Copy pages",
+        "Copy the sheets picked in the Pages panel, or the current sheet if none are picked. \
+         What pdfce holds is a complete PDF, so you can paste it here or into another drawing.",
+    )
+}
+
+/// `pages.cut` — copy the picked sheets and remove them.
+#[must_use]
+pub const fn pages_cut() -> CommandText {
+    CommandText::new(
+        "Cut pages",
+        "Copy the picked sheets and remove them from this drawing. One Ctrl+Z brings them back.",
+    )
+}
+
+/// `pages.paste` — put copied sheets in after the current one.
+///
+/// ★★ It says WHERE, because a page paste changes the document dramatically and
+/// an operator who cannot predict where the sheets land will not use it twice.
+#[must_use]
+pub const fn pages_paste() -> CommandText {
+    CommandText::new(
+        "Paste pages",
+        "Put the copied sheets in after the one you are looking at. Copied form fields may \
+         arrive as boxes nothing can fill \u{2014} pdfce says so if they do.",
+    )
+}
+
 /// See the module header.
 #[must_use]
 pub const fn view_tool_select() -> CommandText {

@@ -66,6 +66,11 @@ pub(crate) mod images;
 /// before the move. Its header carries why the fallback is traced rather than
 /// silent.
 mod measure;
+/// ★★ **Cut, copy and paste of whole PAGES** — O59 item 2. Its header carries
+/// the decision that shapes it: these are named commands rather than `Ctrl+C`,
+/// because the `pages.*` operand rule always resolves and a chord rung reading
+/// it would take the clipboard from the canvas for ever.
+pub(crate) mod pageclip;
 pub(crate) mod pages;
 /// ★ **The two text-copy verbs** — the page's words and the whole document's,
 /// onto the clipboard.
@@ -604,6 +609,7 @@ impl PdfceApp {
             // the fourth id arrived; `dispatch::clipboard`'s header carries the
             // fork that decides which module answers.
             id if clipboard::handles(id) => clipboard::dispatch(self, ctx, id, actions),
+            id if pageclip::handles(id) => pageclip::dispatch(self, ctx, id, actions),
             "view.tool_select" => {
                 crate::canvas::tool::select(ctx, crate::canvas::tool::CanvasTool::Select);
             }

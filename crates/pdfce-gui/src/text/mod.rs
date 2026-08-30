@@ -182,6 +182,10 @@ pub mod new_document;
 /// discloses what it inferred, and the offer the Find bar makes on a page with
 /// no text on it. Consumed by `crate::dialogs::ocr` and `crate::find::bar`.
 pub mod ocr;
+/// ★ The PAGE clipboard's four sentences — three of which are facts the
+/// operator cannot see. Its header carries why a page paste is rule 4's
+/// sharpest case.
+pub mod pageclip;
 /// Every string the Pages panel shows — the counts, the tile tooltip, the
 /// four sentences an *undrawn* thumbnail can say, and the preview control.
 /// Consumed by `crate::panels::pages`.

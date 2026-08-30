@@ -262,7 +262,17 @@ mod tests {
         // because a command is the unit this shell can bind, place on a
         // ribbon, put in a menu and withhold by mode — a modifier read inside
         // a handler is reachable from the keyboard and from nowhere else.
-        assert_eq!(registry().len(), 126);
+        // ★★ 126 → 129 on 2026-08-29: `pages.copy`, `pages.cut` and
+        // `pages.paste` — `OPERATOR_REQUESTS.md` O59 item 2, consuming the
+        // engine's page clipboard.
+        //
+        // ★★★ Three COMMANDS and no chord, which is the whole design decision.
+        // `Ctrl+C` belongs to the canvas: every `pages.*` verb takes its operand
+        // from one rule — picked sheets, else the current page — and that rule
+        // ALWAYS resolves, so a chord rung consulting it would answer yes on
+        // every document and take the clipboard from the canvas permanently.
+        // See `app::dispatch::pageclip`.
+        assert_eq!(registry().len(), 129);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -324,7 +334,13 @@ mod tests {
         // gain; Word and Acrobat tell their paste variants apart by label and
         // by chord, not by art, and `icons/assets/PROVENANCE.md` is untouched
         // because nothing was drawn.
-        assert_eq!(named, 106, "commands naming an icon");
+        // ★ 106 → 109 on 2026-08-29: the three page-clipboard commands reuse
+        // the `cut`, `copy` and `paste` glyphs under the header's shared-key
+        // convention. A second set of scissors for pages would be a
+        // distinction the operator has to learn for no gain — the tab they are
+        // on already says what the command acts on, which is exactly what a
+        // shared icon plus a distinct label is for.
+        assert_eq!(named, 109, "commands naming an icon");
         // ★ 12 → 17 on 2026-08-27: the Format ▸ Font group's five commands
         // all refuse a glyph, and they refuse it for one reason argued once at
         // their registration. Word draws `B` and `I` as glyphs; this build has

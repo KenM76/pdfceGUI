@@ -251,6 +251,7 @@ pub mod ocr;
 /// because a re-rendered page and a remembered one are the same picture.
 pub mod os_fonts_setting;
 pub mod page_cache;
+pub mod page_clipboard;
 pub mod page_ops;
 /// The **two** driven checks of *"give this page its own copy"*:
 /// `the_context_menu_gives_this_page_its_own_copy_of_a_shared_form` and
@@ -1074,6 +1075,8 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // failure is DESTRUCTIVE. The other two prove a capability works; this
         // proves one cannot happen.
         Box::new(cut_gate::CuttingARedactionMarkIsRefusedBeforeAnythingIsRemoved),
+        // ★ O59 item 2 — the page clipboard.
+        Box::new(page_clipboard::PagesCanBeCopiedAndPasted),
         Box::new(field_clipboard::AFormFieldCanBeCopiedAndPastedBothWays),
         // ★★ Immediately after its sibling, and it is the MIRROR of it: same
         // gestures, opposite expectations, one environment variable apart. A
