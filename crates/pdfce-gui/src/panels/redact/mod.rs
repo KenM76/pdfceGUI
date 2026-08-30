@@ -183,7 +183,14 @@ pub struct RedactUi {
     /// afterwards. The marks themselves live in the document as `/Redact`
     /// annotations and carry their own appearance from the moment they are
     /// made.
-    pub(super) appearance: appearance::Appearance,
+    /// ★ `pub(crate)` since 2026-08-30, when a THIRD marking route arrived.
+    ///
+    /// The panel and the dialog were the only readers while marking happened
+    /// only in the panel. `edit.redact_selection` is a ribbon command dispatched
+    /// from `app::dispatch`, and it must use the operator's CHOSEN look rather
+    /// than a fresh default — three routes producing three differently-coloured
+    /// marks on one page is the divergence this field being one place prevents.
+    pub(crate) appearance: appearance::Appearance,
     /// What the operator has typed into the search field.
     pub(super) query: String,
     /// Whether the search field is read as a pattern rather than as literal

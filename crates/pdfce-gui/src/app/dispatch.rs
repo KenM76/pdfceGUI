@@ -501,6 +501,21 @@ impl PdfceApp {
             // away from it through the tab list — the same mechanism that makes
             // `crate::panels::redact` unreachable from Read, and the reason
             // neither surface carries a gate of its own.
+            // ★★ The third marking route — O60. One arm, because the geometry
+            // is the selection's and `actions::redactsel` owns turning it into
+            // quads. The appearance comes from the panel's own default, the
+            // same one the search and whole-page routes use, so three routes
+            // cannot produce three differently-coloured marks.
+            "edit.redact_selection" => {
+                actions.push(crate::app::actions::Action::MarkSelectionForRedaction {
+                    // ★ The panel's OWN chosen appearance, not a fresh default. Three
+                    // marking routes, one look: an operator who set the fill to
+                    // grey in the panel and then marked a selection from the
+                    // ribbon must not get a black one. `state.redact_mut()` is
+                    // where that choice lives and where the other two read it.
+                    appearance: self.panels.redact_mut().appearance.to_core(),
+                });
+            }
             "edit.redact_apply" => self.dialogs.open_redact(&self.status),
             // ★ Recent. The operand comes from the `recent_files` custom item
             // (see `Self::ribbon_band`), which parked it before returning this

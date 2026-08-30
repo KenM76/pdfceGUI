@@ -80,6 +80,84 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O60 — ✅ Redact by selecting on the canvas · ⬜ Push buttons that actually do something
+
+**Ken, 2026-08-30:** *"the redaction tool — am I able to select objects on the
+canvas and redact them that way yet? I only tried it when it only worked with
+the search box and it didn't work for some things. it just told me it couldn't.
+also do push buttons work for some features and can we now add them?"*
+
+Two asks. One is done; the other is not mine to decide.
+
+---
+
+### ✅ Redact what you have selected
+
+Select anything on a page — a shape, an image, a piece of text, several at once
+— and press **Redact selection** on the Edit tab. It marks the box you can see
+around what you picked.
+
+**You were right that it couldn't, and right about why.** There were exactly two
+routes: the search box, which reaches *text pdfce can read as text*, and *mark
+whole page*, which reaches everything. On a CAD drawing almost everything worth
+redacting is in the gap between them — a title-block value drawn as **vector
+strokes**, a scanned stamp, a logo, a signature image, a run in a font whose
+encoding cannot be mapped. There is nothing you could have typed that would have
+found any of them. *"It couldn't"* was the program being honest about a route,
+not a bug in it.
+
+★ **No engine change was needed.** `add_redaction` has always taken arbitrary
+regions; what was missing was a way to hand it the selection.
+
+★★ **It marks, it does not remove.** Nothing is destroyed until you press Apply,
+and the marks go into the same review list as the other two routes. The
+confirmation says so in those words, because *"3 objects redacted"* would make
+you stop checking and save a document that still contained every one of them.
+
+**One deliberate limitation:** it marks the **bounding box**, not the exact
+outline. A redaction that follows a shape tells you what was there — the
+silhouette of a signature is a signature, the outline of a part number is its
+digit count.
+
+**Driven and falsified:** `a_selected_object_can_be_marked_for_redaction`. It
+asserts the mark count went up **and** that nothing was applied — a build that
+quietly applied on marking would look completely correct and be the worst defect
+this feature could have.
+
+---
+
+### ⬜ Push buttons — you can add one, and it can never do anything
+
+**Yes, you can already place one**, and it is a correct button in any viewer.
+**No, it cannot do anything**, and that is a deliberate pdfce-wide rule rather
+than a gap in this shell: the engine authors **no action of any kind** on a
+button it creates — no submit, no reset, no navigate, no script. It says so on
+every single creation, which is why you would have seen it disclosed.
+
+The rule exists because `/A` reaches launch actions, network submits and
+JavaScript, and pdfce's standing position is that it recognises and preserves
+those and never writes or runs one.
+
+**So this is a policy question and it is not mine to answer.** I have put it
+back to the engine with the narrowest useful version: **a Reset button**, and
+only that. Reset touches nothing but this document's own fields, pdfce already
+performs a reset internally, and it is the button a person actually draws on a
+form and expects to work. I explicitly asked them *not* to give us Submit — its
+whole purpose is to send data somewhere, and no shell can audit a URL you typed.
+
+**One thing I could not confirm and should:** you asked whether push buttons
+*work for some features*, which sounds like you have met one in someone else's
+form and seen it do something. Buttons that already exist in a document are
+preserved when pdfce saves it, so those keep working — I have asked the engine
+to confirm that in writing.
+
+**Filed:** `request_a_push_button_that_does_nothing_is_the_only_kind_we_can_make.md`
+
+**Status:** ✅ **redaction-by-selection SHIPPED AND DRIVEN.** ⬜ **push-button
+actions are an engine policy decision, filed, awaiting their ruling.**
+
+---
+
 ## O59 — ✅ Cut, copy and paste for **everything**: the engine shipped it, the shell has not consumed it
 
 **Ken, 2026-08-29, to the engine session:** *"can you make sure we have cut,

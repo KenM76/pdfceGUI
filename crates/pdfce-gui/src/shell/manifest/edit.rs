@@ -276,7 +276,15 @@ pub(super) fn tab() -> Tab {
             group(
                 "protect",
                 ribbon::group_edit_protect(),
-                [command("edit.redact"), command("edit.redact_apply")],
+                [
+                    command("edit.redact"),
+                    // ★ Between mark-by-search and Apply, which is the order an
+                    // operator works in: find what you can find, mark what you
+                    // cannot, then apply once. Putting it after Apply would put
+                    // a marking verb on the far side of the destructive one.
+                    command("edit.redact_selection"),
+                    command("edit.redact_apply"),
+                ],
             ),
         ])
 }

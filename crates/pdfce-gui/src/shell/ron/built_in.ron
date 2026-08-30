@@ -287,6 +287,7 @@
                     caption: "Protect",
                     items: [
                         Command(id: "edit.redact"),
+                        Command(id: "edit.redact_selection"),
                         Command(id: "edit.redact_apply"),
                     ],
                     collapse: 1,

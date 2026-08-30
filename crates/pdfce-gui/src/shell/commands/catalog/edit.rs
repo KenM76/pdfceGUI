@@ -175,6 +175,19 @@ pub(super) fn band() -> Vec<Command> {
         command("edit.redact", t::edit_redact(), 440)
             .with_icon("redact")
             .enabled_when("doc.pages"),
+        // ★★ The THIRD marking route — O60, 2026-08-30. Gated on
+        // `selection.any`, which is exactly its operand: it marks what is
+        // selected and there is nothing to mark without one.
+        //
+        // ★ Not gated on `selection.delete_permitted` or any removal
+        // predicate, deliberately. Marking is not applying — a `/Redact`
+        // annotation removes nothing — so the question this control asks the
+        // document is *may I add an annotation*, not *may I destroy content*.
+        // `edit.redact_apply` is where that second question belongs and where
+        // the engine already asks it.
+        command("edit.redact_selection", t::edit_redact_selection(), 442)
+            .with_icon("redact")
+            .enabled_when("selection.any"),
         command("edit.redact_apply", t::edit_redact_apply(), 441)
             .with_icon("redact")
             .enabled_when("doc.pages"),

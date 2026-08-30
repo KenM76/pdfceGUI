@@ -272,7 +272,14 @@ mod tests {
         // ALWAYS resolves, so a chord rung consulting it would answer yes on
         // every document and take the clipboard from the canvas permanently.
         // See `app::dispatch::pageclip`.
-        assert_eq!(registry().len(), 129);
+        // ★★ 129 → 130 on 2026-08-30: `edit.redact_selection` — the THIRD
+        // redaction-marking route, and the first that does not go through text.
+        // Ken: *"am I able to select objects on the canvas and redact them that
+        // way yet? … it just told me it couldn't."* It could not: the search box
+        // reaches text pdfce can read as text, and on a CAD drawing a
+        // title-block value is often vector strokes and a stamp is often an
+        // image. Neither is findable by typing.
+        assert_eq!(registry().len(), 130);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -340,7 +347,10 @@ mod tests {
         // distinction the operator has to learn for no gain — the tab they are
         // on already says what the command acts on, which is exactly what a
         // shared icon plus a distinct label is for.
-        assert_eq!(named, 109, "commands naming an icon");
+        // ★ 109 → 110 on 2026-08-30: `edit.redact_selection` reuses the
+        // `redact` glyph, as `edit.redact_apply` already does. Three controls
+        // about one operation, told apart by their labels.
+        assert_eq!(named, 110, "commands naming an icon");
         // ★ 12 → 17 on 2026-08-27: the Format ▸ Font group's five commands
         // all refuse a glyph, and they refuse it for one reason argued once at
         // their registration. Word draws `B` and `I` as glyphs; this build has

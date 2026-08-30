@@ -21,6 +21,7 @@
 
 use super::*;
 use crate::app::actions::last_edit_disclosure;
+use crate::app::actions::{EditDisclosure, record_edit_disclosure};
 use crate::app::state::{FOUR_PAGES, open_fixture};
 
 /// ★ **An undo is an edit, and moves the epoch like one — while an undo

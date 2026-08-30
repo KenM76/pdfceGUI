@@ -235,6 +235,27 @@ pub const fn pages_paste() -> CommandText {
     )
 }
 
+/// `edit.redact_selection` — mark what is selected, without searching for it.
+///
+/// ★★★ The tooltip's second sentence is the whole control. *"Nothing is removed
+/// until you apply"* is the fact that decides whether an operator trusts this
+/// button or is frightened of it, and it is also the fact that stops them
+/// believing the job is done. A redaction that was marked and never applied is
+/// a document that still contains every word.
+///
+/// ★ The first sentence names what the search box cannot reach, because that is
+/// why this exists: on a CAD drawing a title-block value is often vector
+/// strokes and a stamp is often an image, and neither is findable by typing.
+#[must_use]
+pub const fn edit_redact_selection() -> CommandText {
+    CommandText::new(
+        "Redact selection",
+        "Mark whatever you have selected \u{2014} a shape, an image, a piece of text \u{2014} to be \
+         removed. Use this for anything the search box cannot find, like a drawn title block or \
+         a scanned stamp. Nothing is removed until you apply the redactions.",
+    )
+}
+
 /// See the module header.
 #[must_use]
 pub const fn view_tool_select() -> CommandText {

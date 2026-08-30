@@ -400,6 +400,7 @@ pub mod pan_refresh;
 /// ribbon and the docks stop being drawn). `app::window` §1 carries the
 /// argument for why those are two commands rather than a duplicate.
 pub mod read_mode_chrome;
+pub mod redact_selection;
 pub mod redaction;
 /// **Paragraph reflow, driven.** The one check whose operand is a caret in
 /// egui's temporary memory — put there by a click and read by a command, with
@@ -1076,6 +1077,8 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // failure is DESTRUCTIVE. The other two prove a capability works; this
         // proves one cannot happen.
         Box::new(cut_gate::CuttingARedactionMarkIsRefusedBeforeAnythingIsRemoved),
+        // ★ O60 — redacting what is selected, the third marking route.
+        Box::new(redact_selection::ASelectedObjectCanBeMarkedForRedaction),
         // ★ O59 item 2 — the page clipboard.
         Box::new(page_clipboard::PagesCanBeCopiedAndPasted),
         // ★ O59 item 3 — the bookmark clipboard, and the one operation in

@@ -148,7 +148,15 @@ pub(crate) use disclosure::{record_edit_disclosure, record_note, record_notes};
 /// The three arms that mark content for removal. Split out of `apply` under
 /// rule R2; its header carries the seam argument and names the one thing
 /// deliberately absent from it.
+/// ★ **The edit funnel** — `vector_edit`, the four-step protocol every verb
+/// that changes a document passes through. Split out of `apply` under R2; its
+/// header carries why a router and a protocol are two subjects.
+mod funnel;
 mod redact;
+/// ★ **Redact what is selected on the page** — the third marking route, and the
+/// first that does not go through text. Its header carries why the search box
+/// could not reach a vector title block, a stamp or a logo.
+mod redactsel;
 
 // ---------------------------------------------------------------------------
 // The edit disclosure — what [`vector_edit`] carries out to `app::status`

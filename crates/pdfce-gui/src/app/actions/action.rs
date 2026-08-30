@@ -1382,6 +1382,22 @@ pub enum Action {
         /// [`Self::MarkRedactionsBySearch`]'s field of the same name.
         appearance: pdfce_core::annot_author::RedactAppearance,
     },
+    /// ★★★ **Mark what is SELECTED on the page for redaction** — the third
+    /// marking route, and the first that does not go through text.
+    ///
+    /// **Ken, 2026-08-30:** *"am I able to select objects on the canvas and
+    /// redact them that way yet? … it just told me it couldn't."* It could not:
+    /// [`Self::MarkRedactionsBySearch`] reaches text pdfce can read as text and
+    /// [`Self::MarkPageForRedaction`] reaches everything, and on a CAD drawing
+    /// most of what wants redacting is in between.
+    ///
+    /// `super::redactsel`'s header carries the argument in full, including why
+    /// neither a page nor a rectangle is carried here.
+    MarkSelectionForRedaction {
+        /// How the mark will look once applied. See
+        /// [`Self::MarkRedactionsBySearch`]'s field of the same name.
+        appearance: pdfce_core::annot_author::RedactAppearance,
+    },
     /// **Take one redaction mark off.**
     ///
     /// Raised by a row's Remove control. The engine's

@@ -782,6 +782,43 @@ pub const fn unreadable_tooltip() -> &'static str {
     "Some PDFs store text as drawings with no record of which letters they are. It looks and prints normally, but nothing can search it — so searching for a word cannot find it, and marking every match will miss it. Check those areas by eye, or mark them by drawing a box."
 }
 
+/// **What was marked from a canvas selection.**
+///
+/// `OPERATOR_REQUESTS.md` **O60**. The third marking route's disclosure.
+///
+/// # ★★★ Why it says MARKED and not REDACTED
+///
+/// Because nothing has been removed, and the difference is the single most
+/// important thing about this whole feature. A `/Redact` annotation is a
+/// **mark** (§12.5.6.23): it covers nothing, deletes nothing, and is perfectly
+/// reversible until *Apply* is pressed.
+///
+/// An operator who read *"3 objects redacted"* would reasonably believe the
+/// content was gone, stop reviewing, and save a document that still contains
+/// every word of it. That is the one mistake in this feature that cannot be
+/// undone by undoing — because it is a mistake about what to do next.
+///
+/// ⇒ So the sentence names the state and the next step, in that order.
+///
+/// # Why it counts OBJECTS and not marks
+///
+/// One gesture makes one annotation carrying one quad per object, so the mark
+/// count is always 1 and would tell the operator nothing. What they chose was
+/// objects; what they should be told about is objects.
+#[must_use]
+pub fn marked_selection(objects: usize) -> String {
+    if objects == 1 {
+        "Marked for redaction. Nothing has been removed yet \u{2014} press Apply redactions \
+         when you have checked the marks."
+            .to_owned()
+    } else {
+        format!(
+            "{objects} objects marked for redaction. Nothing has been removed yet \u{2014} \
+             press Apply redactions when you have checked the marks."
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
