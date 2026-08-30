@@ -736,6 +736,117 @@ pub const fn bookmark_rename_button() -> &'static str {
 /// *"Remove"*, not *"Delete"*: the operator-facing distinction this application
 /// keeps is that removing a bookmark takes it out of the navigation and leaves
 /// every page exactly where it was. A button reading "Delete" beside a document
+/// How many bookmarks a copy will take with it.
+///
+/// ★ The same shape as `bookmark_delete_takes_subtree`, deliberately: an
+/// operator who has read one has read the other, and a copy and a delete take
+/// exactly the same set. Two wordings for one fact is how a panel comes to
+/// describe two different operations that are in fact identical in scope.
+#[must_use]
+pub fn bookmark_copy_takes_subtree(descendants: usize) -> String {
+    if descendants == 1 {
+        "Copying this takes the one bookmark filed under it as well.".to_owned()
+    } else {
+        format!("Copying this takes the {descendants} bookmarks filed under it as well.")
+    }
+}
+
+/// The Copy button.
+#[must_use]
+pub const fn bookmark_copy_button() -> &'static str {
+    "Copy"
+}
+
+/// The Cut button.
+#[must_use]
+pub const fn bookmark_cut_button() -> &'static str {
+    "Cut"
+}
+
+/// The engine declined to copy the bookmark, in its own words.
+#[must_use]
+pub fn bookmark_copy_refused(engine: &str) -> String {
+    format!("That bookmark could not be copied. {engine}")
+}
+
+/// What is on the clipboard, above the Paste button.
+///
+/// ★ It counts the WHOLE subtree, not the roots, because that is what will
+/// arrive — and an operator who copied one chapter heading and sees *"12
+/// bookmarks"* has learned something true that the tree did not show them.
+#[must_use]
+pub fn bookmark_paste_heading(items: usize) -> String {
+    if items == 1 {
+        "1 bookmark copied.".to_owned()
+    } else {
+        format!("{items} bookmarks copied.")
+    }
+}
+
+/// ★★★ **The warning that must be read BEFORE the press.**
+///
+/// A pasted bookmark whose destination names a page this document does not have
+/// is **dropped, not clamped** — it arrives, shows, keeps its title, and does
+/// nothing when clicked. Nothing on screen distinguishes it from one that
+/// works, which is why this is the only pre-press warning in the panel.
+///
+/// # Why it names both numbers
+///
+/// *"needs 14 pages, this one has 6"* is a fact the operator can act on: add
+/// the sheets first, or accept the loss. *"Some destinations will be dropped"*
+/// is a warning they can only obey or ignore.
+///
+/// ★ It does **not** say how many will drop, and that is honest rather than
+/// lazy: the clip knows its deepest destination, not the distribution of the
+/// rest, so any count here would be a guess. The engine reports the real number
+/// after the paste, which is where an exact figure belongs.
+#[must_use]
+pub fn bookmark_paste_destinations_dropped(needs: usize, has: usize) -> String {
+    format!(
+        "Some of these point at page {needs}, and this document has {has}. Those bookmarks will \
+         arrive with no destination \u{2014} they will show in the list and do nothing when \
+         clicked. Add the pages first if you want them to work."
+    )
+}
+
+/// Where the paste will land, when a bookmark is selected.
+#[must_use]
+pub fn bookmark_paste_under(title: &str) -> String {
+    format!("They will go under \u{201c}{title}\u{201d}.")
+}
+
+/// Where the paste will land, when nothing is selected.
+#[must_use]
+pub const fn bookmark_paste_at_top_level() -> &'static str {
+    "They will go at the top level. Select a bookmark first to file them under it."
+}
+
+/// The Paste button.
+#[must_use]
+pub const fn bookmark_paste_button() -> &'static str {
+    "Paste bookmarks"
+}
+
+/// **How many arrived without their destination** — reported after the paste.
+///
+/// ★ The panel predicted this before the press and this is what happened, and
+/// the two are not duplicates: a prediction is a guess nobody confirmed, and a
+/// report alone arrives too late to choose differently. The operator gets the
+/// choice *and* the outcome.
+#[must_use]
+pub fn bookmark_paste_dropped(n: usize) -> String {
+    if n == 1 {
+        "One pasted bookmark points at a page this document does not have, so it arrived with no \
+         destination and does nothing when clicked."
+            .to_owned()
+    } else {
+        format!(
+            "{n} pasted bookmarks point at pages this document does not have, so they arrived \
+             with no destination and do nothing when clicked."
+        )
+    }
+}
+
 /// invites the reading that the pages go too.
 #[must_use]
 pub const fn bookmark_delete_button() -> &'static str {

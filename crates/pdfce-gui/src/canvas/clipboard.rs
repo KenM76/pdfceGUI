@@ -264,6 +264,43 @@ pub enum Clipped {
     /// operator can plausibly believe both are live at once. Sharing one slot
     /// makes the last one they pressed the one that pastes, which is the only
     /// rule they can hold in their head.
+    /// ★★★ **A bookmark and everything filed under it** — O59 item 3.
+    ///
+    /// # ★★ Why this one is NOT bytes, unlike its two neighbours
+    ///
+    /// `Clipped::Content` and `Clipped::Pages` carry serialised clips because
+    /// the engine gives them one — `ObjectClip::to_bytes` and a `PageClip` that
+    /// **is** a PDF. `OutlineClip` has no serialisation at all, so there are no
+    /// bytes to carry and the live structure is the only representation there
+    /// is.
+    ///
+    /// That is a real difference in what the two can do, and it is worth
+    /// knowing rather than discovering: the day this shell registers a private
+    /// OS clipboard format, pages and page content will cross a process
+    /// boundary and **bookmarks will not**, until the engine gives this type a
+    /// codec. Not filed as a request, because nothing has asked for it — a
+    /// bookmark subtree pasted into another program has no meaning, and the
+    /// pdfce-to-pdfce case this variant serves works entirely in memory.
+    ///
+    /// ★ `Box`ed for `FormField`'s reason: this enum is cloned on every read
+    /// and an `OutlineClip` carries a whole subtree of titles, destinations and
+    /// colours.
+    Outline {
+        /// The copied roots and their children, in document order.
+        clip: Box<pdfce_core::outline::OutlineClip>,
+        /// The deepest 0-based page any destination in the clip names.
+        ///
+        /// ★★ Carried rather than re-walked because it answers the one question
+        /// that must be asked **before** the paste: a destination naming a page
+        /// the destination document does not have is **dropped, not clamped**,
+        /// and a dropped-destination bookmark still shows, still has its title,
+        /// and does nothing when clicked. Nothing on screen distinguishes it.
+        ///
+        /// `None` when no bookmark in the clip navigates anywhere — which
+        /// §12.3.3 permits, and which is a legal, honest shape rather than a
+        /// broken one.
+        deepest_page: Option<usize>,
+    },
     Pages {
         /// The clip, as a complete PDF document.
         bytes: Vec<u8>,
@@ -492,7 +529,10 @@ fn copy_content(ctx: &egui::Context, doc: &OpenDoc) -> Result<Clipped, Refusal> 
         // the wrong typeface, and it is several hundred bytes shorter.
         let bytes = match &clipped {
             Clipped::Content { bytes, .. } => bytes.len(),
-            Clipped::Markup { .. } | Clipped::FormField(_) | Clipped::Pages { .. } => 0,
+            Clipped::Markup { .. }
+            | Clipped::FormField(_)
+            | Clipped::Pages { .. }
+            | Clipped::Outline { .. } => 0,
         };
         format!(
             "clipboard-copy kind=content page={page} objects={} bytes={bytes}",
@@ -643,6 +683,17 @@ pub fn cut(
         // `PageAction::DeletePages` -- pages are addressed by index in the
         // document, not by an `ObjId` on a page, so nothing in this arm's
         // vocabulary can express one. Same tripwire as the field arm below.
+        // ★ A bookmark cut is `panels::bookmarks::clip`, which raises
+        // `BookmarkAction::Delete` -- an outline item is addressed by `ObjId`
+        // in a document-level tree, not by a page and an index, so this arm's
+        // vocabulary cannot express one either. Third tripwire, same shape.
+        (Clipped::Outline { .. }, _) => {
+            debug_assert!(
+                false,
+                // ui-text-exempt: a debug_assert message for a developer; never rendered.
+                "a bookmark cut must route to panels::bookmarks::clip; the canvas clipboard has no outline vocabulary"
+            );
+        }
         (Clipped::Pages { .. }, _) => {
             debug_assert!(
                 false,
@@ -667,6 +718,7 @@ pub fn cut(
                 Clipped::Content { .. } => "content",
                 Clipped::FormField(_) => "form-field",
                 Clipped::Pages { .. } => "pages",
+                Clipped::Outline { .. } => "outline",
             }
         )
     });
@@ -704,6 +756,14 @@ pub fn paste(ctx: &egui::Context, page: usize, actions: &mut Vec<Action>) -> Res
         // ★ Same fork, same tripwire. A page paste needs `&mut PdfceApp` for
         // the current page index and raises a `PageAction`; this function is a
         // pure function of the clip.
+        Some(Clipped::Outline { .. }) => {
+            debug_assert!(
+                false,
+                // ui-text-exempt: a debug_assert message for a developer; never rendered.
+                "a bookmark paste must route to panels::bookmarks::clip"
+            );
+            return Err(Refusal::NothingCopied);
+        }
         Some(Clipped::Pages { .. }) => {
             debug_assert!(
                 false,

@@ -100,7 +100,18 @@ use crate::app::state::OpenDoc;
 /// See the module header for what makes them a family: every one of them names
 /// its operand by `ObjId`, because an outline is a tree that every edit to it
 /// renumbers.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// ★ `Eq` was dropped on 2026-08-29 when [`BookmarkAction::Paste`] arrived.
+///
+/// `pdfce_core::outline::OutlineClip` derives `PartialEq` and not `Eq`, because
+/// a bookmark's colour is three `f64`s and floats have no total equality. That
+/// is the engine's correct choice and it propagates: an enum holding one cannot
+/// be `Eq` either.
+///
+/// Nothing depended on it — `Eq` over `PartialEq` buys a `HashMap` key and no
+/// action is ever one — but it is recorded rather than silently removed,
+/// because a dropped trait bound is exactly the kind of change a diff makes
+/// look deliberate and a reader cannot date.
+#[derive(Debug, Clone, PartialEq)]
 pub enum BookmarkAction {
     /// ★ **Add a bookmark to the document's outline.**
     ///
@@ -304,6 +315,37 @@ pub enum BookmarkAction {
     /// has children keeps its `/Count` sign — and discloses the consequence
     /// instead. A `reveal: bool` on this variant would bury a second state
     /// change inside an unrelated command and would produce **one** undo entry
+    /// ★★★ **Put a copied bookmark subtree into this document's outline.**
+    ///
+    /// `OPERATOR_REQUESTS.md` **O59** item 3. Raised by
+    /// `panels::bookmarks::clip::paste_row` and by nothing else.
+    ///
+    /// ★★ **Acrobat cannot do this between two files at all**, by Adobe's own
+    /// documentation. There is therefore no established behaviour to match and
+    /// no borrowed wording — which is why the disclosure below is written from
+    /// what the operation does rather than from what a reference implementation
+    /// says about it.
+    ///
+    /// # The disclosure this arm owes
+    ///
+    /// `OutlinePasteOutcome::destinations_dropped`. A destination naming a page
+    /// this document does not have is **dropped, not clamped** — so the
+    /// bookmark arrives, shows, keeps its title, and does nothing when clicked.
+    /// Nothing on screen distinguishes it from one that works.
+    ///
+    /// ★ The panel warns about this **before** the press as well, from
+    /// `OutlineClip::deepest_page()` against the page count. The two are not
+    /// duplicates: the panel's is a prediction the operator can act on, and
+    /// this one is what actually happened. A prediction alone would be a guess
+    /// nobody confirmed; a report alone would arrive too late to choose
+    /// differently.
+    Paste {
+        /// The copied roots and their children.
+        clip: Box<pdfce_core::outline::OutlineClip>,
+        /// Where they go, as an anchor. Never a position — `Move`'s rule, and
+        /// its documentation carries why.
+        to: pdfce_core::edit::OutlinePlacement,
+    },
     /// for two acts.
     Move {
         /// The bookmark being moved, together with everything filed under it.
@@ -424,8 +466,62 @@ pub(super) fn apply(doc: &mut OpenDoc, action: BookmarkAction) {
         BookmarkAction::Rename { item, title } => rename(doc, item, &title),
         BookmarkAction::Delete { item } => delete(doc, item),
         BookmarkAction::Move { item, to } => move_to(doc, item, to),
+        BookmarkAction::Paste { clip, to } => paste(doc, &clip, to),
         BookmarkAction::SetOpen { item, open } => set_open(doc, item, open),
     }
+}
+
+/// **Put a copied bookmark subtree into the outline**, as one undoable command.
+///
+/// `OPERATOR_REQUESTS.md` **O59** item 3.
+///
+/// # ★★★ The disclosure, and why a zero drops the clause entirely
+///
+/// `OutlinePasteOutcome::destinations_dropped` counts bookmarks that arrived
+/// **without** their destination, because it named a page this document does
+/// not have. The engine drops rather than clamps, and that is the right choice:
+/// clamping would send the operator to *some* page, confidently and wrongly,
+/// where a bookmark that plainly does nothing at least shows what happened.
+///
+/// A zero says nothing at all. `app::status` has one slot for consequences and
+/// a sentence reading *"0 destinations were dropped"* would evict a real one to
+/// report an absence — which is `rename`'s argument below, applied to the arm
+/// that does have something to say when there is something.
+///
+/// # ★ It reports what happened; the panel predicted it
+///
+/// `panels::bookmarks::clip::paste_row` warns before the press, from
+/// `OutlineClip::deepest_page()` against the page count. The two are not
+/// duplicates and neither is sufficient alone: a prediction is a guess nobody
+/// confirmed, and a report arrives too late to choose differently. The operator
+/// gets the choice *and* the outcome.
+fn paste(
+    doc: &mut OpenDoc,
+    clip: &pdfce_core::outline::OutlineClip,
+    to: pdfce_core::edit::OutlinePlacement,
+) {
+    // ★ Page 0: an outline is a document-level structure reached from the
+    // catalogue's `/Outlines` and never from a page, so there is no page this
+    // edit is "on". `vector_edit` wants one for its trace and its invalidation;
+    // zero is the honest answer and is what `super::bookmarks`' other arms pass.
+    super::apply::vector_edit(doc, "paste-bookmark", 0, clip.len(), |session| {
+        session.paste_outline_item(clip, to).map(|outcome| {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                format!(
+                    "bookmark-paste-applied items={} dropped={}",
+                    outcome.items_pasted, outcome.destinations_dropped
+                )
+            });
+            if outcome.destinations_dropped == 0 {
+                Vec::new()
+            } else {
+                vec![crate::text::panels::bookmark_paste_dropped(
+                    outcome.destinations_dropped,
+                )]
+            }
+        })
+    });
 }
 
 /// **Rename one bookmark**, as one undoable command, disclosing nothing.

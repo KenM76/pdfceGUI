@@ -121,6 +121,10 @@
 /// zero for a correct save — and, more to the point for an operator, the
 /// bookmark is genuinely not visible until the parent is expanded.
 pub mod add;
+/// ★ Cut, copy and paste of a bookmark and everything filed under it — O59
+/// item 3, and the one operation in this panel Acrobat cannot do between two
+/// files at all.
+mod clip;
 
 /// ★ Renaming a bookmark, and removing one with everything under it - the half
 /// this panel did not have until `EditSession::set_outline_title` and
@@ -403,18 +407,6 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, actions: 
     // skipped in one place, and so that module never has to consider an id that
     // no longer names anything — the ordinary state one frame after an undo of
     // a delete, and the state `add::show` above has already cleared.
-    let selected = state
-        .bookmarks_mut()
-        .selected
-        .and_then(|id| tree::find(&outline.items, id));
-    if let Some(item) = selected {
-        // Cloned because `state` is borrowed mutably by `edit::show` and the
-        // item is borrowed out of `outline`, which `state` does not own. One
-        // `OutlineItem` per frame in which a bookmark is selected, against
-        // restructuring the whole panel to read the outline twice.
-        let item = item.clone();
-        edit::show(ui, &item, state.bookmarks_mut(), actions);
-    }
     // ★ The drag is the one gesture in this panel with no widget to look at, so
     // it is the one that has to be written down. See
     // `crate::text::panels::bookmarks::bookmark_drag_hint`: R83 forbids
@@ -439,6 +431,74 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, actions: 
             // spans the list rather than stopping under the longest title, and
             // a band test over the label alone would miss the pointer whenever
             // it was to the right of a short name.
+            // ★★★ THE PER-SELECTION CONTROLS LIVE IN HERE, and they used to live
+            // above this scroll area. That shipped two controls an operator
+            // could not click.
+            //
+            // The dock gives a panel body a FIXED rectangle and no scrolling of
+            // its own — `egui-shell`'s dock says so in as many words, and the
+            // corollary is that the body is expected to create one. This body
+            // created one around its LIST and left everything above it laid out
+            // in whatever space the panel happened to have.
+            //
+            // Measured 2026-08-29 with the panel body at `y = 159.3 .. 447.7`:
+            //
+            //     ui-rect name=bookmarks.delete rect=[[0.0 500.3] - [55.3 524.3]]
+            //     ui-rect name=bookmark-copy    rect=[[0.0 528.3] - [37.2 552.3]]
+            //
+            // ⇒ **Remove was 53 points below the bottom of its own panel and
+            // Copy was 81.** Both were drawn, both published a rect, and neither
+            // could be clicked. That is the shape `D:/dev/rag/egui/` records as
+            // *panels that shipped unreachable in real builds with every gate
+            // green* — and it survived because it is invisible to any test that
+            // does not select a bookmark first. Nothing did, until the clipboard
+            // work needed to.
+            //
+            // ★ Inside the scroll area rather than given a scroll area of their
+            // own: two sibling scrollers in one narrow panel is two scrollbars
+            // and two places the operator's wheel might go. One region that
+            // scrolls is what every other panel here does.
+            //
+            // ★★ ABOVE the rows, not below, because they are about the row that
+            // is already selected — putting them under a list of forty
+            // bookmarks would mean scrolling past the list to act on something
+            // at the top of it.
+            let selected = state
+                .bookmarks_mut()
+                .selected
+                .and_then(|id| tree::find(&outline.items, id));
+            if let Some(item) = selected {
+                // Cloned because `state` is borrowed mutably by `edit::show` and the
+                // item is borrowed out of `outline`, which `state` does not own. One
+                // `OutlineItem` per frame in which a bookmark is selected, against
+                // restructuring the whole panel to read the outline twice.
+                let item = item.clone();
+                edit::show(ui, &item, state.bookmarks_mut(), actions);
+                // ★ Copy and Cut sit with the other verbs that act on the SELECTED
+                // bookmark, under the same heading, because that is the question the
+                // operator is answering when they are looking at this block.
+                clip::copy_row(ui, doc, &item, actions);
+            }
+            // ★★ PASTE IS OUTSIDE THE `if`, and that is the whole difference between
+            // it and the two above.
+            //
+            // Copy and Cut act on a selected bookmark, so with none selected there is
+            // nothing for them to act on and R9 says draw nothing. A paste has no
+            // operand on the tree at all -- it reads the CLIPBOARD -- and pasting at
+            // the top level of a document with nothing selected is not merely legal, it
+            // is the ordinary case for putting a copied chapter into an empty outline.
+            //
+            // ⇒ Gating it on the selection would have made the one thing this feature
+            // exists for -- carrying a chapter's bookmarks into another drawing --
+            // reachable only by first selecting a bookmark in the document that has
+            // none.
+            let selected_for_paste = state
+                .bookmarks_mut()
+                .selected
+                .and_then(|id| tree::find(&outline.items, id))
+                .cloned();
+            clip::paste_row(ui, doc, selected_for_paste.as_ref(), actions);
+
             let strip = (ui.max_rect().left(), ui.max_rect().right());
             rows(ui, &outline.items, strip, dragging, &mut harvest);
             target = reorder::resolve(ui, &harvest.rows, &outline.items, dragging);

@@ -80,7 +80,7 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
-## O59 — ⬜ Cut, copy and paste for **everything**: the engine shipped it, the shell has not consumed it
+## O59 — ✅ Cut, copy and paste for **everything**: the engine shipped it, the shell has not consumed it
 
 **Ken, 2026-08-29, to the engine session:** *"can you make sure we have cut,
 copy, and paste available for everything and if not implement?"* → *"yes do all
@@ -241,7 +241,71 @@ moment the three commands were registered, and `reach.rs` crossed R2's ceiling,
 so the guard chain moved to `reach/guards.rs` — its header records what six
 instances of the same lesson are evidence for.
 
-**Status:** ⬜ **OPEN — 2 of 3 done.** Bookmarks next.
+### ✅ 3 of 3 — A bookmark and everything under it can be cut, copied and pasted (2026-08-29)
+
+In the **Bookmarks panel**, beside Rename and Remove, because that is where
+every other bookmark verb already is: a bookmark is edited where it is seen.
+Copy and Cut act on the selected one **and everything filed under it**; Paste
+puts them under the selection, or at the top level when nothing is selected —
+the same rule Add already uses, so there is one place to learn it.
+
+★★ **This is the one operation in the program Acrobat cannot do.** Between two
+files it cannot do it at all, by Adobe's own documentation. Carrying a chapter's
+bookmarks into another drawing has always been a hand job, one at a time.
+
+**The warning comes before the press.** If the bookmarks point at pages this
+document does not have, the panel says so beside the button — *"some of these
+point at page 14, and this document has 6"* — because a bookmark that arrives
+without its destination still shows, still has its title, and does nothing when
+clicked. Nothing on screen tells them apart. After the press the engine reports
+how many actually dropped, which is a different fact: the first is a choice,
+the second is what happened.
+
+### ★★★ It uncovered a real defect that had nothing to do with this work
+
+While making the driven check work, the panel's own numbers stopped adding up:
+
+```
+panel body      y = 159.3 .. 447.7
+bookmarks.delete    y = 500.3 .. 524.3
+bookmark-copy       y = 528.3 .. 552.3
+```
+
+**Remove was 53 points below the bottom of its own panel.** It was drawn, it
+reported a position, and it could not be clicked — and it has been that way
+however long the panel has been this shape. It survived because those controls
+appear only when a bookmark is **selected**, and no check had ever selected one
+first.
+
+The cause is a rule this project already had written down and had applied to
+half the panel: the dock gives a panel body a fixed rectangle and no scrolling
+of its own, so the body must make one. This body wrapped its **list** and left
+everything above it in whatever space remained. Fixed by putting the controls
+inside the same scroll area.
+
+⇒ Worth knowing because it is a whole class: **a control that only appears
+under a specific selection is invisible to every test that does not make that
+selection.**
+
+### The check took five attempts and each failure was a lie
+
+Three of them produced the *identical* message — *"the Copy control is not on
+screen"* — for three different reasons, none of which was the Copy control. It
+aimed at the bottom row instead of a visible one; at the full-width strip
+instead of the twelve-point-wide label; and at a rectangle that never parsed,
+because a rect value contains spaces and the trace reader split it on the first
+one. Then the whole thing alternated PASS/SKIP because the panel is a **toggle**
+and the dock layout is **saved to disk**, so each run undid the last.
+
+All five are written up in `D:/dev/rag/egui/` — the transferable rule is that a
+diagnostic line written for every item is not a list of the items you can click.
+
+**Driven and falsified:** `a_bookmark_subtree_can_be_copied_and_pasted` — the
+outline goes from **5 bookmarks to 6**, three runs in a row. With the paste
+stubbed out it fails on the applied-line assertion.
+
+**Status:** ✅ **ALL THREE DONE — awaiting your verdict.** Cut refuses what it
+cannot carry, pages copy and paste, bookmarks copy and paste.
 **Was:** ⬜ **OPEN — engine ready, shell not started.** The pin is updated
 and verified (2,662 tests, 19/19 gates, both driven clipboard checks green at
 `0eb9119`), and nothing has regressed. What is not done is *using* any of it.

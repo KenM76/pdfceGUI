@@ -208,6 +208,7 @@ pub mod widget_move;
 /// operator's headline complaint: a click inside a form XObject must select
 /// what is drawn there, and a click on blank paper inside one must select
 /// nothing.
+pub mod bookmark_clipboard;
 pub mod cut_gate;
 pub mod field_clipboard;
 pub mod form_selection;
@@ -1077,6 +1078,9 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(cut_gate::CuttingARedactionMarkIsRefusedBeforeAnythingIsRemoved),
         // ★ O59 item 2 — the page clipboard.
         Box::new(page_clipboard::PagesCanBeCopiedAndPasted),
+        // ★ O59 item 3 — the bookmark clipboard, and the one operation in
+        // this program Acrobat cannot do between two files at all.
+        Box::new(bookmark_clipboard::ABookmarkSubtreeCanBeCopiedAndPasted),
         Box::new(field_clipboard::AFormFieldCanBeCopiedAndPastedBothWays),
         // ★★ Immediately after its sibling, and it is the MIRROR of it: same
         // gestures, opposite expectations, one environment variable apart. A
