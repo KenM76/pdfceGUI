@@ -160,9 +160,9 @@ blocked on the reply.
 re-measured; `OPERATOR_REQUESTS.md` has **three new questions for him (O47, O48,
 O49)** and none of them blocks anything.
 
-**Measured now (2026-08-29, re-run):** **2,668 passing tests across the
-workspace** (2,080 GUI lib + 421 shell + the rest), **19/19 gates**, **116 registered
-driven checks**. Engine pinned at `0eb9119` (re-measured 2026-08-29 from `Cargo.lock`). ★ **O59 is done**: cut refuses what it cannot carry, pages and bookmarks copy and paste, all three driven and falsified. Scaffold list **5**.
+**Measured now (2026-08-29, re-run):** **2,675 passing tests across the
+workspace** (2,087 GUI lib + 421 shell + the rest), **19/19 gates**, **117 registered
+driven checks**. Engine pinned at `49caa88` (re-measured 2026-08-29 from `Cargo.lock`). ★ **O59 is done**: cut refuses what it cannot carry, pages and bookmarks copy and paste, all three driven and falsified. Scaffold list **5**.
 
 **What shipped:** Tools ▸ Embed fonts and Tools ▸ Remove embedded fonts, both
 driven end to end; dragging an ordinary markup annotation; the Bold retry using

@@ -80,6 +80,76 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O61 — ✅ pdfce now tells you when a document phones home · ⬜ buttons still cannot be given actions
+
+**Ken, 2026-08-30:** *"I think pdfce added support for several button features
+and protections for outgoing submits. implement everything available."*
+
+### ★★★ You were half right, and the half you were right about was worth a lot
+
+**The protections are real and they shipped — on the DETECTION side.** pdfce can
+now spot a push button that posts your data to a web server, an action that
+launches a program, and a script that runs the moment a file is opened. It found
+a defect of its own doing it: its scanner had been looking in the wrong place, so
+*a form that submits to a web server reported nothing at all* — and, in their
+words, *"a check that under-reports reads as a clean bill of health, because
+silence and safety are indistinguishable to the reader."*
+
+**This shell was not asking.** So the whole finding stopped at the boundary: the
+engine could tell you the drawing somebody just emailed you will post its title
+block to a server, and nothing on screen said so.
+
+**It does now.** Open a document that reaches outside itself and the status row
+says so, once, in one sentence — naming what it can do, and saying plainly that
+pdfce never does any of it but another viewer would.
+
+★★ **It is silent on ordinary documents, and that is the half the check exists
+for.** A form that computes a total is an ordinary form; warning about it would
+train you to ignore the status row, and then the one sentence that matters is one
+you have learned not to read. The driven check opens **two** documents and
+asserts the second says nothing.
+
+★ **Nothing in either fixture corpus had a submit action** — which is exactly why
+this went unwritten. `tools/gen-submit-fixture.py` makes one: 753 bytes, one
+button, one submit pointing at a host RFC 2606 guarantees can never resolve.
+
+### ⬜ Buttons still cannot be given actions, and I checked rather than assumed
+
+`tools/verb-coverage.py` at the current pin: **175 engine verbs, none of them
+authors a button action.** The engine's own `FEATURES.md` lists it under
+**"Planned, in predicted order"** — `Pass 131.0`, alongside a `pdfceNet` plugin
+for submits and a four-rung disclosure ladder. Unblocked as of 2026-08-26, not
+built.
+
+So the request I filed yesterday stands and is unanswered. Nothing to implement
+here yet — and I would rather tell you that than build something that looks like
+it works.
+
+### The rest of "everything available", measured
+
+Also unconsumed at this pin and **not** done in this pass: `rotate_widget` (turn
+a form field's box 90°), `set_dimension_label` (override a ce dimension's text),
+and the attachment clipboard. All real, all available. Say the word and they are
+next.
+
+### ★★ And one thing I checked because the engine warned about it
+
+They flagged a data-loss bug: deleting the **default** dimension group could
+silently destroy every group, every calibrated scale and every ce dimension, with
+nothing looking wrong until the next save made it permanent. Their note said
+*"if your dimension-groups panel lets an operator select the default group and
+press Delete, it can destroy their measurement model today."*
+
+**Ours does not, and never did.** The panel already refuses to draw a Delete
+control for the default group, and the same for its visibility switch — R9,
+absent rather than offered-and-declined. We had guarded it independently. Their
+fix is in the pin regardless, as a backstop.
+
+**Status:** ✅ **the phone-home disclosure is SHIPPED AND DRIVEN.** ⬜ **button
+actions remain an engine policy decision, filed, unanswered.**
+
+---
+
 ## O60 — ✅ Redact by selecting on the canvas · ⬜ Push buttons that actually do something
 
 **Ken, 2026-08-30:** *"the redaction tool — am I able to select objects on the

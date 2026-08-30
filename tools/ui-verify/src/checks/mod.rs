@@ -388,6 +388,7 @@ pub mod multi_node;
 /// engine reports rather than a picture.
 pub mod object_clipboard;
 pub mod pan_refresh;
+pub mod reach_out;
 /// ★ `view.read_mode` — the command with a control, a glyph, a group, `Ctrl+H`
 /// and a line in the shortcuts reference, and **no dispatch arm** for the whole
 /// life of the project. Its whole behaviour is one `if` in the frame
@@ -1079,6 +1080,8 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(cut_gate::CuttingARedactionMarkIsRefusedBeforeAnythingIsRemoved),
         // ★ O60 — redacting what is selected, the third marking route.
         Box::new(redact_selection::ASelectedObjectCanBeMarkedForRedaction),
+        // ★ O61 — the document-safety disclosure.
+        Box::new(reach_out::ADocumentThatPhonesHomeSaysSo),
         // ★ O59 item 2 — the page clipboard.
         Box::new(page_clipboard::PagesCanBeCopiedAndPasted),
         // ★ O59 item 3 — the bookmark clipboard, and the one operation in

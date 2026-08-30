@@ -1187,6 +1187,10 @@ mod tests {
                 rect: None,
                 appearance_state: None,
                 on_states: Vec::new(),
+                // ★ `rotation` arrived with the engine's `rotate_widget` Pass on
+                // 2026-08-30. `None` here means the file states none, which is what
+                // every fixture in this shell wants: a widget with no `/MK /R`.
+                rotation: None,
                 has_off_appearance: false,
                 // ★ THE POINT OF THIS FIXTURE.
                 page: None,

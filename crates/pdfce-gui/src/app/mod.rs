@@ -125,6 +125,7 @@ pub mod persistence;
 /// *no file* — that would silently overrule a deliberate choice every restart.
 pub mod pickstore;
 
+pub mod prefs;
 /// ★ The shell's OWN preferences — how pdfce draws, as distinct from how it
 /// reads and writes PDFs.
 ///
@@ -133,7 +134,11 @@ pub mod pickstore;
 /// the clause that is silent. How sharply a page is rasterised cites nothing.
 /// Its header also records which five of the seven commissioned View ▸ Render
 /// settings turned out to have nothing behind them, and why.
-pub mod prefs;
+/// ★★★ **Does this document reach outside itself?** — a submit button, a
+/// launch action, a script that runs on open. Asked once when a document opens,
+/// answered on the status row. Its header carries the engine's own account of
+/// why a scan that under-reports reads as a clean bill of health.
+pub mod reachout;
 /// The documents this operator had open: the capped, persisted list and the
 /// ribbon control that draws it.
 pub mod recent;

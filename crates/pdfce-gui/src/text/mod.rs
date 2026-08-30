@@ -206,6 +206,10 @@ pub mod panels;
 pub mod pick;
 /// Every word the print dialog shows. Consumed by `crate::dialogs::print`.
 pub mod print;
+/// ★★★ The sentence a document that reaches outside itself earns — a submit
+/// button, a launch action, a script that runs on open. Its header carries the
+/// two opposite ways to word it wrongly.
+pub mod reachout;
 pub mod redact;
 /// Every word the redaction surface says — the marking panel, the apply
 /// report, the two acknowledgements, and the residual lines. Consumed by
