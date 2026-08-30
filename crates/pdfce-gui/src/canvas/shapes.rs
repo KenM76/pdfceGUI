@@ -394,6 +394,62 @@ pub fn for_move_subject(
     }
 }
 
+/// **The footprint of objects that are about to stop existing.**
+///
+/// The builder for a delete: an erase list and **no** shapes, so the preview is
+/// pure subtraction.
+///
+/// # ★★★ Why a delete needs a preview at all, when nothing is being drawn
+///
+/// Because the raster underneath does not know. The operator presses Delete,
+/// the object is gone from the document — and it stays on screen for one to two
+/// seconds on a dense drawing, because that is how long the page takes to
+/// redraw. There is no gesture in flight to explain the wait, so what they see
+/// is *a delete that did nothing*, and the natural response is to press Delete
+/// again, which deletes something else.
+///
+/// ⇒ This makes the object disappear at the moment it is deleted, which is what
+/// every operator on earth expects and what the program was already doing to
+/// the document. The picture simply catches up with it.
+///
+/// # ★★ It must be built BEFORE the commit
+///
+/// `app::cache::page_objects` is keyed on `(page, edit_epoch)` and the commit
+/// bumps the epoch, so the geometry this needs is thrown away by the very edit
+/// it describes. Called from the apply arm with the pre-edit model still in
+/// hand; a caller that reached for it afterwards would find the objects gone and
+/// silently hold nothing, which is the old behaviour wearing a new name.
+#[must_use]
+pub fn erased(provider: &ObjectModelProvider, objects: &[usize]) -> Option<ShapePreview> {
+    let model = provider.page_objects();
+    let mut out = ShapePreview::default();
+    let mut segments = 0_usize;
+    for &index in objects.iter().take(MAX_OBJECTS) {
+        let Some(VectorObject::Path(path)) = model.objects.get(index) else {
+            continue;
+        };
+        let subpaths = path.page_subpaths();
+        segments += subpaths.iter().map(|sp| sp.segments.len()).sum::<usize>();
+        if segments > MAX_SEGMENTS {
+            out.capped = true;
+            break;
+        }
+        out.erase.push(PreviewShape {
+            subpaths,
+            style: path.style,
+            line_width: path.line_width,
+        });
+    }
+    if objects.len() > MAX_OBJECTS {
+        out.capped = true;
+    }
+    trace(&out, objects.len());
+    // ★ `is_empty()` asks about `shapes`, which a delete never has — so the
+    // emptiness test here is about the ERASE list, and using the wrong one would
+    // discard every delete preview ever built.
+    (!out.erase.is_empty()).then_some(out)
+}
+
 /// Move a point.
 const fn shift(p: Point, dx: f64, dy: f64) -> Point {
     Point {
@@ -492,7 +548,7 @@ pub fn draw(
     //
     // ★ Written only when there is something to draw, so it costs nothing on
     // the frames nobody is dragging — which is almost all of them.
-    if !preview.shapes.is_empty() {
+    if !preview.shapes.is_empty() || !preview.erase.is_empty() {
         crate::diag::trace(|| {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
             format!(

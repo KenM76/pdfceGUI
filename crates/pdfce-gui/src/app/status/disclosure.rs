@@ -31,8 +31,8 @@
 use egui::{Align, Layout, Vec2};
 
 use super::{
-    NOTES_WIDTH_FRACTION, REGION_BLEND_SPACE, REGION_EDIT_DISCLOSURE, REGION_FILL_DISCLOSURE,
-    REGION_RECOVERED, ROW_HEIGHT_PTS,
+    NOTES_WIDTH_FRACTION, REGION_BLEND_SPACE, REGION_CATCHING_UP, REGION_EDIT_DISCLOSURE,
+    REGION_FILL_DISCLOSURE, REGION_RECOVERED, ROW_HEIGHT_PTS,
 };
 use crate::app::state::OpenDoc;
 use crate::text::forms as t_forms;
@@ -161,6 +161,56 @@ fn edit_disclosure(ui: &mut egui::Ui, doc: &OpenDoc) {
         REGION_EDIT_DISCLOSURE,
         &t::edit_disclosure_line(&d.notes),
     );
+}
+
+/// **The picture is behind the document, and it has been long enough to say so.**
+///
+/// `OPERATOR_REQUESTS.md` **O63**, and the piece that makes the request's own
+/// words — *"live preview for everything we do"* — true rather than
+/// aspirational.
+///
+/// # ★★★ Why this is the general answer and the drawn preview is not
+///
+/// `canvas::shapes` draws a real preview, exactly, at pointer speed — and only
+/// where the shell holds the geometry: a path being moved, resized, rotated or
+/// node-edited. That is a large share of canvas work and **none** of the rest of
+/// the program. There is no shape to slide when the operator changes a fill
+/// colour, presses Bold, deletes a run of text, marks a redaction or rotates a
+/// page.
+///
+/// For those the shell cannot draw the answer, and it cannot get one from the
+/// renderer either: `BENCHMARK.md` measures a **two-pixel** region render at
+/// 691 ms on the operator's own drawing, because ~99 % of render cost is
+/// content-stream interpretation rather than fill. There is no arrangement of
+/// the existing renderer that produces a correct picture inside a second.
+///
+/// ⇒ So the honest general answer is not a worse picture. It is **saying that
+/// the picture is not the answer yet** — the third of the three options the
+/// operator chose between, and the only one with no failure mode. It applies to
+/// every edit in the program, including the ones a drawn preview will never
+/// reach.
+///
+/// # It is a STATE, not an event, and that changes two things
+///
+/// Every other line in this file is keyed on [`OpenDoc::edit_epoch`] and
+/// retires when the document moves past it. This one is live for as long as its
+/// condition holds and stops the moment the raster lands — so it needs no
+/// retirement rule at all, and it can appear for one edit and not the next
+/// depending only on how hard the page was to draw.
+///
+/// ★ And it is **silent under 400 ms** ([`OpenDoc::page_is_catching_up`]),
+/// because the picture is behind after every edit and a line that flashed on
+/// each one would be noise that costs every other sentence this bar carries.
+///
+/// **It does not make the bar taller** — R128, the same constraint every line
+/// here is under and for the same reason: it arrives without the operator
+/// asking for anything, and a bar that grew on its own would re-fit the page at
+/// the moment a gesture completed.
+fn catching_up(ui: &mut egui::Ui, doc: &OpenDoc) {
+    if !doc.page_is_catching_up() {
+        return;
+    }
+    disclosure_line(ui, REGION_CATCHING_UP, t::page_catching_up());
 }
 
 /// Draw one disclosure sentence into the bar's single row, and publish its
@@ -305,6 +355,11 @@ fn blend_space_disclosure(ui: &mut egui::Ui, doc: &OpenDoc) {
 
 /// Draw all three, in the order the parent expects.
 pub(super) fn all(ui: &mut egui::Ui, doc: &OpenDoc) {
+    // ★ First, and the order is the argument: the other three describe what an
+    // edit DID, and this one describes whether the operator is looking at the
+    // result yet. Reading "the picture is still being drawn" after a sentence
+    // about what was drawn puts the two in the wrong causal order.
+    catching_up(ui, doc);
     fill_disclosure(ui, doc);
     edit_disclosure(ui, doc);
     recovered_disclosure(ui, doc);

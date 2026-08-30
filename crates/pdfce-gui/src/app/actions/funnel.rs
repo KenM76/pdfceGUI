@@ -56,6 +56,12 @@ pub(super) fn vector_edit<E: std::fmt::Display>(
     match edit(session) {
         Ok(disclosures) => {
             doc.edit_epoch = doc.edit_epoch.wrapping_add(1);
+            // ★★ Stamped in the SAME statement group as the bump, because the
+            // two are one fact — *the document changed, at this moment* — and a
+            // second place that set one without the other would produce a
+            // "catching up" line measured from the wrong edit. `OPERATOR_REQUESTS.md`
+            // O63; see `OpenDoc::page_is_catching_up`.
+            doc.last_edit_at = Some(std::time::Instant::now());
             // ★ The texture is NOT dropped here — the fix for 2026-08-18's
             // *"the page goes blank and flashes after every change."*
             //

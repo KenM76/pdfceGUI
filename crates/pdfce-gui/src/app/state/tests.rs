@@ -372,3 +372,72 @@ fn retiring_clears_a_dead_hold_and_keeps_a_live_one() {
         "retiring must not delete a hold that is still doing its job"
     );
 }
+
+/// ★★★ The page-is-catching-up line is silent under the threshold, and speaks
+/// past it — and speaks for EVERY edit, not only the ones with a shape.
+///
+/// # Why the silent half is the one worth pinning
+///
+/// The picture is behind after **every** edit, for a few milliseconds on a
+/// simple page. A line that appeared each time would flash on and off on every
+/// keystroke, and a status bar that flickers is one the operator stops reading —
+/// which costs every *other* sentence the bar carries. Losing that bound is a
+/// larger regression than losing the feature.
+#[test]
+fn the_catching_up_line_waits_before_it_speaks() {
+    let mut doc = open_local_fixture("polyline-nodes.pdf");
+    doc.edit_epoch = 5;
+    doc.page_texture_epoch = 4;
+
+    doc.last_edit_at = Some(std::time::Instant::now());
+    assert!(
+        !doc.page_is_catching_up(),
+        "the picture is behind by a few milliseconds after every edit; saying so each time is \
+         noise that costs every other sentence in the bar"
+    );
+
+    doc.last_edit_at = Some(std::time::Instant::now() - std::time::Duration::from_millis(600));
+    assert!(
+        doc.page_is_catching_up(),
+        "600 ms is past the point where a person starts wondering whether the program heard \
+         them — and an operator who cannot tell 'drawing' from 'ignored me' presses the button \
+         again, which is a second edit neither of them wanted"
+    );
+}
+
+/// It stops the moment the picture is correct.
+///
+/// ★ No retirement rule and nothing to remember to clear: it is a STATE, unlike
+/// every other line in that half of the bar, which are events keyed on the
+/// epoch. A test rather than a comment because "it stops on its own" is exactly
+/// the kind of claim that quietly stops being true.
+#[test]
+fn the_catching_up_line_stops_when_the_raster_lands() {
+    let mut doc = open_local_fixture("polyline-nodes.pdf");
+    doc.edit_epoch = 5;
+    doc.page_texture_epoch = 5;
+    doc.last_edit_at = Some(std::time::Instant::now() - std::time::Duration::from_secs(30));
+    assert!(
+        !doc.page_is_catching_up(),
+        "the texture carries the edit, so there is nothing to catch up to — and a sentence \
+         claiming otherwise over a correct picture is simply false"
+    );
+}
+
+/// A document nobody has edited says nothing, however far apart the epochs are.
+///
+/// ★ The guard this pins is `last_edit_at: None`. Without it, a freshly opened
+/// document whose first raster has not landed would announce that it is catching
+/// up — on open, before the operator has done anything at all, which is the
+/// worst possible first sentence for a program to say about itself.
+#[test]
+fn an_unedited_document_never_says_it_is_catching_up() {
+    let mut doc = open_local_fixture("polyline-nodes.pdf");
+    doc.edit_epoch = 0;
+    doc.page_texture_epoch = 7;
+    assert!(doc.last_edit_at.is_none());
+    assert!(
+        !doc.page_is_catching_up(),
+        "nothing has been edited, so there is no edit for the picture to be behind"
+    );
+}

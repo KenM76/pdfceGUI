@@ -181,3 +181,45 @@ impl OpenDoc {
         });
     }
 }
+
+/// How far behind the picture must be before the program says so.
+///
+/// # ★★★ Why a threshold rather than "whenever it is behind"
+///
+/// The picture is behind after **every** edit — for a few milliseconds on a
+/// simple page, for a second or two on a dense one. A sentence that appeared
+/// every time would flash on and off on every keystroke, and a status line that
+/// flickers is one the operator stops reading. That costs every *other*
+/// sentence the bar carries, which is a far larger loss than this one is a gain.
+///
+/// 400 ms is past the point where a person notices a wait and starts wondering
+/// whether the program heard them. Below it, saying nothing is the correct
+/// behaviour and not merely the cheap one.
+const CATCHING_UP_AFTER: std::time::Duration = std::time::Duration::from_millis(400);
+
+impl OpenDoc {
+    /// **Is the picture on screen behind the document, noticeably?**
+    ///
+    /// # What this answers, and why it is not the same question as the hold
+    ///
+    /// [`Self::held_preview_to_draw`] asks *"should this particular geometry
+    /// still be drawn?"* and only ever has an answer for a **canvas gesture on
+    /// a path**. This asks *"is the page the operator is looking at out of
+    /// date?"* and has an answer for **every edit in the program** — a colour,
+    /// a Bold press, a delete, a redaction mark, a page rotation, an undo.
+    ///
+    /// ⇒ That is the whole reason it exists. `OPERATOR_REQUESTS.md` O63 is
+    /// *"live preview for everything we do"*, and a drawn preview is only
+    /// possible where the shell holds the geometry. Where it does not, the
+    /// honest substitute is not a worse picture — it is **saying that the
+    /// picture is not the answer yet**, which is the third of the three options
+    /// the operator chose between and the one with no failure mode.
+    ///
+    /// ★ Deliberately silent under [`CATCHING_UP_AFTER`]: see that constant.
+    pub(crate) fn page_is_catching_up(&self) -> bool {
+        self.page_texture_epoch != self.edit_epoch
+            && self
+                .last_edit_at
+                .is_some_and(|at| at.elapsed() >= CATCHING_UP_AFTER)
+    }
+}

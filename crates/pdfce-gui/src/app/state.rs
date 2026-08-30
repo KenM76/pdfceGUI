@@ -322,6 +322,14 @@ pub struct OpenDoc {
     /// [`heldpreview`](super::state::heldpreview), beside the code that
     /// enforces it. Do not restate it here; one fact, one place.
     pub(crate) held_preview: Option<HeldPreview>,
+    /// When the last edit bumped [`Self::edit_epoch`].
+    ///
+    /// ★ For one question and one only: **has the picture been behind long
+    /// enough to be worth saying so?** See
+    /// [`page_is_catching_up`](Self::page_is_catching_up); the argument is in
+    /// [`heldpreview`](super::state::heldpreview)'s header beside the rest of
+    /// O63's timing.
+    pub(crate) last_edit_at: Option<std::time::Instant>,
     /// **The other visible pages' rasters**, under a continuous mode.
     ///
     /// Empty for the whole of a single-page session — which is the mechanical
@@ -901,6 +909,7 @@ impl OpenDoc {
             page_texture: None,
             page_texture_epoch: 0,
             held_preview: None,
+            last_edit_at: None,
             // Empty by construction, like everything else here. A strip cache
             // carried across an open would hold textures of another file's
             // pages under this file's indices.

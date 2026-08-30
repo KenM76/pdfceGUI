@@ -96,6 +96,12 @@ pub use formdelete::field_delete_declined_structural;
 /// difference between a structural fix and a churn commit — no call site in
 /// this crate changed, and none should have to when a catalog area is
 /// reorganised internally.
+/// **Sentences about the program being busy** — a different species from
+/// everything else in this catalog: a STATE rather than an event, with no
+/// retirement rule. Its header carries the distinction.
+pub mod waiting;
+pub use waiting::page_catching_up;
+
 pub use selection::{
     TextStyleRefusal, selection_inside_form_declined, selection_many, selection_one,
     selection_one_in_form, selection_one_in_form_unsized, selection_one_unsized,
