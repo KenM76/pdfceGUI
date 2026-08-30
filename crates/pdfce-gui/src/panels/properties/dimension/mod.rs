@@ -90,7 +90,10 @@ use crate::canvas::selection::AnnotKind;
 use crate::text::panels::dimension as t;
 
 /// The region this section publishes.
-pub const REGION: &str = "properties.dimension"; // ui-text-exempt: trace region name, never displayed
+const REGION: &str = "properties.dimension"; // ui-text-exempt: trace region name, never displayed
+/// The region the label-override box publishes, for a driven check to aim at.
+pub const LABEL_REGION: &str = "properties.dimension.label"; // ui-text-exempt: trace region name, never displayed
+
 /// The region the radius/diameter choice publishes.
 pub const REGION_DISPLAY: &str = "properties.dimension.display"; // ui-text-exempt: trace region name, never displayed
 
@@ -201,6 +204,7 @@ pub fn section(ui: &mut Ui, doc: &OpenDoc, actions: &mut Vec<Action>) -> bool {
     }
 
     display_toggle(ui, record, actions);
+    label_row(ui, record, actions);
 
     // --- the overrides --------------------------------------------------
     ui.separator();
@@ -221,6 +225,95 @@ pub fn section(ui: &mut Ui, doc: &OpenDoc, actions: &mut Vec<Action>) -> bool {
     }
     ui.separator();
     true
+}
+
+/// **Say something other than the measurement**, without changing it.
+///
+/// `EditSession::set_dimension_label`, shipped 2026-08-30.
+///
+/// # ★★★ It does NOT destroy the measurement, and that is the whole design
+///
+/// The engine's own note is titled for it: *"dimension text override ships and
+/// it does not destroy the measurement."* The override is a **caption**; the
+/// measured value stays underneath, so `None` restores it with **no
+/// re-measurement** — the number that comes back is the number that was always
+/// there, not a fresh calculation that might round differently.
+///
+/// ⇒ That is why this control is a text box with a Clear beside it rather than
+/// an editable value field. An editable value would imply the operator was
+/// changing what was measured, and on a drawing that is the difference between
+/// a note and a lie.
+///
+/// # ★★ Why the measured value is shown even while overridden
+///
+/// `DimensionLabelChange` carries `measured` and `printed` separately, and this
+/// shows both whenever they differ. An operator looking at a ce dimension that
+/// reads *"see detail B"* has no other way to find out what it actually
+/// measures — and the one place that fact must be available is beside the
+/// control that hid it.
+///
+/// # Committed on focus loss, not per keystroke
+///
+/// `super::widgetedit`'s rule: one control press is one undo entry. A caption
+/// typed a character at a time would author twelve commands and leave eleven
+/// intermediate states in the undo stack that the operator never saw.
+fn label_row(
+    ui: &mut Ui,
+    record: &pdfce_core::dimension::DimensionRecord,
+    actions: &mut Vec<Action>,
+) {
+    ui.separator();
+    ui.label(t::label_heading());
+
+    let current = record.label_override.clone().unwrap_or_default();
+    let id = ui.make_persistent_id(("dimension-label", record.id.0));
+    let mut draft: String = ui
+        .data(|d| d.get_temp::<String>(id))
+        .unwrap_or_else(|| current.clone());
+
+    let response = ui.text_edit_singleline(&mut draft);
+    crate::diag::ui_rect(LABEL_REGION, response.rect);
+    ui.data_mut(|d| d.insert_temp(id, draft.clone()));
+
+    // ★ On focus loss OR Enter — the two ways a person finishes typing. Neither
+    // alone is enough: an operator who tabs away has finished, and one who
+    // presses Enter without moving has too.
+    let done = response.lost_focus();
+    if done && draft.trim() != current {
+        let next = draft.trim();
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            format!(
+                "dimension-label-requested id={} len={}",
+                record.id.0,
+                next.len()
+            )
+        });
+        actions.push(Action::Dimension(DimensionAction::SetLabel {
+            dimension: record.id,
+            // ★★ EMPTY MEANS RESTORE, and the engine says so in as many words:
+            // *"pass `None` to restore the measurement instead."* Clearing the
+            // box is the operator saying "go back to the number", which is
+            // exactly what `None` means — so there is no separate Clear button
+            // to keep in step with the field.
+            label: (!next.is_empty()).then(|| next.to_owned()),
+        }));
+    }
+
+    // ★★ The measured value is NOT shown here, and it is a real gap rather
+    // than a decision: `DimensionRecord` does not carry it — the measurement is
+    // computed from the geometry and the group's scale, and only
+    // `DimensionLabelChange` hands it back, at the moment of a change.
+    //
+    // ⇒ So an operator looking at a ce dimension captioned *"see detail B"* has
+    // no way here to learn what it actually measures. That is worth closing and
+    // is filed rather than papered over; the honest interim is to say the
+    // measurement is still underneath, which is the fact that decides whether
+    // they trust the override at all.
+    if record.label_override.is_some() {
+        ui.small(t::label_overridden());
+    }
+    ui.small(t::label_hint());
 }
 
 /// The radius / diameter choice, for a circular ce dimension only.

@@ -199,6 +199,7 @@ pub mod progressive;
 pub mod signature_save;
 pub mod unembed_fonts;
 pub mod widget_move;
+pub mod widget_rotate;
 
 /// `ocr_recognises_a_page_and_the_document_keeps_it` — the whole Recognise-text
 /// chain against a genuinely image-only document, ending in the one assertion
@@ -1082,6 +1083,8 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(redact_selection::ASelectedObjectCanBeMarkedForRedaction),
         // ★ O61 — the document-safety disclosure.
         Box::new(reach_out::ADocumentThatPhonesHomeSaysSo),
+        // ★ O62 — the rotation direction, which is one sign and invisible.
+        Box::new(widget_rotate::TurningAFieldRightTurnsItRight),
         // ★ O59 item 2 — the page clipboard.
         Box::new(page_clipboard::PagesCanBeCopiedAndPasted),
         // ★ O59 item 3 — the bookmark clipboard, and the one operation in

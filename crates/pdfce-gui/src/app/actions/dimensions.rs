@@ -306,6 +306,27 @@ pub enum DimensionAction {
     /// it is already holding, which costs nothing and needs no round trip — but
     /// the guarantee is what makes a Delete press safe to offer at all rather
     /// than gated behind a count the surface might have got wrong.
+    /// ★★★ **Say something other than the measurement**, without changing it.
+    ///
+    /// `EditSession::set_dimension_label`, shipped 2026-08-30. Raised by
+    /// `panels::properties::dimension::label_row` and by nothing else.
+    ///
+    /// # The engine's own headline: it does NOT destroy the measurement
+    ///
+    /// The override is a **caption**. The measured value stays underneath, so
+    /// `None` restores it with **no re-measurement** — the number that comes
+    /// back is the one that was always there rather than a fresh calculation
+    /// that might round differently.
+    ///
+    /// ⇒ Which is why `label` is an `Option` and why the panel has no Clear
+    /// button: clearing the box *is* `None`, and a second control that meant
+    /// the same thing would be a second way to reach one state.
+    SetLabel {
+        /// Which ce dimension.
+        dimension: pdfce_core::dimension::DimensionId,
+        /// The caption, or `None` to show the measurement again.
+        label: Option<String>,
+    },
     DeleteGroup {
         /// The group to remove.
         group: GroupId,
@@ -658,6 +679,50 @@ impl DimensionAction {
 /// rather than the signature gaining an `Option<usize>` that every other caller
 /// would have to spell. The wholesale clear in step 1 is what actually
 /// discharges the invalidation; the page reaches the funnel only as a label.
+/// **Set or clear a ce dimension's caption.**
+///
+/// # ★★ What is reported, and why the restore says something different
+///
+/// `DimensionLabelChange` carries `measured` and `printed` separately. When an
+/// override goes on they differ, and the receipt names **both** — the operator
+/// has just hidden a number and the one place that number must still be
+/// available is the sentence about hiding it.
+///
+/// When the override comes **off**, `printed` becomes `measured` again and the
+/// receipt says so plainly. That is not a formality: the whole reassurance this
+/// feature rests on is that clearing the caption restores the *original*
+/// measurement rather than re-measuring, and a receipt naming the number is
+/// what lets an operator confirm it did.
+///
+/// ★ `changed: false` produces no disclosure at all. The engine returns `Ok`
+/// for a no-op — setting a caption to what it already says — and a sentence
+/// there would evict a real disclosure to report that nothing happened.
+fn set_label(
+    doc: &mut OpenDoc,
+    dimension: pdfce_core::dimension::DimensionId,
+    label: Option<&str>,
+) {
+    let page = doc.view.page_index;
+    super::apply::vector_edit(doc, "dimension-label", page, 1, |session| {
+        session.set_dimension_label(dimension, label).map(|report| {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                format!(
+                    "dimension-label-applied id={} changed={} measured={:?} printed={:?}",
+                    dimension.0, report.changed, report.measured, report.printed
+                )
+            });
+            if !report.changed {
+                return Vec::new();
+            }
+            vec![match report.applied {
+                Some(_) => crate::text::panels::dimension::label_set(&report.measured),
+                None => crate::text::panels::dimension::label_restored(&report.printed),
+            }]
+        })
+    });
+}
+
 pub(super) fn apply(doc: &mut OpenDoc, action: DimensionAction) {
     if action.regenerates_the_whole_group() {
         doc.strip_rasters.clear();
@@ -728,6 +793,12 @@ pub(super) fn apply(doc: &mut OpenDoc, action: DimensionAction) {
         // Reporting a second count afterwards would be two answers to one
         // question — the shape `set_group_style`'s return value already taught
         // this module to refuse.
+        // ★ One line: `set_dimension_label` owns the whole contract — the
+        // whitespace-only refusal, keeping the measurement, and regenerating
+        // the appearance at the new caption.
+        DimensionAction::SetLabel { dimension, label } => {
+            set_label(doc, dimension, label.as_deref());
+        }
         DimensionAction::DeleteGroup { group, policy } => {
             // A reassignment moves members between groups, which re-measures
             // and redraws each of them wherever it is. A refusal moves nothing.

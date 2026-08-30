@@ -80,6 +80,90 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O62 — ◐ Turn a form field's box · Say something other than the measurement — BUILT, NOT DRIVEN
+
+**Ken, 2026-08-30:** *"finish those 2 then release."*
+
+Both are built, gate-clean and unit-tested. **Neither could be driven**, and the
+reason is the machine rather than the code — see the last section, which is the
+part that matters most.
+
+---
+
+### Turn a form field's box
+
+In the field's **Properties**, beside its position and size: **Turn left** and
+**Turn right**, a quarter turn each. It turns what is drawn *inside* the box; the
+box itself stays where it is, and the hint says so because that is the surprise.
+
+★★★ **The direction was the whole risk.** In PDF, a widget's rotation is
+**counterclockwise** while a *page's* rotation is **clockwise** — and the
+standard's two sentences are word for word identical apart from that one word.
+The engine flagged it as *"the single most likely thing for a shell to get
+backwards"*. A shell that missed it would ship two buttons that both work, both
+write a legal angle, and both turn the box the wrong way, **with nothing
+failing anywhere**.
+
+So the controls say *left* and *right* — what you watch the box do — and the
+negation happens in exactly one line, at the panel, which is where the engine
+asked for it.
+
+★ **The control moved while I was testing it.** With every properties section
+drawn, it landed at y=1379 in a window 768 points tall: scrollable-to, but four
+unrelated sections down. It now sits with position and size, which is where it
+belongs anyway — turning a box is geometry, not captioning.
+
+### Say something other than the measurement
+
+A ce dimension's properties gained a text box. Type in it and the ce dimension
+shows your words; clear it and the measurement comes back.
+
+★★ **It does not change what was measured**, and that is the design rather than
+a caveat. The measurement stays underneath, so clearing the box restores
+**exactly the number that was there** — not a fresh calculation that might round
+differently. The receipt names the number both times, going on and coming off,
+because that is the only way to confirm it rather than trust it. On a drawing,
+text that *replaces* a measured value and text that *changed* it are a note and
+a lie respectively.
+
+There is no Clear button: emptying the box **is** the restore.
+
+### ⬜ The attachment clipboard, deliberately not done
+
+The third item on the list I gave you, and you said two. It is also the least
+valuable of the three: pasting an attachment is what *Attach a file* already
+does, so the only new capability is lifting one out of a document to put in
+another. Say the word.
+
+---
+
+### ★★★ NOT DRIVEN, AND THE EVIDENCE SAYS IT IS THE MACHINE
+
+Every input-driving check now reports:
+
+> *the window containing (1224, 538) could not be brought to the front. Windows
+> refuses `SetForegroundWindow` to a process without foreground rights.*
+
+**Including checks that passed an hour earlier in this same session, unchanged.**
+`a_form_field_can_be_copied_and_pasted_both_ways` was green at 13:0x and skips
+identically now. That is the tell: it is not the new code, it is that this
+machine has stopped granting the harness the foreground.
+
+⇒ So the two features above are **built and gate-clean and unverified by
+driving**, and that is stated in those words rather than softened. R1 is the rule
+this project was founded on: *"the tests pass" is not a report of working
+software.* Two new checks are written and registered and waiting —
+`turning_a_field_right_turns_it_right` asserts the rotation is **270** after one
+right turn, which is the single number that catches a missing negation.
+
+**Run them first thing next session** — the fifth documented way to run this
+suite wrongly is a busy foreground, and it clears.
+
+**Status:** ◐ **BUILT AND RELEASED, NOT DRIVEN.** Two checks written, blocked on
+the machine, first job next session.
+
+---
+
 ## O61 — ✅ pdfce now tells you when a document phones home · ⬜ buttons still cannot be given actions
 
 **Ken, 2026-08-30:** *"I think pdfce added support for several button features

@@ -96,6 +96,13 @@
 //! other one — the render worker stopped, the mutation, the epoch bumped, the
 //! page invalidated. Nothing here is special except the wording.
 
+/// ★ **Verbs about the BOX rather than the field** — rotation today, and the
+/// natural home for the next one. Split out under R2 when `rotate_widget`
+/// arrived; a field's identity and a widget's placement are two subjects.
+/// ★ **Authoring a form control from the placement dialog's choices** —
+/// `author`, split out under R2 on 2026-08-30. Its sibling `paste` is
+/// authoring from a SOURCE; the two are not duplicates and the headers say why.
+pub(super) mod author;
 /// Deleting a **grouping node** — the two-press verb, its preview store and
 /// both apply paths.
 ///
@@ -111,6 +118,7 @@ pub mod groups;
 /// on 2026-08-29 under R2 when it took this file to 1,501 lines. Its header
 /// carries why the shell does almost nothing in it any more.
 mod paste;
+mod widget;
 
 use pdfce_core::object::ObjId;
 
@@ -229,6 +237,22 @@ pub enum FieldAction {
         /// the operator touched, not the one the standard named."* This carries
         /// which control that was, because after the fact nothing else can say.
         touched: &'static str,
+    },
+    /// ★★★ **Turn a field's box**, in ninety-degree steps.
+    ///
+    /// The degrees are **already counterclockwise and already normalised**:
+    /// `/MK /R` is counterclockwise while the page's `/Rotate` is clockwise, and
+    /// the engine's instruction was *"negate at the UI layer … do not negate
+    /// inside anything that touches `/MK`"*. `panels::properties::widgetedit`'s
+    /// `rotation_row` is the only place the operator's *left / right* becomes a
+    /// sign, and `super::widget` carries what the applier does with it.
+    RotateWidget {
+        /// The field's fully-qualified name.
+        field: String,
+        /// Which of its boxes — a field can draw on three pages.
+        widget: usize,
+        /// The new angle, counterclockwise, already in `0..360`.
+        degrees: i64,
     },
     /// **Change one property of the BOX a field is drawn in.**
     ///
@@ -532,6 +556,15 @@ pub(super) fn apply(doc: &mut OpenDoc, action: FieldAction) {
         // ★ Selection is VIEW STATE. It changes no document, bumps no epoch and
         // invalidates no page — which is why it does not go near the funnel.
         FieldAction::Select(selected) => doc.selected_field = selected,
+        // ★ One line: the panel already resolved left/right into a
+        // counterclockwise angle, and `rotate_widget` owns the rest -- the
+        // multiple-of-90 refusal, the normalisation and the appearance
+        // regeneration it may or may not be able to do.
+        FieldAction::RotateWidget {
+            field,
+            widget,
+            degrees,
+        } => widget::rotate(doc, &field, widget, degrees),
         FieldAction::Paste {
             page,
             rect,
@@ -707,7 +740,7 @@ pub(super) fn field_names(doc: &OpenDoc) -> Vec<String> {
 /// it does not check `Text.2` itself, because a name that already exists as a
 /// terminal field of the same type is a legitimate **merge** and is exactly what
 /// `Ctrl+Shift+V` relies on.
-fn group_is_a_field(doc: &OpenDoc, name: &str) -> Option<String> {
+pub(super) fn group_is_a_field(doc: &OpenDoc, name: &str) -> Option<String> {
     if !name.contains('.') {
         return None;
     }
@@ -727,160 +760,6 @@ fn group_is_a_field(doc: &OpenDoc, name: &str) -> Option<String> {
         }
     }
     None
-}
-
-pub(super) fn author(
-    doc: &mut OpenDoc,
-    page: usize,
-    rect: pdfce_core::page_tree::Rect,
-    draft: &crate::canvas::formfield::Draft,
-) {
-    use crate::canvas::formfield::FormFieldKind as K;
-    use pdfce_core::edit::{
-        BorderSpec, BorderStyle, ChoiceOption, NewCheckBox, NewChoiceField, NewPushButton,
-        NewRadioButton, NewTextField, TooltipChoice,
-    };
-
-    // ★★★ REFUSE A NAME THAT WOULD SWALLOW AN EXISTING FIELD, before anything
-    // is written. See `group_is_a_field` — this is a shim for an engine gap and
-    // it guards unrecoverable data loss, so it runs first.
-    if let Some(victim) = group_is_a_field(doc, draft.name.trim()) {
-        crate::diag::trace(|| {
-            // ui-text-exempt: diagnostic trace, never displayed.
-            format!("add-form-field-refused reason=group-is-a-field victim={victim}")
-        });
-        crate::app::actions::record_note(
-            doc.edit_epoch,
-            crate::text::fieldclip::name_would_swallow(&victim),
-        );
-        return;
-    }
-
-    let name = draft.name.trim().to_owned();
-    // ★ Empty means DECLINED, not undecided. See the header — this one line is
-    // the difference between a feature and a nine-day blocker.
-    let tooltip = if draft.tooltip.trim().is_empty() {
-        TooltipChoice::Declined
-    } else {
-        TooltipChoice::Text(draft.tooltip.trim().to_owned())
-    };
-    // A zero width is how PDF spells "no border", so the operator's choice
-    // travels as a number rather than as a second boolean that could disagree
-    // with it.
-    let border = BorderSpec {
-        style: BorderStyle::Solid,
-        width: draft.border_width.max(0.0),
-    };
-    let kind = draft.kind;
-    // ★★★ The epoch BEFORE, so the selection below is set only if the field was
-    // actually authored. `vector_edit` bumps it on success and leaves it alone
-    // on a refusal, which is the one signal available here -- the closure's
-    // `Result` is consumed inside the funnel.
-    let before = doc.edit_epoch;
-    let placed_name = draft.name.trim().to_owned();
-
-    super::apply::vector_edit(doc, "add-form-field", page, 1, |session| {
-        let outcome = match kind {
-            K::Text => {
-                let mut spec = NewTextField::new(page, name, rect);
-                spec.value = draft.value.clone();
-                spec.max_len = draft.max_len;
-                spec.tooltip = tooltip;
-                spec.multiline = draft.multiline;
-                spec.password = draft.password;
-                // ★ Gated on `comb_ok` rather than on the flag alone, so the
-                // dialog's rule and the authored field cannot disagree: comb
-                // divides the width into `max_len` cells, and without a
-                // maximum there is nothing to divide by.
-                spec.comb = draft.comb && draft.comb_ok();
-                spec.read_only = draft.read_only;
-                spec.required = draft.required;
-                spec.border = border;
-                session.add_text_field(&spec)
-            }
-            K::CheckBox => {
-                let mut spec = NewCheckBox::new(page, name, rect);
-                spec.on_state = draft.export_value.clone();
-                spec.checked = draft.checked;
-                spec.tooltip = tooltip;
-                spec.read_only = draft.read_only;
-                spec.required = draft.required;
-                spec.border = border;
-                session.add_check_box(&spec)
-            }
-            K::Radio => {
-                let mut spec = NewRadioButton::new(page, name, rect, draft.export_value.clone());
-                spec.selected = draft.checked;
-                spec.tooltip = tooltip;
-                // `no_toggle_to_off` and `radios_in_unison` are left at the
-                // engine's defaults rather than exposed: they are properties of
-                // a GROUP, not of the widget being placed, so offering them
-                // per-widget would let two members of one group carry
-                // contradictory answers. They belong on a group editor, which
-                // is the properties pane's business.
-                spec.read_only = draft.read_only;
-                spec.required = draft.required;
-                spec.border = border;
-                session.add_radio_button(&spec)
-            }
-            K::Choice => {
-                // Export value and display text the same, deliberately — which
-                // is what `ChoiceOption::plain` means. They differ only when a
-                // form is submitted to a system that wants a code rather than a
-                // label, which is a second column this dialog does not offer
-                // and must not guess at.
-                let options: Vec<ChoiceOption> = draft
-                    .options()
-                    .into_iter()
-                    .map(ChoiceOption::plain)
-                    .collect();
-                let mut spec = NewChoiceField::new(page, name, rect, options);
-                spec.combo = draft.combo;
-                spec.editable = draft.editable;
-                spec.multi_select = draft.multi_select;
-                spec.sort = draft.sort;
-                spec.tooltip = tooltip;
-                spec.read_only = draft.read_only;
-                spec.required = draft.required;
-                spec.border = border;
-                session.add_choice_field(&spec)
-            }
-            K::PushButton => {
-                let mut spec = NewPushButton::new(page, name, rect, draft.caption.clone());
-                spec.tooltip = tooltip;
-                spec.read_only = draft.read_only;
-                spec.border = border;
-                session.add_push_button(&spec)
-            }
-        };
-        outcome.map(|o| disclosures(&o, kind))
-    });
-
-    // ★★★ SELECT WHAT WAS JUST PLACED. `OPERATOR_REQUESTS.md` **O53**.
-    //
-    // Every program in this class leaves a newly drawn object selected --
-    // Acrobat, Word, PowerPoint, Visio, Illustrator, Inkscape -- and they
-    // disagree about whether the TOOL stays armed. So the arming is a taste
-    // question with a convergent default (`dialogs::formfield` takes Acrobat's)
-    // and this is not: it is the half none of them differ on.
-    //
-    // ★★ It is what makes the operator's next gesture work. He drew a checkbox
-    // and reported *"I can't select it on the canvas to move or resize"*; with
-    // the tool put down AND the field selected, the grips are already there and
-    // the drag is already live. Requiring a click to select something he just
-    // created is a step no other editor asks for.
-    //
-    // ★ Widget 0, because a field authored here has exactly one -- `add_*_field`
-    // places a single widget. A field with several is one that grew later,
-    // through `merge_document` or a hand-edited file, and there is no "the new
-    // one" to name in that case.
-    if doc.edit_epoch != before && !placed_name.is_empty() {
-        doc.selected_field = Some(crate::app::state::SelectedField {
-            field: placed_name,
-            widget: 0,
-            page,
-        });
-    }
 }
 
 /// **Rename the selected field.**
@@ -1188,7 +1067,7 @@ pub(super) fn rename(doc: &mut OpenDoc, from: &str, to: &str) {
 ///
 /// ★ Order is deliberate: **`merged` first**, because it is the only one that
 /// changes what the operator believes they just made. The rest are advisory.
-fn disclosures(
+pub(super) fn disclosures(
     outcome: &pdfce_core::edit::FieldAuthorOutcome,
     kind: crate::canvas::formfield::FormFieldKind,
 ) -> Vec<String> {

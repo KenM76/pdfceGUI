@@ -450,6 +450,76 @@ pub const fn tolerance_places_follows() -> &'static str {
     "Same decimals as the measurement"
 }
 
+/// The label-override section's heading.
+///
+/// ★ *"What it says"*, not *"Label"* or *"Text"*. The operator is choosing
+/// between the measured number and their own words, and the heading that makes
+/// that obvious is the one phrased as the question they are answering.
+#[must_use]
+pub const fn label_heading() -> &'static str {
+    "What it says"
+}
+
+/// The hint under the box.
+///
+/// ★★★ Both halves matter and neither is optional.
+///
+/// *"Leave empty to show the measurement"* is the **only** discoverable route
+/// back: there is no Clear button, because clearing the box IS the restore —
+/// the engine's `None` — and a control whose reset is invisible is a control an
+/// operator gets stuck in.
+///
+/// *"The measurement is kept underneath"* is the fact that decides whether they
+/// trust the feature at all. On a drawing, text that replaces a measured value
+/// is indistinguishable from text that *changed* it, and those are a note and a
+/// lie respectively. The engine keeps the measurement and restores it with no
+/// re-measurement; this is where an operator learns that.
+#[must_use]
+pub const fn label_hint() -> &'static str {
+    "Leave it empty to show the measurement. The measurement is kept underneath either way, so \
+     clearing this brings back exactly the number that was there before."
+}
+
+/// Shown while an override is in force.
+///
+/// ★★ It says the measurement is still there and does **not** say what it is,
+/// which is honest rather than coy: `DimensionRecord` does not carry the
+/// measured value — it is computed from the geometry and the group's scale —
+/// so this shell cannot print it here without re-measuring, and a number
+/// derived a second way is exactly the divergence this project keeps meeting.
+///
+/// ⇒ Filed as a gap. The interim sentence is the half that is true and useful.
+#[must_use]
+pub const fn label_overridden() -> &'static str {
+    "This is showing your text instead of the measurement."
+}
+
+/// **The caption is on** — and this names the number it hid.
+///
+/// ★★★ The measured value goes in the receipt because this is the one moment
+/// the shell has it. `DimensionRecord` does not carry the measurement — it is
+/// computed from the geometry and the group's scale — and only
+/// `DimensionLabelChange` hands it back. So an operator who overrides a ce
+/// dimension and wants to know what it actually measured has exactly one
+/// chance to read it, here.
+#[must_use]
+pub fn label_set(measured: &str) -> String {
+    format!(
+        "Showing your text instead. It still measures {measured}, and clearing the box brings that back."
+    )
+}
+
+/// **The caption is off** — and this names the number that came back.
+///
+/// ★★ It names the value deliberately, because the reassurance this whole
+/// feature rests on is that clearing an override restores the ORIGINAL
+/// measurement rather than re-measuring. A receipt carrying the number is what
+/// lets an operator confirm that rather than take it on trust.
+#[must_use]
+pub fn label_restored(printed: &str) -> String {
+    format!("Back to the measurement: {printed}.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

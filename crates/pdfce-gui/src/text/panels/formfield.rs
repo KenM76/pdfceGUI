@@ -750,6 +750,82 @@ pub fn visibility_unmappable(flags: u32) -> String {
     format!("This box uses display flags pdfce cannot set (0x{flags:04X}), so they are left alone.")
 }
 
+/// **The box's current rotation**, and the fact that `None` is not zero.
+///
+/// ★★ `Widget::rotation` is `Option<i64>`, and the distinction is the same one
+/// `Widget::border`'s docs call *"a fact to display, not a value to
+/// substitute"*: `None` means **the file states none**, `Some(0)` means the
+/// file says zero. They render identically and they are different facts, and an
+/// operator debugging why a box looks wrong in another viewer wants to know
+/// which their file carries.
+#[must_use]
+pub fn widget_rotation_label(rotation: Option<i64>) -> String {
+    match rotation {
+        None => "Turned: not set in this file (which draws the same as 0\u{00b0}).".to_owned(),
+        Some(0) => "Turned: 0\u{00b0}.".to_owned(),
+        Some(d) => format!("Turned: {d}\u{00b0} anticlockwise."),
+    }
+}
+
+/// Turn the box a quarter turn to the LEFT.
+///
+/// ★★★ *Left* and *right*, never *clockwise* and *anticlockwise*, and never a
+/// signed number. `/MK /R` is counterclockwise while the page's `/Rotate` is
+/// clockwise, and the standard's two sentences differ by exactly one word — so
+/// a label that named a direction convention would be asking the operator to
+/// hold the trap that caught the engine's own reviewers. *Left* is what they
+/// watch the box do.
+#[must_use]
+pub const fn widget_rotate_left() -> &'static str {
+    "Turn left"
+}
+
+/// Turn the box a quarter turn to the right.
+#[must_use]
+pub const fn widget_rotate_right() -> &'static str {
+    "Turn right"
+}
+
+/// What turning does and does not affect.
+///
+/// ★ It says the box stays put, because that is the surprise: `/MK /R` turns
+/// what is drawn INSIDE the rectangle and leaves the rectangle itself alone
+/// (§12.5.5 maps the appearance's `/BBox` into `/Rect`). An operator expecting
+/// a tall box to become a wide one needs telling once.
+#[must_use]
+pub const fn widget_rotation_hint() -> &'static str {
+    "Turns what is drawn inside the box. The box itself stays where it is."
+}
+
+/// **The rotation landed** — the receipt.
+#[must_use]
+pub fn widget_rotated(now: i64, siblings: usize) -> String {
+    if siblings == 0 {
+        format!("Turned to {now}\u{00b0} anticlockwise.")
+    } else if siblings == 1 {
+        format!(
+            "Turned to {now}\u{00b0} anticlockwise. This field has one other box and it was left \
+             alone."
+        )
+    } else {
+        format!(
+            "Turned to {now}\u{00b0} anticlockwise. This field has {siblings} other boxes and they \
+             were left alone."
+        )
+    }
+}
+
+/// **The rotation was written and the drawing did not follow.**
+///
+/// ★★ Not a failure: the file is correct and carries the new angle. The baked
+/// appearance could not be regenerated, so the box keeps drawing at its old
+/// orientation until something regenerates it — and an operator watching a box
+/// refuse to turn is owed the reason rather than a mystery.
+#[must_use]
+pub fn widget_rotation_stale(why: &str) -> String {
+    format!("The box will keep drawing the old way round until its appearance is rebuilt: {why}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

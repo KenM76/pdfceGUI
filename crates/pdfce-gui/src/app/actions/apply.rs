@@ -760,7 +760,7 @@ impl PdfceApp {
             // operator then cancelled.
             Action::Field(FieldAction::Commit { page, rect, draft }) => {
                 self.form_defaults.remember(&draft);
-                super::forms::author(doc, page, rect, &draft);
+                super::forms::author::author(doc, page, rect, &draft);
             }
             // ★ The restyle family, routed like every other sub-verb. Its arm
             // is one line and its module is four hundred, which is the right

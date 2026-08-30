@@ -124,6 +124,20 @@ pub const BORDER_REGION: &str = "properties.widget_edit.border";
 /// The border-width spinner's region.
 // ui-text-exempt: trace region name, never displayed
 pub const BORDER_WIDTH_REGION: &str = "properties.widget_edit.border_width";
+
+/// The rotation row, for layout checks.
+pub const ROTATION_REGION: &str = "properties.widget_edit.rotation";
+
+/// ★★ The two rotation buttons, EACH named.
+///
+/// One region per button rather than one for the row, because a driven check
+/// that aimed at a fraction of a shared row is doing coordinate arithmetic the
+/// harness has a `declared_center` for — and the first version did exactly
+/// that, computed 78 % across, and landed outside the window. A named control
+/// is aimed at by name.
+pub const ROTATE_LEFT_REGION: &str = "properties.widget_edit.rotate_left";
+/// See [`ROTATE_LEFT_REGION`].
+pub const ROTATE_RIGHT_REGION: &str = "properties.widget_edit.rotate_right";
 /// The visibility combo's region.
 // ui-text-exempt: trace region name, never displayed
 pub const VISIBILITY_REGION: &str = "properties.widget_edit.visibility";
@@ -181,6 +195,20 @@ pub fn section(
 
     geometry_rows(ui, draft, actions, fqn, widget_index);
     ui.add_space(4.0);
+    // ★★ Rotation sits WITH the geometry, not after the caption, and it moved
+    // here on 2026-08-30 for two reasons that agree.
+    //
+    // It IS geometry — an operator adjusting where a box is and how big it is is
+    // in the same thought as which way round it faces, and the caption is a
+    // different subject entirely.
+    //
+    // ★ And it was measured unreachable at the bottom: with every section drawn
+    // the control landed at `y=1379` in a window 768 points tall. The panel
+    // scrolls, so it was not lost the way the bookmarks controls were — but a
+    // control an operator has to scroll past four unrelated sections to reach is
+    // one they will not find, and a driven check could not reach it either.
+    rotation_row(ui, widget, fqn, widget_index, actions);
+    ui.add_space(4.0);
     border_rows(ui, widget, fqn, widget_index, actions);
     ui.add_space(4.0);
     visibility_row(ui, widget, fqn, widget_index, actions);
@@ -189,6 +217,98 @@ pub fn section(
 
     crate::diag::ui_rect(REGION, ui.min_rect());
     true
+}
+
+/// **Turn the box**, in ninety-degree steps.
+///
+/// `EditSession::rotate_widget`, shipped 2026-08-30. `/MK /R`, Table 189.
+///
+/// # ★★★ THE DIRECTION IS THE WHOLE DANGER, AND IT IS NEGATED HERE
+///
+/// `/MK /R` is **counterclockwise**. The page's `/Rotate` is **clockwise**. The
+/// engine flagged this as *"the single most likely thing for a shell to get
+/// backwards"*, and the standard makes it easy: the two entries are word for
+/// word parallel —
+///
+/// | | |
+/// |---|---|
+/// | `/MK /R` (Table 189) | *"…rotated **counterclockwise** relative to the page…"* |
+/// | page `/Rotate` (Table 30) | *"…rotated **clockwise** when displayed or printed…"* |
+///
+/// **The direction word is the only difference between those two sentences.**
+/// Worse, the *movie* dictionary's `/Rotate` uses the identical phrase
+/// *"relative to the page"* with the **opposite** sense, so that phrase carries
+/// no convention at all — only the direction word does.
+///
+/// ⇒ So the two controls here are labelled **left** and **right**, which is
+/// what an operator means, and the negation happens **here, at the UI layer**,
+/// exactly as the engine instructed: *"if your rotate control has a clockwise
+/// affordance, negate at the UI layer and pass counterclockwise degrees to us.
+/// Do not negate inside anything that touches `/MK`."*
+///
+/// A **right** turn is what the operator sees the box do. That is `-90`
+/// counterclockwise, and this is the only place in the program where those two
+/// facts meet.
+///
+/// # Why ±90 buttons and not a typed angle
+///
+/// The engine refuses anything that is not a multiple of 90 — Table 189 says
+/// *"shall be a multiple of 90"* — so a free number is a control most of whose
+/// values are refusals. Two buttons offer only what can succeed, which is R9's
+/// posture rather than a simplification.
+///
+/// # Why the current angle is shown even at zero
+///
+/// Because `Widget::rotation` is `Option<i64>` and `None` means **the file
+/// states none**, which is not the same fact as `Some(0)` — the distinction
+/// `Widget::border`'s own docs call *"a fact to display, not a value to
+/// substitute"*. An operator debugging why a box looks wrong in another viewer
+/// wants to know which of the two their file says.
+fn rotation_row(
+    ui: &mut Ui,
+    widget: &pdfce_core::forms::Widget,
+    fqn: &str,
+    index: usize,
+    actions: &mut Vec<Action>,
+) {
+    let current = widget.rotation.unwrap_or(0);
+    ui.label(t::widget_rotation_label(widget.rotation));
+
+    let mut turn = |ui: &mut Ui, label: &str, region: &str, delta: i64| {
+        let response = ui.button(label);
+        crate::diag::ui_rect(region, response.rect);
+        if response.clicked() {
+            // ★ Normalised HERE as well as by the engine, so the number in the
+            // trace is the one the file will carry. `rotate_widget` accepts any
+            // multiple of 90 and normalises into 0..360 itself — this is not
+            // guarding against it, it is making the two agree so a driven check
+            // reading either sees the same value.
+            let next = (current + delta).rem_euclid(360);
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                format!(
+                    "widget-rotate-requested field={fqn:?} widget={index} was={current} now={next}"
+                )
+            });
+            actions.push(Action::Field(FieldAction::RotateWidget {
+                field: fqn.to_owned(),
+                widget: index,
+                degrees: next,
+            }));
+        }
+    };
+
+    let response = ui
+        .horizontal(|ui| {
+            // ★★ LEFT is +90 counterclockwise and RIGHT is -90, and that is the
+            // negation the engine asked for. It happens on this line and
+            // nowhere else.
+            turn(ui, t::widget_rotate_left(), ROTATE_LEFT_REGION, 90);
+            turn(ui, t::widget_rotate_right(), ROTATE_RIGHT_REGION, -90);
+        })
+        .response;
+    crate::diag::ui_rect(ROTATION_REGION, response.rect);
+    ui.small(t::widget_rotation_hint());
 }
 
 /// The four typed numbers and the button that commits them.

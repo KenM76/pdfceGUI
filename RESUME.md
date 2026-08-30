@@ -17,6 +17,26 @@ at a section of it.
 
 ---
 
+## ★★★ FIRST JOB: RUN THE TWO NEW CHECKS — the machine blocked them, not the code
+
+`turning_a_field_right_turns_it_right` and every other input-driving check
+reported, at the end of 2026-08-30:
+
+> *the window containing (1224, 538) could not be brought to the front. Windows
+> refuses `SetForegroundWindow` to a process without foreground rights.*
+
+★★ **Including checks that had passed an hour earlier in the same session,
+unchanged.** `a_form_field_can_be_copied_and_pasted_both_ways` was green and then
+skipped identically. That is the evidence it is the **fifth documented way to run
+this suite wrongly — a busy foreground** — and not a defect in the widget
+rotation or the dimension label that shipped that day.
+
+⇒ **Both features are built, gate-clean and NOT DRIVEN.** Run those two checks
+before anything else; if they pass, `OPERATOR_REQUESTS.md` **O62** moves from ◐
+to ✅ and nothing else is owed. If they fail, believe them.
+
+---
+
 ## ★★★ RUN `tools/verb-coverage.py` BEFORE BELIEVING ANY CAPABILITY CLAIM
 
 **One command, two seconds, and on 2026-08-28 it found twelve gaps** — including
