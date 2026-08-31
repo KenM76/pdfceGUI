@@ -127,6 +127,17 @@ use crate::report::CheckReport;
 const INVOKE: &str = "mode.review,markup.rectangle";
 /// Opens the Tool panel, rung separately after the shape exists.
 const PANEL_COMMAND: &str = "view.panel_tool";
+
+/// The Tool panel's own region — the oracle for *"is it actually open?"*.
+///
+/// ★ Needed because [`PANEL_COMMAND`] is a **toggle**, not an opener, and the
+/// dock layout persists across runs. See the normalisation at the top of the
+/// body for the incident that made this necessary.
+const PANEL_REGION: &str = "panel:tool";
+
+/// The ribbon item that toggles the Tool panel, for putting it back when the
+/// launch invoke turned it off.
+const PANEL_ITEM_REGION: &str = "ribbon.item.view.panel_tool";
 /// The line the canvas writes when a shape is authored.
 const COMMIT_EVENT: &str = "markup-commit";
 /// The line the canvas writes when a click selects an annotation.
@@ -265,6 +276,61 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     ));
     session.settle(45);
     let driver = Driver::new(session.window());
+
+    // ★★★ **NORMALISE: the panel command is a TOGGLE, and the layout persists.**
+    //
+    // `PDFCE_DIAG_INVOKE` presses `view.panel_tool` at launch on the assumption
+    // that it OPENS the panel. It does not — it flips it — and the dock layout
+    // is written to disk, so whether this check starts with the panel open
+    // depends on what the previous check left behind.
+    //
+    // ★★ It became reliably wrong on 2026-08-31, and by a fix rather than a
+    // break. `OPERATOR_REQUESTS.md` O80 wired `LayoutStore::flush` to an exit
+    // hook that had never existed — before that, a layout change made in the
+    // last 750 ms before a process exited was lost to the debounce, so the
+    // panel state usually did NOT carry over and this check usually got away
+    // with it. Making persistence work surfaced the latent order-dependence.
+    //
+    // ⇒ The lesson is the one `D:\dev\rag\egui` already records: **a driven
+    // check that mutates persisted state must normalise at the start.** This
+    // one asserted its precondition in its report text ("with the Tool panel
+    // open") and never checked it.
+    //
+    // So: look, and press the ribbon item if the panel is not there. One
+    // correction, not a loop — if a single press does not open it the panel is
+    // broken, which is a different check's subject and must not be papered
+    // over here.
+    if declared(&session.trace()?, ui_rect, PANEL_REGION).is_none() {
+        report.note(
+            "★ the Tool panel was not open after the launch invoke — the toggle closed a \
+             panel the persisted layout had already opened. Pressing the ribbon item to \
+             put it back.",
+        );
+        let trace = session.trace()?;
+        let Some(item) = declared(&trace, ui_rect, PANEL_ITEM_REGION) else {
+            return Err(Error::new(format!(
+                "the Tool panel is closed and `{PANEL_ITEM_REGION}` is not on the ribbon, so \
+                 there is no route to reopen it. SKIPPED rather than failed: this check's \
+                 subject is the scale switches, not the panel. Regions beginning \
+                 `ribbon.item.view`: {}.",
+                list(&declared_names(&trace, ui_rect, "ribbon.item.view"))
+            )));
+        };
+        // ★ Resolved from the frame taken a moment ago rather than from one
+        // cached earlier: the dock width changes when a panel opens, and a
+        // stale coordinate is the harness hazard this project has written up
+        // twice. Nothing has moved between the `declared` above and here.
+        driver.click_at(session.frame()?.declared_center(item))?;
+        session.settle(30);
+        if declared(&session.trace()?, ui_rect, PANEL_REGION).is_none() {
+            return Err(Error::new(format!(
+                "pressing `{PANEL_ITEM_REGION}` did not put `{PANEL_REGION}` on screen, so the \
+                 Tool panel will not open at all. That is a defect, and it is a different \
+                 check's subject — this one cannot reach its own precondition. Trace: {}.",
+                session.trace_path().display()
+            )));
+        }
+    }
 
     if declared(&session.trace()?, ui_rect, PAGE_REGION).is_none() {
         return Err(Error::new(format!(

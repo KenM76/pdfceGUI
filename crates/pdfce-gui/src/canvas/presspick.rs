@@ -320,11 +320,38 @@ fn covers(
     point: egui::Pos2,
 ) -> bool {
     let grabbable = crate::canvas::pressing::grabbable(ctx, doc, map, selection);
-    let in_box = grabbable.bounds.is_some_and(|b| {
-        crate::canvas::handles::grip_at(b, point, crate::canvas::handles::GripSet::all()).is_some()
+    let grip = grabbable.bounds.and_then(|b| {
+        crate::canvas::handles::grip_at(b, point, crate::canvas::handles::GripSet::all())
     });
-    if !in_box {
+    let Some(grip) = grip else {
         return false;
+    };
+    // ★★★ **ONLY `Grip::Move` is second-guessed** — and getting this wrong
+    // shipped for one afternoon on 2026-08-31, caught by the driven suite.
+    //
+    // The O72 downgrade below asks whether the press really landed on the
+    // selected object. A press on a RESIZE GRIP or the ROTATE HANDLE does not:
+    // those sit on the box's edges and corners, outside the object's own
+    // geometry, so `body_under` answers false for every one of them. The first
+    // version asked `grip_at(..).is_some()` and therefore refused to cover a
+    // press on a grip — `at_press` then RE-SELECTED whatever was under it, and
+    // the resize became a select-and-move.
+    //
+    // `resize_scales_a_shape` and `shift_constrains_a_resize` both failed with
+    // *"the grip drag committed nothing and declined nothing"*, and the trace
+    // showed two `selection-set … via=press` lines where there should have
+    // been one. Exactly the failure this file's header warns about — *"every
+    // disagreement is a press that selects when it should have transformed"* —
+    // arrived at by making the two functions agree on the PREDICATE and not on
+    // which grip it applies to.
+    //
+    // ★ The eight grips and the handle are DRAWN. The operator can see them,
+    // and a press on one is unambiguous. `Grip::Move` is the only member with
+    // no visible affordance of its own — it is "anywhere inside" — which is
+    // exactly why it is the one that can be claimed by mistake, and the only
+    // one worth asking a second question about.
+    if !matches!(grip, crate::canvas::handles::Grip::Move) {
+        return true;
     }
     // ★★★ **…and for page CONTENT, inside the box is not the same as on the
     // object** — `OPERATOR_REQUESTS.md` O72, 2026-08-31.
