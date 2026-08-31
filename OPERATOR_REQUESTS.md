@@ -100,7 +100,42 @@ are re-reports of rows already believed shipped).
 
 ---
 
-## O64 — ⬜ A newly inserted object cannot be EDITED until the document is saved and reopened
+## O64 — ⛔ BLOCKED ON THE ENGINE, reproduced and filed 2026-08-31
+
+> **★★★ STATUS 2026-08-31: this is not our defect, and we have proof rather
+> than an opinion.**
+>
+> `crates/pdfce-gui/tests/engine_overlay_skew.rs` — three tests, all green,
+> run by `cargo test --workspace` on every commit:
+>
+> 1. after `add_image` the shell's decomposition has N+1 objects and the
+>    engine's own `page_objects` has N;
+> 2. `transform_objects` on the new index answers `ObjectOutOfRange` — that is
+>    the drag that does nothing;
+> 3. **and the half nobody had reported:** after `delete_pages(&[0])` on a
+>    four-page document, `page_objects(3)` still returns `Ok`. Page 3 of a
+>    three-page document must be out of range. It is not.
+>
+> The cause is one line repeated eight times in `pdfce-core`: every
+> content-editing verb reads `page_tree::pages(&self.base)` — the document as
+> it was **on disk** — while everything that adds content writes into the
+> session overlay. So content added this session is invisible to the verbs that
+> would edit it, and a page index computed against a page set this session
+> changed resolves against the page set that was on disk.
+>
+> ⇒ The third finding is the serious one: after a page delete, an edit on what
+> you see as page 0 is committed to **a different sheet** and returns `Ok`.
+> Nothing refuses, nothing discloses.
+>
+> **Filed:** `open/request_edit_verbs_read_the_base_not_the_overlay.md`, with
+> the reproduction attached, and indexed. `D:\Dev\pdfce` is read-only to this
+> project so the fix is not ours to make.
+>
+> The tests are written to **pass on the broken engine and fail on the fixed
+> one**, each saying so in its own assertion message — a red test in a green
+> repository gets muted within the week. When they go red, invert them and
+> close this row.
+
 
 **Asked:** 2026-08-31.
 
@@ -126,7 +161,29 @@ ce dimension, stamp, link, redaction mark.
 
 ---
 
-## O65 — ⬜ Saving closes the document
+## O65 — ✅ BUILT 2026-08-31, not yet driven
+
+> **Save never closed the document. What closed it was the step you took next,
+> and the chain was driven rather than reasoned about.**
+>
+> A successful save recorded `saved_epoch` and **nothing in production read
+> that number**. Every surface asking "does this have unsaved edits?" asked a
+> different question a save cannot answer — so the tab kept its dot, the next
+> Close raised the unsaved-edits prompt, and that prompt's only save button was
+> "Save a copy…", a picker, which on success proceeds with the close. Press
+> save, get asked for a filename, watch the document close.
+>
+> Now: one predicate, `save::has_unsaved_edits`, read by the prompt, the tab
+> strip and the close arm. And the prompt has a **real Save** when there is a
+> file to write over — absent, not greyed, otherwise.
+>
+> ★★ A green test was holding the old answer in place. It refused any label
+> reading as a Save over the open file, *"which this build cannot do"* — true
+> when written, false since Save landed on 2026-08-20, never revisited. It
+> would have failed this fix.
+>
+> **Verified:** a truth-table unit test walking all five states. **NOT driven.**
+
 
 **Asked:** 2026-08-31.
 
@@ -172,7 +229,29 @@ gesture sourced from the **operating system** — a file dropped from Explorer.
 
 ---
 
-## O68 — ⬜ The Merge files and Split files buttons do nothing
+## O68 — ✅ BUILT 2026-08-31, not yet driven — and it found two more
+
+> **Merge files now works.** The engine had implemented Combine Files whole the
+> entire time and nothing had ever called it; the missing half was two pickers.
+>
+> **Split files, Pages ▸ Split and View ▸ Sidebar are gone from the ribbon.**
+> The mechanical sweep found four dead controls, not two — you had not reported
+> `view.sidebar`, which was drawn FIRST in View ▸ Panels and enabled at
+> startup. The three that are removed rather than built are removed because
+> R9 says a capability that is not built renders nothing; the two splits need a
+> boundary chooser that does not exist and come back together when it does.
+>
+> ★★★ **And the gate that should have caught them existed and did not fire**,
+> because all four sat on an allow-list with a paragraph beside them. An
+> allow-list whose entries are prose can only ever force an explanation, never
+> a fix. That list is now empty and pinned at zero.
+>
+> **Still owed:** the durable replacement — a driven check that presses every
+> registered id and fails on `command-unimplemented`. That is a claim about the
+> running program, which no paragraph can satisfy.
+>
+> **Verified:** unit tests. **NOT driven.**
+
 
 **Asked:** 2026-08-31.
 
@@ -187,7 +266,31 @@ current state is wrong twice.
 
 ---
 
-## O69 — ⬜ There is no reliable route to editing nodes, and the route that exists fights you
+## O69 — ◑ HALF BUILT 2026-08-31, not yet driven
+
+> **Two of your four complaints are fixed, and one of them was worse than you
+> said.**
+>
+> ✅ **`Edit ▸ Edit Objects` is deleted.** You said we should not need it. It
+> was worse than redundant: it was an alias for the **arrow tool**, so pressing
+> it after arming Points put you back on the black arrow — the control you had
+> been told to press in order to edit a drawing was the one that ENDED node
+> editing. Its tooltip promised *"drag an anchor to move that node"*, which is
+> the Points tool described exactly, by a button that armed a different one.
+>
+> ✅ **The Points tool is withheld outside Edit** instead of declining in
+> silence. It has always needed Edit mode and its arm said nothing on screen —
+> drawn, enabled and inert in two of three modes. The `A` chord still reaches
+> it and now says *"Switch to Edit to work on points."*
+>
+> ⇒ The route is now one control: **View ▸ Navigate ▸ Points**, in the tool
+> palette order every program in this class uses.
+>
+> ⬜ **Still open: the bounding box drawn around an object whose nodes are
+> showing**, and the nodes being hard to see and hit. Both are understood — the
+> outline is drawn unconditionally at every rung, and the grip radius is 6 px
+> against Inkscape's 8 — and neither is done.
+
 
 **Asked:** 2026-08-31.
 
@@ -256,7 +359,23 @@ that and is a useful precedent for what went wrong last time.
 
 ---
 
-## O72 — ⬜ Click-and-hold on empty space must rubber-band, not select
+## O72 — ✅ BUILT 2026-08-31, not yet driven
+
+> **The rubber band existed, worked, and was unreachable on a CAD sheet.**
+>
+> A band is already what a press means when it finds nothing to grab. What made
+> it unreachable is that a selection's grab box is its **bounding** box — so
+> select a title-block border once, which on your drawings is a hollow
+> rectangle spanning the sheet, and every press anywhere on the drawing fell
+> inside that box and became a move.
+>
+> A press over page content now has to land on something selected before it
+> counts as a move. Resize and rotate grips are untouched — those are drawn,
+> you can see them, and second-guessing a press on one would break a gesture
+> that works.
+>
+> **Verified:** unit tests only. **NOT driven.**
+
 
 **Asked:** 2026-08-31.
 
@@ -267,7 +386,23 @@ that and is a useful precedent for what went wrong last time.
 
 ---
 
-## O73 — ⬜ Paste lands where the mouse cursor is
+## O73 — ✅ BUILT 2026-08-31, not yet driven
+
+> **Paste follows the cursor.** The pointer was not read, not threaded, and not
+> present in any paste signature — there was one rule, ten points down and
+> right, and that was all of it.
+>
+> The clip is **centred** on the cursor, which is Inkscape's rule and
+> Illustrator's; you are pointing at where the thing should be, not where its
+> bounding box should begin. One anchor for the whole clip, so a multi-object
+> paste keeps its arrangement by construction.
+>
+> With the pointer over a panel or off the window it pastes into the middle of
+> the view, through the same function the zoom anchor uses — one rule, not two.
+> Markup, page content and form fields all go through it.
+>
+> **Verified:** unit tests only. **NOT driven.**
+
 
 **Asked:** 2026-08-31.
 
@@ -278,7 +413,32 @@ that and is a useful precedent for what went wrong last time.
 
 ---
 
-## O74 — ⬜ One edit re-renders EVERY page preview, and it makes a checkbox slow
+## O74 — ✅ BUILT 2026-08-31, not yet driven
+
+> **Measured before it was built: on your own 36-sheet SolidWorks set, twelve
+> visible thumbnails cost 666 ms of UI-thread work after every single edit,
+> worst frame 282 ms — all of it between your click and its result.**
+>
+> The cause was a document-wide counter used as the invalidation key for four
+> caches that hold one entry per page. An edit to sheet 12 threw away the
+> pictures of the other thirty-five. The same bug was on the full-size page
+> rasters, where one page costs ~950 ms on the benchmark drawing.
+>
+> ✅ **Per-page invalidation**, opted into per verb with document-wide as the
+> safe default — a thumbnail kept wrongly would show you content you had
+> already changed, which is worse than the slowness.
+> ✅ **And your priority rule**, which is worth more: the rail now waits for a
+> quiet moment — no input this frame, and 250 ms since the last edit. It can
+> never sit between a click and its result.
+>
+> ★ The design had a hole and its own test found it: two independent counters
+> compared with `max` do not compose, so a document-wide invalidation silently
+> skipped exactly the pages most recently edited. Both bumps now draw from one
+> counter.
+>
+> **Verified:** unit tests, both directions. **NOT driven — the win is a
+> measured prediction until the harness runs.**
+
 
 **Asked:** 2026-08-31.
 
@@ -297,7 +457,34 @@ arriving from a second direction, and the two should be measured together.
 
 ---
 
-## O75 — ⬜ The right-hand panel passes clicks through to the canvas, and Properties shows the wrong subject
+## O75 — ◑ HALF BUILT 2026-08-31, not yet driven
+
+> ✅ **The click-through is fixed, and it was one guard.**
+>
+> The canvas asked the **whole window** "did the primary button go down this
+> frame?", took the press position from the same place, and mapped it straight
+> through the page transform. That transform is unclamped, so any screen point
+> converts to a valid page coordinate — a press on a text field in the
+> Properties panel resolved to real page content and replaced the selection you
+> were editing the properties of.
+>
+> It hid at fit zoom, where the dock maps off the sheet. Zoom past fit on a CAD
+> sheet — every working session on an A1 — and the whole window maps inside the
+> page. That is why it went unreported until you zoomed in.
+>
+> ★★ Same class as the Delete-key defect in `DEFECTS.md`: a guard asking
+> exactly the right question of exactly the wrong object. Every other signal on
+> the canvas already came from the page's own response; this one step reached
+> past it. One term fixes it, and it rejects both docks, the ribbon, the tab
+> strip, the status bar, the find bar, context menus and modal dialogs at once.
+>
+> ⬜ **Still open: Properties showing "This document".** The diagnosis is not
+> what the row assumed — the selection-scoped sections DO exist and DO read the
+> selection. What is true is that the document section is drawn
+> **unconditionally**, so it is on screen every frame and is the only thing on
+> screen whenever nothing else claims it — and the click-through above was what
+> kept putting you in that state. Not yet collapsed.
+
 
 **Asked:** 2026-08-31.
 
