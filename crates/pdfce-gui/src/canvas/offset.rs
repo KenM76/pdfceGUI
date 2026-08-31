@@ -188,33 +188,56 @@ pub(super) fn decide(
             (display_size.x, display_size.y),
             (vp.x, vp.y),
         );
-        // ★★★ **A PAN LEAVES THE FIT** — `OPERATOR_REQUESTS.md` **O55**:
+        // ★★★ **A PAN NO LONGER LEAVES THE FIT**, as of 2026-08-31, and the
+        // reversal is recorded here rather than in a commit message because
+        // the line it removes was written to the operator's own words.
+        //
+        // `OPERATOR_REQUESTS.md` **O55**, 2026-08-28:
         //
         // > *"if the canvas window is resized the pdf should resize to match
-        // > **unless the person has changed the zoom or panned around**."*
+        // > unless the person has changed the zoom **or panned around**."*
         //
-        // `set_zoom` has always dropped out of a fit, so the first half of his
-        // sentence held. The second did not: `last_scroll_offset` is written
-        // every frame from the scroll area's own state and nothing consulted
-        // the fit, so an operator who fitted, then panned to look at a corner,
-        // was **still in fit mode** — and the next resize threw their position
-        // away, now that `fit::placement` re-places on every frame.
+        // `OPERATOR_REQUESTS.md` **O78**, 2026-08-31:
         //
-        // ⇒ The two changes are one change. Re-placing every frame is what
-        // makes a fit a mode; leaving the mode on a pan is what stops that
-        // mode overriding the operator. Either alone is worse than neither.
+        // > *"unless I have manually changed the zoom after clicking one of
+        // > the preset options, the pdf should maintain whichever option was
+        // > selected."*
         //
-        // ## ★★ The WHEEL deliberately does not do this
+        // **The pan clause is gone from the condition**, and the same message
+        // says why it could be: *"whatever area was centered in the current
+        // canvas should stay centered."*
         //
-        // Scrolling a fit-width document is how every reader in the class is
-        // read, and a wheel notch that dropped the fit would mean the page
-        // stopped re-fitting the moment anybody looked at the second half of
-        // it. A pan is a *deliberate* repositioning — the middle button, or
-        // the hand tool — and that is the gesture his sentence names.
+        // ## ⇒ Why the clause was only ever load-bearing by accident
         //
-        // ★ The zoom is left exactly where the fit put it. Leaving a fit is
-        // not a zoom change; it is the view ceasing to track the viewport.
-        doc.view.set_fit(crate::viewer::FitMode::None);
+        // A fit is a rule about **zoom**; where the operator is looking is a
+        // rule about **position**. Until today nothing owned the second, so a
+        // resize under a live fit *re-placed* the view — and the only defence
+        // available for an operator who had panned somewhere deliberately was
+        // to stop them being in a fit at all. Leaving the mode was a proxy for
+        // defending the position.
+        //
+        // `canvas::fit::placement` now preserves the centred page point across
+        // **any** viewport change, in or out of a fit, so the position defends
+        // itself. The proxy is unnecessary, and keeping it would cost the
+        // operator the thing he asked for twice: a page that stops re-fitting
+        // the moment he drags it an inch.
+        //
+        // ★★ The two of his sentences are then both true at once, which is the
+        // test a reading of a changed request has to pass. Preserving the
+        // centre also SUBSUMES the fit's old re-placement — on a pinned axis
+        // the two solve to the same number, which `canvas::geometry`'s
+        // `centring_agrees_with_the_pinned_fit_answer` pins — so nothing that
+        // worked before this stopped working.
+        //
+        // ## ★ What still leaves a fit, and it is the only thing
+        //
+        // `ViewState::set_zoom`. Changing the zoom by hand is the operator
+        // saying the view should stop tracking the viewport, and it is exactly
+        // the clause that survives in both of his sentences.
+        //
+        // The wheel never left the fit and still does not, on the argument
+        // this comment has always carried: scrolling a fit-width document is
+        // how every reader in the class is read.
         // The gesture has to look like what it is. Without a cursor change a
         // pan that hits the end of the scroll range is indistinguishable from
         // a pan that is not working. ★ Before the return, for the reason the
@@ -244,7 +267,30 @@ pub(super) fn decide(
         // So: frame 0 lays out with egui's own zero, frame 1 places the view.
         // One frame of pasteboard is visible at open, which is the cost of
         // this shape and is named rather than hidden.
-        return Some(to_strip((0.0, 0.0)));
+        // ★★★ **…and it is placed at the page's CENTRE, not its corner** —
+        // `OPERATOR_REQUESTS.md` O78: *"when starting the view should be
+        // centered on the canvas when a pdf is first opened."*
+        //
+        // `(0.0, 0.0)` page-local means "the page's own origin", which is
+        // *centred if the page fits and flush to its top-left corner if it does
+        // not*. Under the shipped default — Fit page — the page always fits, so
+        // this expression evaluates to exactly `(0.0, 0.0)` and **nothing
+        // changes**. What it changes is the case the operator is actually
+        // looking at: an opening preference of Actual size on a sheet larger
+        // than the window, where the old seed showed him the top-left corner of
+        // an A1 drawing.
+        //
+        // ★ Written as the general solve rather than as a special case, so the
+        // seed and the resize path answer the same question with the same
+        // function. A second spelling of "centre the page" is how the two would
+        // come to disagree — which is the defect `canvas::fit`'s header
+        // describes for the fit's own placement, arrived at from the other end.
+        return Some(to_strip(crate::canvas::geometry::offset_holding_anchor_at(
+            (0.5, 0.5),
+            (vp.x / 2.0, vp.y / 2.0),
+            current_display,
+            (vp.x, vp.y),
+        )));
     }
     None
 }

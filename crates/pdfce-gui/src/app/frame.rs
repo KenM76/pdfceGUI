@@ -125,6 +125,63 @@ fn scripted_invoke() -> Option<String> {
 }
 
 impl eframe::App for PdfceApp {
+    /// ★★★ **Flush what the debounce is still holding, before the process
+    /// goes** — `OPERATOR_REQUESTS.md` O80.
+    ///
+    /// The operator: *"it should remember my page display preferences from my
+    /// last closing of the program."*
+    ///
+    /// # What was wrong, and it is the shape worth naming
+    ///
+    /// [`crate::app::persistence::LayoutStore::flush`] exists, is documented,
+    /// is tested — and had **no production caller**. Its own doc comment says
+    /// what it is for in as many words: *"For an exit path, which must not
+    /// lose the last change to a debounce that had not yet expired."* There
+    /// was no exit path. `impl eframe::App for PdfceApp` implemented `ui` and
+    /// nothing else, `run_native` installed no exit callback, and there is no
+    /// `Drop`.
+    ///
+    /// So the layout is written 750 ms after it changes, with a 5 s ceiling —
+    /// and **a change made in the last 750 ms before the window closes was
+    /// silently thrown away.** The debounce was correct, the ceiling was
+    /// correct, and the last write of every session was a coin toss.
+    ///
+    /// ★★ It reaches the operator through page display, which is why it lands
+    /// under O80 rather than as a housekeeping note. The active ribbon **mode**
+    /// rides in `layout.ron`, and the mode is what picks
+    /// `PageDisplay::default_for_mode` for a document with no remembered
+    /// entry. Switch to Edit, close the program within three quarters of a
+    /// second, reopen: the mode is Read again, Read defaults to continuous,
+    /// and from his chair the program forgot which way it was showing pages.
+    ///
+    /// # Why `on_exit` and not `save`
+    ///
+    /// `save` is only called when eframe's `persistence` feature is enabled,
+    /// and this application deliberately does its own persistence — see
+    /// [`crate::app::persistence`]'s header on why the location is
+    /// `pdfce-core`'s decision rather than the platform's. `on_exit` is
+    /// unconditional and runs after `save`, so it is the hook that is actually
+    /// there.
+    ///
+    /// The `glow` form of the signature, because that is the backend this
+    /// workspace's `eframe` features select. The parameter is unused: this
+    /// flushes a file, it does not touch the GPU.
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // ★ `flush` is a no-op when nothing is pending, so this costs an
+        // `Option` read on the common exit and writes only when the debounce
+        // was genuinely still holding something.
+        let wrote = self.layout.flush();
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            //
+            // Traced even when nothing was written, because "the exit hook ran
+            // and had nothing to do" and "the exit hook never ran" are the two
+            // states this defect was hiding between, and a line that only
+            // appeared on the write would not tell them apart.
+            format!("exit-flush layout-written={wrote}")
+        });
+    }
+
     /// eframe 0.35's entry point is `ui`, **not** `update`.
     ///
     /// The trait hands a root [`egui::Ui`] rather than a [`egui::Context`]

@@ -468,7 +468,18 @@ impl PdfceApp {
             // may overwrite, and that is enforced by the destination being a
             // path the operator names — which holds in every mode without any
             // mode being consulted.
-            "file.ocr" => self.dialogs.open_ocr(&self.status),
+            // ★ The thumbnail rail's page selection travels with the open —
+            // `OPERATOR_REQUESTS.md` O79. Read HERE rather than inside the
+            // dialog because `PanelsState` and `DialogsState` are two fields of
+            // `PdfceApp` and the dialog must not learn to reach across; the
+            // dispatcher is the one place that already holds both.
+            //
+            // Ascending, from the panel's own `BTreeSet`, so the operand order
+            // is the sheet order and not the order he happened to click.
+            "file.ocr" => {
+                let picked: Vec<usize> = self.panels.selected_pages().iter().copied().collect();
+                self.dialogs.open_ocr(&self.status, picked);
+            }
             // ★ **Apply redactions.** A dialog, in `file.ocr`'s shape one arm
             // up, and for two of its three reasons plus one of its own.
             //
@@ -1038,6 +1049,48 @@ impl PdfceApp {
             // to write.
             id if crate::shell::commands::page_display_for_command(id).is_some() => {
                 if let Some(display) = crate::shell::commands::page_display_for_command(id) {
+                    // ★★★ **The press is also a standing preference** —
+                    // `OPERATOR_REQUESTS.md` O80: *"it should remember my page
+                    // display preferences from my last closing of the program.
+                    // Example if I press show one page at a time."*
+                    //
+                    // Pressing this records the arrangement in three places
+                    // with three lifetimes, and all three are wanted:
+                    //
+                    // | where | lifetime | set by |
+                    // |---|---|---|
+                    // | `doc.view.display` | this session | `Action::SetPageDisplay` |
+                    // | `viewer::remembered` | this DOCUMENT, for ever | `Action::SetPageDisplay` |
+                    // | `Prefs::default_page_display` | every document he has not arranged | **here** |
+                    //
+                    // ★★ It is written HERE rather than in the apply arm for a
+                    // borrow reason and it is worth naming: `apply` takes
+                    // `&mut self.status` for the whole of the document arms, so
+                    // `self.prefs` is unreachable from inside one. `Action::Find`
+                    // splits the same borrow the same way, one arm above, and
+                    // its comment carries the general form.
+                    //
+                    // ★ Only when it CHANGES, and the guard is not an
+                    // optimisation: `Prefs::save` is a whole-file write, and the
+                    // ribbon raises this on every click including a click on the
+                    // position that is already active.
+                    if self.prefs.default_page_display != Some(display) {
+                        self.prefs.default_page_display = Some(display);
+                        let saved = self.prefs.save();
+                        crate::diag::trace(|| {
+                            // ui-text-exempt: diagnostic trace, never displayed.
+                            format!(
+                                "page-display-default mode={} saved={}",
+                                display.id(),
+                                // ★ The outcome, not the error text. A failed
+                                // write is a real event — a read-only settings
+                                // folder — and naming it here is what tells a
+                                // reader of a trace that the preference was
+                                // taken and not kept.
+                                if saved.is_ok() { "yes" } else { "no" }
+                            )
+                        });
+                    }
                     actions.push(Action::SetPageDisplay(display));
                 }
             }

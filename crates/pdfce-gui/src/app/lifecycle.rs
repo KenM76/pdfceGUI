@@ -453,10 +453,24 @@ impl PdfceApp {
         // continuous while `file.new` in Edit shows it single-page, with no
         // code here saying anything about `file.new` at all.
         let ribbon_mode = self.ribbon.mode().unwrap_or_default().to_owned();
+        // ★★★ **The middle tier, added 2026-08-31** — `OPERATOR_REQUESTS.md`
+        // O80: *"it should remember my page display preferences from my last
+        // closing of the program."*
+        //
+        // It already did, per document. What it could not do was answer for a
+        // document it had never seen, so a choice made on one drawing meant
+        // nothing on the next — which from his chair is forgetting.
+        //
+        // Three tiers, in order: this document's own record, then his standing
+        // preference, then the mode's rule. Read from `self.prefs` here rather
+        // than from `doc.prefs`, because `doc.prefs` is a snapshot taken when
+        // the document opened and this decision is being made AS it opens.
+        let default_display = self.prefs.default_page_display;
         if let Status::Open(doc) = &mut self.status {
             let remembered = doc.stored_under().and_then(viewer::remembered::recall);
-            let display =
-                remembered.unwrap_or_else(|| viewer::PageDisplay::default_for_mode(&ribbon_mode));
+            let display = remembered
+                .or(default_display)
+                .unwrap_or_else(|| viewer::PageDisplay::default_for_mode(&ribbon_mode));
             doc.view.display = display;
             crate::diag::trace(|| {
                 format!(

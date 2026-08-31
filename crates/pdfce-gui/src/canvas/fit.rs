@@ -1,3 +1,44 @@
+//! # `canvas::fit` — **where the view goes when the viewport changes, or a fit
+//! is pressed**
+//!
+//! ★★★ **The subject widened on 2026-08-31** (`OPERATOR_REQUESTS.md` O78) and
+//! the old title — *"spending a fit command's request to place the view"* — is
+//! kept above the new one because the widening is the finding.
+//!
+//! The operator:
+//!
+//! > *"when I change the size of the canvas window, whatever area was centered
+//! > in the current canvas should stay centered, and unless I have manually
+//! > changed the zoom after clicking one of the preset options, the pdf should
+//! > maintain whichever option was selected."*
+//!
+//! ## ★★★ Preserving the centre SUBSUMES a fit's re-placement
+//!
+//! This module used to have two jobs — spend a pending fit request, and
+//! re-place the view when the viewport changed **while a fit was active**. The
+//! second is now a special case of a general rule, and it is a theorem rather
+//! than a convenience.
+//!
+//! On an axis a fit **pins**, the page is by construction no larger than the
+//! viewport, so `margin = (v − d) / 2`, and holding the page's own centre at
+//! the viewport centre gives
+//! `(v − d)/2 + 0.5·d − v/2 = 0` — **exactly** what
+//! [`crate::canvas::geometry::fit_placement_offset`] returns for a pinned
+//! axis. So a fit-page document nobody has panned is re-centred by the general
+//! rule for free, and `centring_agrees_with_the_pinned_fit_answer` pins that
+//! equality so deleting the old path cannot silently change what Fit page
+//! does.
+//!
+//! ⇒ A fit is now purely a rule about **zoom** — `ViewState::apply_fit`, run
+//! every frame — and this is the one rule about **position**. They used to be
+//! entangled, and the entanglement is why a pan had to leave the fit: a
+//! re-placement would have thrown the operator's position away, so the only
+//! defence available was to stop being in a fit. With position defended in its
+//! own right that defence is unnecessary, which is why
+//! [`crate::canvas::offset`]'s pan arm no longer calls `set_fit(FitMode::None)`.
+//!
+//! ## The original subject, unchanged below this line
+//!
 //! # `canvas::fit` — spending a fit command's request to place the view
 //!
 //! ## The request
@@ -79,6 +120,15 @@ pub(super) fn placement(
     current_display: (f32, f32),
     display_size: Vec2,
     vp: Vec2,
+    // ★ The PREVIOUS frame's geometry — `zoom::last_frame` — which is the
+    // whole "before" state the centre measurement needs: the page-local
+    // offset it settled on, the size the page was drawn at, and the viewport
+    // it was measured against. `None` on the first frame of a document, which
+    // this function declines rather than guesses at. O78.
+    before: Option<crate::canvas::zoom::CanvasFrame>,
+    // The page being acted on, so a `before` describing a different document
+    // can be declined. See the check below.
+    page_index: usize,
 ) -> Option<Vec2> {
     // ★★★ **A pending request OR a live fit mode**, and the second half is
     // `OPERATOR_REQUESTS.md` **O55**, 2026-08-28:
@@ -137,31 +187,82 @@ pub(super) fn placement(
     // changed produces bit-identical floats — it is the same measurement of the
     // same layout — and a tolerance would only decide how much of a resize is
     // allowed to be ignored, which is a question nobody has.
-    let resized =
-        doc.view.fit != crate::viewer::FitMode::None && doc.fit_viewport != Some((vp.x, vp.y));
-    let mode = match pending {
-        Some(requested) => requested,
-        None if resized => doc.view.fit,
-        None => return None,
-    };
-    let pinned = mode.pinned_axes()?;
-    // Recorded whichever route got here, so the next frame is not a resize.
-    // ★ Written even for a PENDING request: pressing Fit page establishes the
-    // viewport the fit is now placed against, and without this the frame after
-    // the button would read as a resize and re-place a view the operator may
-    // have already begun scrolling.
-    doc.fit_viewport = Some((vp.x, vp.y));
-    // Where the view is now, expressed the way a single-page solve expects.
-    // The PREVIOUS frame's settled offset, which is the only one available
-    // before this frame's scroll area is built — and the correct one, because
-    // nothing has moved the view since.
-    let now = geometry::page_local_offset(
-        (doc.last_scroll_offset.x, doc.last_scroll_offset.y),
-        (current_rect.min.x, current_rect.min.y),
-        (display_size.x, display_size.y),
+    //
+    // ★★★ **The comparison is now made on EVERY frame, whatever the fit** —
+    // O78. It used to read
+    // `doc.view.fit != FitMode::None && doc.fit_viewport != Some(...)`, so a
+    // document that was not in a fit was never told the viewport had changed
+    // and got no resize handling at all.
+    //
+    // That was worse than "the scroll offset is kept in pixels". On a single
+    // page `page_local_offset` reduces to `page_local = scroll − viewport`,
+    // because the pasteboard is exactly one viewport — so holding the scroll
+    // offset while the viewport grows by Δ slides the page across the screen
+    // by the **whole** of Δ. Widening a dock threw the operator's position
+    // away, and that is the report.
+    let changed = doc.view_viewport != Some((vp.x, vp.y));
+    // Recorded on EVERY frame, whatever this function goes on to decide.
+    //
+    // ★ Including the frames it declines — no previous frame, a different
+    // document, a degenerate viewport. A frame that declined without recording
+    // would leave the NEXT frame reading as a resize and moving the view for
+    // nothing, which is the one way this can produce a jump the operator did
+    // not cause.
+    doc.view_viewport = Some((vp.x, vp.y));
+
+    // ---- 1. a pressed fit outranks everything --------------------------
+    //
+    // Pressing **Fit page** while already fitted to page must recentre a view
+    // the operator has panned away from, and the mode alone cannot distinguish
+    // that frame from the sixty before it. Unchanged, byte for byte, from
+    // before O78 — this is still the only path that deliberately discards the
+    // operator's position, because pressing the button is them asking for it.
+    if let Some(mode) = pending
+        && let Some(pinned) = mode.pinned_axes()
+    {
+        // Where the view is now, expressed the way a single-page solve
+        // expects. The PREVIOUS frame's settled offset, which is the only one
+        // available before this frame's scroll area is built — and the correct
+        // one, because nothing has moved the view since.
+        let now = geometry::page_local_offset(
+            (doc.last_scroll_offset.x, doc.last_scroll_offset.y),
+            (current_rect.min.x, current_rect.min.y),
+            (display_size.x, display_size.y),
+            current_display,
+            (vp.x, vp.y),
+        );
+        let (x, y) = geometry::fit_placement_offset(pinned, now, current_display, (vp.x, vp.y));
+        return Some(vec2(x, y));
+    }
+
+    // ---- 2. a resize keeps what was in the middle, in the middle -------
+    if !changed {
+        return None;
+    }
+    // ★ No previous frame is no centre to preserve, so the very first frame of
+    // a document declines by construction and `canvas::offset`'s seed arm does
+    // the placing. That is also what keeps O23's first-frame hazard shut: this
+    // path never runs against a layout that has not settled once.
+    let before = before?;
+    // ★★ …and a previous frame describing a DIFFERENT PAGE is declined rather
+    // than corrected. `zoom::remember_frame` writes one global `egui::Id`, so
+    // on the first frame after a document-tab switch it still describes the
+    // other document. A tab switch alone does not change the viewport, so this
+    // normally cannot fire — but a switch that coincides with a dock drag
+    // would otherwise re-centre this document from that one's geometry.
+    // Declining loses one frame of centre-preservation; correcting would mean
+    // inventing a before-state, which is worse.
+    if before.page != page_index {
+        return None;
+    }
+    // Measure, then place. The two are exact inverses of each other and are
+    // each other's tested pair; see `centred_frac`.
+    let frac = geometry::centred_frac(before.offset, before.display, before.outer);
+    let (x, y) = geometry::offset_holding_anchor_at(
+        frac,
+        (vp.x / 2.0, vp.y / 2.0),
         current_display,
         (vp.x, vp.y),
     );
-    let (x, y) = geometry::fit_placement_offset(pinned, now, current_display, (vp.x, vp.y));
     Some(vec2(x, y))
 }

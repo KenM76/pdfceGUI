@@ -165,6 +165,25 @@ pub struct CanvasFrame {
     /// origin a frame later, when the current page may have moved on. See
     /// [`crate::viewer::ZoomAnchor::page`].
     pub page: usize,
+    /// ★★★ **The OUTER viewport** — `ui.available_size()` measured *before* the
+    /// scroll area — as against [`Self::viewport`], which is the size inside
+    /// it. `OPERATOR_REQUESTS.md` O78.
+    ///
+    /// # Why both, and why the difference is not a rounding error
+    ///
+    /// A scroll bar takes real width. `canvas::fit` measures where the centred
+    /// page point was against the frame this record describes, and places it
+    /// against the frame being laid out — and the frame being laid out only
+    /// knows the **outer** size at that moment, because its scroll area has not
+    /// been built yet. Measuring "before" against the inner size and placing
+    /// "after" against the outer would land the centre about half a scroll
+    /// bar's width off, systematically, and only when a bar is showing — which
+    /// is exactly the shape of defect nobody reports and everybody notices.
+    ///
+    /// ⇒ Two fields, one question each: `viewport` is *how much room the
+    /// content had*, this is *how much room the canvas had*. The centre rule
+    /// uses this one at both ends.
+    pub outer: (f32, f32),
 }
 
 /// Record this frame's canvas geometry. Called once, at the end of
@@ -840,6 +859,9 @@ mod tests {
             extent,
             display,
             viewport: (400.0, 400.0),
+            // No scroll bar in a test world, so the outer and inner sizes
+            // agree. See `CanvasFrame::outer` for when they do not.
+            outer: (400.0, 400.0),
             viewport_rect: Rect::from_min_size(Pos2::new(20.0, 5.0), vec2(400.0, 400.0)),
             offset: (0.0, 0.0),
             // The single-page world every test in here builds: one page,

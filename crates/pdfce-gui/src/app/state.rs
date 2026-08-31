@@ -470,7 +470,7 @@ pub struct OpenDoc {
     ///
     /// `None` until the first placement, which is what a fresh document gets,
     /// so the first placement always happens.
-    pub fit_viewport: Option<(f32, f32)>,
+    pub view_viewport: Option<(f32, f32)>,
     /// **A search hit that has been navigated to and is waiting to be
     /// scrolled into view.** See [`crate::find::Reveal`].
     ///
@@ -950,7 +950,7 @@ impl OpenDoc {
             zoom_commanded: false,
             zoom_anchor: None,
             fit_placement: None,
-            fit_viewport: None,
+            view_viewport: None,
             // Nothing to reveal on a document nobody has searched yet — and,
             // like every other field here, fresh by construction rather than
             // by a reset somebody has to call.

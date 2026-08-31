@@ -453,11 +453,11 @@ impl DialogsState {
     /// discard recognised bytes the operator has not saved yet — several
     /// seconds of work and an unwritten document, thrown away by the shortcut
     /// they pressed to look at it.
-    pub fn open_ocr(&mut self, status: &Status) {
+    pub fn open_ocr(&mut self, status: &Status, picked: Vec<usize>) {
         if self.ocr.is_some() {
             return;
         }
-        self.ocr = ocr::open_for(status);
+        self.ocr = ocr::open_for(status, picked);
     }
 
     /// Open the Apply-redactions dialog for the document in `status`.
@@ -1340,7 +1340,7 @@ mod tests {
     #[test]
     fn no_document_means_no_recognition_dialog() {
         let mut dialogs = DialogsState::default();
-        dialogs.open_ocr(&Status::Empty);
+        dialogs.open_ocr(&Status::Empty, Vec::new());
         assert!(dialogs.ocr.is_none());
     }
 

@@ -296,6 +296,56 @@ pub struct Prefs {
     /// See [`WheelPaging`] for why the choice exists only under
     /// `PageDisplay::Single` and `Facing`.
     pub wheel_paging: WheelPaging,
+    /// ★★★ **How a document the program has never seen is laid out** —
+    /// `OPERATOR_REQUESTS.md` O80.
+    ///
+    /// The operator: *"it should remember my page display preferences from my
+    /// last closing of the program. Example if I press show one page at a time
+    /// and enable flip pages."*
+    ///
+    /// # Why the answer was "it already does" and he was still right
+    ///
+    /// A page display **is** remembered — by
+    /// [`crate::viewer::remembered`], keyed on the **document's path**, and
+    /// written synchronously the moment he presses the control. That store is
+    /// correct and is not changing.
+    ///
+    /// But it can only answer for a document it has seen. Open a *different*
+    /// drawing and the shell fell straight through to
+    /// [`crate::viewer::PageDisplay::default_for_mode`] — continuous in Read,
+    /// single everywhere else — so the choice he made on sheet A meant nothing
+    /// on sheet B. From his chair that is the program forgetting.
+    ///
+    /// ⇒ **Three tiers, and the order is the whole design:**
+    ///
+    /// | tier | says | wins over |
+    /// |---|---|---|
+    /// | `viewer::remembered` (per document) | *"this drawing is read facing"* | everything |
+    /// | this (global) | *"I read drawings one page at a time"* | the per-mode default |
+    /// | `default_for_mode` | *"Read is for reading"* | nothing |
+    ///
+    /// # ★★ Why `Option`, and why collapsing it would be a regression
+    ///
+    /// `None` means *"fall through to the per-mode default"*, and it has to
+    /// stay expressible. `MODES_AND_PANELS.md`'s per-mode rule — Read is
+    /// continuous — is a deliberate decision from 2026-08-13, and an operator
+    /// who has never stated a preference must keep getting it. A plain
+    /// `PageDisplay` here would have to pick one, and picking one silently
+    /// overrides that rule for everybody.
+    ///
+    /// This is the same refusal [`crate::viewer::remembered::recall`] already
+    /// makes for its own layer: *nothing recorded* and *recorded as single*
+    /// are different states and must not be collapsed.
+    ///
+    /// # ★ This overturns a written decision, and the header it overturns has
+    /// been rewritten rather than left contradicting the code
+    ///
+    /// `crate::app::prefs::opening`'s header said a global default for page
+    /// display was *"a second axis colliding with the per-document one … and
+    /// is deliberately unbuilt"*. The collision is real and the answer is
+    /// **precedence**, not absence: per document beats global beats per mode.
+    /// Three tiers with a stated order is one axis, not two.
+    pub default_page_display: Option<crate::viewer::PageDisplay>,
     /// **Which chord means which form-field paste** — `OPERATOR_REQUESTS.md`
     /// **O58**, operator ruling 2026-08-29.
     ///
@@ -434,6 +484,9 @@ impl Default for Prefs {
             use_os_fonts: false,
             opening_fit: OpeningFit::default(),
             wheel_paging: WheelPaging::default(),
+            // ★ `None` — "he has not said" — so a fresh profile keeps
+            // `MODES_AND_PANELS.md`'s per-mode rule. See the field.
+            default_page_display: None,
             chrome: PageChrome::default(),
             ui_scale: DEFAULT_UI_SCALE,
             chosen_standard: None,
@@ -718,6 +771,19 @@ impl Prefs {
                         line,
                     }),
                 },
+                // ★ O80. The absent key and the present-but-unparseable key
+                // are different: absent leaves `None` (he has not said), and
+                // a bad value is a note, exactly as every other key here does
+                // it — a typo in a hand-edited file must not silently become
+                // a preference.
+                "default_page_display" => match crate::viewer::PageDisplay::from_id(value) {
+                    Some(d) => prefs.default_page_display = Some(d),
+                    None => notes.push(PrefNote::BadValue {
+                        key: key.to_owned(),
+                        value: value.to_owned(),
+                        line,
+                    }),
+                },
                 "wheel_paging" => match WheelPaging::from_key(value) {
                     Some(w) => prefs.wheel_paging = w,
                     None => notes.push(PrefNote::BadValue {
@@ -921,6 +987,26 @@ impl Prefs {
         out.push_str("wheel_paging = ");
         out.push_str(self.wheel_paging.key());
         out.push('\n');
+        // ★★ O80. Written only when he has stated one — an absent key is how
+        // "fall through to the per-mode default" is spelled on disk, and
+        // emitting a value for `None` would make the file claim a preference
+        // nobody expressed. The comment goes above it either way, so somebody
+        // reading the file finds out the setting exists even when it is unset.
+        out.push_str(
+            "\n\
+             # default_page_display: how a document this program has never\n\
+             # opened is laid out. Values:\n\
+             #   single | continuous | facing | facing_continuous\n\
+             # A document you HAVE opened remembers its own arrangement and\n\
+             # ignores this. Leave the line out entirely to let each mode\n\
+             # choose -- Read opens continuous, everything else single page.\n",
+        );
+        if let Some(display) = self.default_page_display {
+            // ui-text-exempt: a file KEY, as above.
+            out.push_str("default_page_display = ");
+            out.push_str(display.id());
+            out.push('\n');
+        }
         out.push_str(
             "\n\
              # Which overlays are already switched on: true | false.\n\

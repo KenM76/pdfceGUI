@@ -417,7 +417,27 @@ fn show_in(
     // something else wins the offset: a request left pending would fire on
     // whatever frame the chain next reached it, which is a view that jumps for
     // a button pressed some seconds ago.
-    let fit_placement = fit::placement(doc, current_rect, current_display, display_size, vp);
+    // ★ `zoom::last_frame` is read HERE and handed in, rather than read inside
+    // `fit::placement`, so the "before" state is fetched once per frame at the
+    // point that already owns the frame's geometry — and so the function stays
+    // a pure decision over its arguments, which is what makes its arithmetic
+    // unit-testable without a window. O78.
+    let previous = zoom::last_frame(ui.ctx());
+    let fit_placement = fit::placement(
+        doc,
+        current_rect,
+        current_display,
+        display_size,
+        vp,
+        previous,
+        // The page this frame is about. `acting` is not bound yet at this
+        // point in the frame — it is resolved after the strip lays out — and
+        // `current` is what every other pre-layout decision here uses. The two
+        // differ only on the frames `acting`'s own note describes, and a
+        // disagreement here can only DECLINE a centre-preservation, never
+        // misplace one.
+        current,
+    );
     // ★★★ WHO DECIDES WHERE THE VIEW IS THIS FRAME, in one ranked list.
     //
     // Six sources, and the ranking is the whole of the subject — see
@@ -1026,6 +1046,12 @@ fn show_in(
             extent,
             display: (image_rect.width(), image_rect.height()),
             viewport: (viewport_size.x, viewport_size.y),
+            // ★ The OUTER size, measured before the scroll area — the one
+            // `canvas::fit` places against on the next frame. See
+            // `CanvasFrame::outer` for why measuring "before" against the inner
+            // size and placing "after" against the outer lands the centre half
+            // a scroll bar off. O78.
+            outer: (vp.x, vp.y),
             viewport_rect: scroll_output.inner_rect,
             // ★ The ACTING page, not `view.page_index`. They are the same on
             // almost every frame and differ on exactly the frames that broke:

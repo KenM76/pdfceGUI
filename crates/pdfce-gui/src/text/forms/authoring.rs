@@ -261,11 +261,51 @@ pub fn field_appearance_stale(why: &str) -> String {
 /// a resize rebuilds it. An operator who dragged a corner and one who dragged
 /// the middle have done different things to the file.
 #[must_use]
-pub fn field_widget_moved(resized: bool) -> &'static str {
-    if resized {
-        "The box was resized and its contents were redrawn to fit."
-    } else {
-        "The box was moved."
+pub fn field_widget_moved(resized: bool, regenerated: bool) -> &'static str {
+    match (resized, regenerated) {
+        // ★★★ **The third case, added 2026-08-31 — `OPERATOR_REQUESTS.md` O76.**
+        //
+        // The operator: *"Form shape outlines of checkboxes and such scale
+        // when I drag them larger."*
+        //
+        // They do, and until today pdfce told him the opposite. This sentence
+        // was chosen on `outcome.resized` alone, so a resize that regenerated
+        // nothing still said *"its contents were redrawn to fit"* — a claim
+        // the very outcome it was reading denied on the next field.
+        //
+        // `regen_after_property_change` returns `Ok(false)` for every field
+        // type except Text and Choice, and a check box is `/FT /Btn`. So the
+        // appearance pdfce itself drew — `BBox` = the ORIGINAL box, stroke
+        // authored at a hard-coded 1.0 — is kept, and §12.5.5 stretches it
+        // into the new `/Rect`. Drag a 12 pt check box to 40 pt and its 1 pt
+        // border draws at about 3.3 pt, and the tick thickens with it.
+        //
+        // ★★ That is precisely the case `resize_annotation` REFUSES by name
+        // for a foreign appearance — *"a foreign appearance cannot be rebuilt
+        // without replacing somebody else's artwork with pdfce's rendering of
+        // it"* — and the widget path takes it silently, on artwork pdfce drew
+        // and could therefore rebuild exactly.
+        //
+        // ⇒ The engine half is filed
+        // (`request_resizing_a_check_box_stretches_its_appearance.md`). This
+        // sentence is what pdfce owes in the meantime, and it is **not** a
+        // lesser version of the fix: it is the difference between a program
+        // that is wrong and one that is honest about being limited. It is
+        // deleted, not reworded, on the day the engine redraws a `/Btn`.
+        //
+        // It names the appearance rather than "the artwork" because the
+        // operator is looking at a tick and a border, and "stretched" is what
+        // he can see happening.
+        (true, false) => {
+            "The box was resized. Its contents could not be redrawn at the new size, so they \
+             are stretched to fit it."
+        }
+        (true, true) => "The box was resized and its contents were redrawn to fit.",
+        // ★ A move that regenerated is not distinguished from one that did
+        // not, and that is correct rather than an omission: a translation
+        // changes no length, so an appearance carried across is exact and
+        // there is nothing to disclose. Only a RESIZE can be unsatisfiable.
+        (false, _) => "The box was moved.",
     }
 }
 
@@ -287,6 +327,59 @@ pub fn field_siblings_untouched(siblings: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ★★★ **A resize that redrew nothing does not claim it redrew something**
+    /// — `OPERATOR_REQUESTS.md` O76.
+    ///
+    /// The three cases are asserted as a set, because the defect was that two
+    /// of them shared one sentence: `field_widget_moved` keyed on `resized`
+    /// alone, so a check box whose appearance was stretched rather than
+    /// rebuilt was told *"its contents were redrawn to fit"* — the opposite of
+    /// what the outcome it was reading said.
+    ///
+    /// The assertions are on the CLAIM rather than on the wording, because the
+    /// wording will change and the claim must not: the unsatisfiable case must
+    /// say the contents are stretched, and must not say they were redrawn.
+    #[test]
+    fn a_resize_that_could_not_redraw_says_so() {
+        let stretched = field_widget_moved(true, false);
+        let redrawn = field_widget_moved(true, true);
+        let moved = field_widget_moved(false, false);
+
+        assert!(
+            stretched.contains("stretched"),
+            "an appearance that could not be rebuilt must say it is stretched: {stretched}"
+        );
+        assert!(
+            !stretched.contains("redrawn to fit"),
+            "★ the defect, stated: this case claimed a redraw that did not happen: {stretched}"
+        );
+        assert!(
+            redrawn.contains("redrawn"),
+            "a rebuilt appearance must say so: {redrawn}"
+        );
+        assert_ne!(
+            stretched, redrawn,
+            "the two resize outcomes must not share a sentence — sharing one is what shipped"
+        );
+        assert!(
+            !moved.contains("resized") && !moved.contains("stretched"),
+            "a move changes no length and owes no disclosure about one: {moved}"
+        );
+    }
+
+    /// A move says the same thing whether or not the appearance regenerated.
+    ///
+    /// Deliberate, not an omission: a translation changes no length, so an
+    /// appearance carried across a move is exact and there is nothing to
+    /// disclose. Only a resize can be unsatisfiable.
+    #[test]
+    fn a_move_owes_no_disclosure_either_way() {
+        assert_eq!(
+            field_widget_moved(false, true),
+            field_widget_moved(false, false)
+        );
+    }
 
     /// **Every noun is distinct**, because the confirmation line is the only
     /// place the operator learns which of five buttons they actually pressed.

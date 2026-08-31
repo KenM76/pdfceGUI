@@ -24,6 +24,12 @@ fn every_preference_round_trips_through_the_file() {
     for quality in RenderQuality::ALL {
         for fit in OpeningFit::ALL {
             let original = Prefs {
+                // ★ Non-default, like every field here — and this one is
+                // the only OPTIONAL key in the file, so a writer that emitted
+                // nothing for it would fail this round trip. `Facing` rather
+                // than `Single` so it cannot coincide with the compiled-in
+                // per-mode answer either. O80.
+                default_page_display: Some(crate::viewer::PageDisplay::Facing),
                 font_folders: vec![std::path::PathBuf::from("C:/Fonts")],
                 use_os_fonts: true,
                 // ★ Non-default, like every other field here: a `None`
@@ -472,6 +478,8 @@ fn the_writer_emits_no_key_the_parser_rejects() {
     // A non-default in every field, so no emitted value can coincide with
     // what a failed parse would have left behind.
     let prefs = Prefs {
+        // ★ Non-default, and the only OPTIONAL key in the file. O80.
+        default_page_display: Some(crate::viewer::PageDisplay::Facing),
         // ★ Non-default: the Acrobat order, so a writer emitting a constant
         // token would fail here rather than pass.
         paste_chords: PasteChords::AcrobatOrder,
@@ -532,4 +540,98 @@ fn the_preferences_file_lives_beside_the_settings_file() {
         return;
     };
     assert_eq!(settings.parent(), prefs.parent());
+}
+
+// ---- O80: the standing page-display preference ------------------------
+
+/// ★★★ **An absent key means "he has not said", and the writer must not
+/// invent one** — `OPERATOR_REQUESTS.md` O80.
+///
+/// The whole reason `default_page_display` is an `Option` rather than a
+/// `PageDisplay`. `None` has to be expressible on disk, because
+/// `MODES_AND_PANELS.md`'s per-mode rule — Read opens continuous — must keep
+/// applying to an operator who has never stated a preference. A writer that
+/// emitted `default_page_display = single` for `None` would silently override
+/// that rule for everybody, and it would do it the first time anybody's
+/// preferences file was rewritten for an unrelated reason.
+#[test]
+fn an_unstated_page_display_preference_writes_no_key_and_reads_back_as_unstated() {
+    let mut prefs = Prefs::default();
+    assert_eq!(
+        prefs.default_page_display, None,
+        "a fresh profile has not stated one"
+    );
+
+    let text = prefs.write_to_string();
+    assert!(
+        !text.contains("default_page_display ="),
+        "the writer must emit no VALUE for an unstated preference:
+{text}"
+    );
+    // …but it must still document that the setting exists, or a hand-editable
+    // file hides half of what it can carry.
+    assert!(
+        text.contains("default_page_display"),
+        "the file must still name the setting in its comments:
+{text}"
+    );
+
+    let (back, _) = Prefs::parse(&text);
+    assert_eq!(
+        back.default_page_display, None,
+        "and it round-trips as unstated"
+    );
+
+    // …and once stated, it is written and read back.
+    prefs.default_page_display = Some(crate::viewer::PageDisplay::Continuous);
+    let text = prefs.write_to_string();
+    assert!(text.contains("default_page_display = continuous"), "{text}");
+    let (back, _) = Prefs::parse(&text);
+    assert_eq!(
+        back.default_page_display,
+        Some(crate::viewer::PageDisplay::Continuous)
+    );
+}
+
+/// ★★ **The three tiers resolve in the order the design states.**
+///
+/// | tier | wins over |
+/// |---|---|
+/// | this document's own remembered arrangement | everything |
+/// | his standing preference | the per-mode default |
+/// | the per-mode default | nothing |
+///
+/// Asserted as the expression `lifecycle` actually evaluates, because the
+/// order is the whole design and a reversed `or` would compile, run, and
+/// silently make a global preference override a document the operator had
+/// deliberately arranged.
+#[test]
+fn a_remembered_document_outranks_the_standing_preference_which_outranks_the_mode() {
+    use crate::viewer::PageDisplay;
+    let resolve = |remembered: Option<PageDisplay>, standing: Option<PageDisplay>, mode: &str| {
+        remembered
+            .or(standing)
+            .unwrap_or_else(|| PageDisplay::default_for_mode(mode))
+    };
+
+    assert_eq!(
+        resolve(Some(PageDisplay::Facing), Some(PageDisplay::Single), "read"),
+        PageDisplay::Facing,
+        "a document he has arranged keeps its arrangement"
+    );
+    assert_eq!(
+        resolve(None, Some(PageDisplay::Single), "read"),
+        PageDisplay::Single,
+        "a document he has NOT arranged takes his standing preference, even in Read"
+    );
+    assert_eq!(
+        resolve(None, None, "read"),
+        PageDisplay::Continuous,
+        "and an operator who has stated nothing keeps the mode rule"
+    );
+    assert_eq!(
+        resolve(None, None, "edit"),
+        PageDisplay::Single,
+        "…which is single everywhere but Read"
+    );
 }

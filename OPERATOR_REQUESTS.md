@@ -80,6 +80,149 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O80 — ⬜ Page display and wheel paging must survive closing the program
+
+**Asked:** 2026-08-31.
+
+> *"Also it should remember my page display preferences from my last closing of
+> the program. Example if I press show one page at a time and enable flip
+> pages."*
+
+### What is on disk today, and why he can still be right
+
+Both settings **are** persisted, and they are persisted by two different
+mechanisms with two different scopes — which is the most likely reason one of
+them looks like it forgets:
+
+| setting | where it is kept | scope |
+|---|---|---|
+| **page display** (single / continuous / facing / facing-continuous) | `viewer::remembered::remember(path, display)`, written from `Action::SetPageDisplay` | **per document path**, and only for a document that HAS a file |
+| **wheel flips pages** (O30) | `Prefs::wheel_paging`, in `settings.txt` | global |
+
+⇒ So a *page display* chosen on drawing A is remembered for drawing A and
+means nothing when he opens drawing B for the first time — which is not "the
+program remembered my preference", it is "the program remembered that
+document". A per-document memory is right and should stay; what is missing is a
+**default for a document it has never seen**.
+
+★ And `PageDisplay::Single` is already the compiled-in default, so the half of
+his example that would have looked like it works may have been working by
+coincidence rather than by memory.
+
+### What has to be checked before anything is built
+
+1. **Is `wheel_paging` actually WRITTEN when the control is used?** It is read
+   from `settings.txt` at startup and it has a Settings entry. If the *control*
+   sets the in-memory value without scheduling a write, the setting survives a
+   change of dialog and not a change of session — and that is exactly the shape
+   of "it forgets".
+2. **Is `viewer::remembered` flushed to disk at all**, or only held for the
+   session?
+3. **Which control is he pressing?** *"Show one page at a time"* is
+   `view.page_single`; *"enable flip pages"* is the O30 setting. Both routes
+   need checking, because a second route that sets the value without persisting
+   it is this project's commonest defect shape.
+
+**Status:** not investigated.
+
+---
+
+## O79 — ◑ OCR needs a "the pages I picked in the thumbnails" scope — and he is not finding the three that exist
+
+**Asked:** 2026-08-31.
+
+> *"Also OCR still only has a button to recognize this page, I should have
+> options to do the whole document, or the pages I have selected in the
+> thumbnails."*
+
+### ★★★ Two halves, and the first one is not what it looks like
+
+**Whole document already ships, and so does a typed range.** `dialogs::ocr`
+carries a `Scope` radio — **All pages** (the default since 2026-08-27),
+**This page**, and **Pages…** with the print dialog's own range parser — and it
+is in the build he is running (`d5c81a6` is an ancestor of the released
+`60a84d0`). The `file.ocr` command is the only route to OCR in the program; the
+Find bar's offer dispatches the same id.
+
+⇒ So *"still only has a button to recognize this page"* is a **discoverability
+report**, and per the standing rule that is a finding about the route rather
+than about him. Something is wrong with how that group presents, and the
+candidates are the ones this project has been caught by before: a control
+published as a `ui_rect` but scrolled out of its pane, a window sized so its
+first group is above the fold, or a radio set that does not read as a choice.
+
+**It is not enough to say the feature exists.** The check that would have
+caught it does not exist either: `ocr-scope` is published on every frame the
+dialog is open, and nothing asserts it is **visible** rather than merely
+declared. That distinction has cost this project twice.
+
+### The half that is genuinely absent, and it is the CAD one
+
+**"The pages I have selected in the thumbnails" is a fourth scope and it does
+not exist.** `Scope` has three variants and none of them reads the Pages
+panel's selection.
+
+★ It is also the one that matters most on his own documents: a 36-sheet
+SolidWorks set where four sheets are scans and the rest are vector is exactly
+the case where *all* is wasteful, *this page* is four separate runs, and a
+typed range is him reading page numbers off the rail and retyping them. The
+panel already holds a multi-selection (`PagesPanelState::selection`), it is
+already the operand for delete, extract, rotate and the page clipboard, and OCR
+is the one page-scoped verb that ignores it.
+
+**Status:** not started.
+
+---
+
+## O78 — ⬜ A resize keeps what was centred centred, a fit survives until you change the zoom, and an opened document starts centred
+
+**Asked:** 2026-08-31.
+
+> *"when I change the size of the canvas window, whatever area was centered in
+> the current canvas should stay centered, and unless I have manually changed
+> the zoom after clicking one of the preset options, the pdf should maintain
+> whichever option was selected - Fit Width, Fit Height, or Fit Page. Also when
+> starting the view should be centered on the canvas when a pdf is first
+> opened."*
+
+Three asks, and the middle one is a **re-report against O55**, which this file
+records as *"DONE 2026-08-28, driven and falsified"*. Read that row before
+touching anything here.
+
+### ★★★ And his sentence has CHANGED in one word, which is the whole finding
+
+O55, 2026-08-28: *"unless the person has changed the zoom **or panned
+around**."*
+
+O78, today: *"unless I have manually changed the zoom."*
+
+**Panning is gone from the condition.** That is either looseness or a
+correction, and it must not be guessed at silently — `a_pan_leaves_the_fit` is
+a driven check built to his earlier words, and reversing it on a misreading
+would undo work he asked for three days ago.
+
+⇒ **The first ask resolves it.** *"Whatever area was centered should stay
+centered"* is a rule about **position**, and a fit is a rule about **zoom**.
+Once position is preserved across a resize in its own right, dropping the fit
+on a pan stops being necessary — it was only ever protecting the operator's
+position from a re-placement. Both of his sentences can then be true at once,
+which is the reading to build.
+
+### The three, separately
+
+1. **A resize preserves the centred point.** New. Nothing in the shell does
+   this today: `ViewState::apply_fit` recomputes the *zoom* from the viewport
+   every frame, and `canvas::fit::placement` re-places on a viewport change —
+   but a document that is **not** in a fit keeps its scroll offset in pixels,
+   so a wider dock shows a different part of the page.
+2. **A fit survives until the zoom is changed by hand.** Half shipped (O55).
+   The half that may now be wrong is which gestures leave it.
+3. **An opened document starts centred.** Not checked yet.
+
+**Status:** not investigated.
+
+---
+
 ## ★★★ 2026-08-31 — FOURTEEN NEW ROWS, RECORDED BEFORE ANY WORK STARTED
 
 Ken sent one message containing thirteen distinct complaints and one standing

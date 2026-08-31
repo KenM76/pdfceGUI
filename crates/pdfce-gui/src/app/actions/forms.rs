@@ -899,11 +899,41 @@ pub(super) fn edit_widget(
     let field = field.to_owned();
     super::apply::vector_edit(doc, "edit-widget", 0, 1, move |session| {
         session.edit_widget(&field, widget, &edit).map(|outcome| {
+            // ★★★ **The trace this verb never had** — `OPERATOR_REQUESTS.md`
+            // O76. Its two siblings, `move-widget-applied` and
+            // `rotate-widget-applied`, have always reported their outcome; this
+            // one reported nothing, which is why a check box quietly stretching
+            // its own artwork for weeks was invisible to every driven run.
+            //
+            // ★ All three fields, because a screenshot cannot separate them: a
+            // border that thickened because `/BS /W` changed and one that
+            // thickened because §12.5.5's placement matrix scaled it are the
+            // same pixels. `regenerated=` is the field that tells them apart,
+            // and it is the assertion the O76 check is built on.
+            crate::diag::trace(|| {
+                format!(
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "edit-widget-applied field={field} widget={widget} resized={} \
+                     regenerated={} stale={}",
+                    outcome.resized,
+                    outcome.appearance_regenerated,
+                    outcome.appearance_stale.is_some(),
+                )
+            });
             let mut lines = Vec::new();
-            if let Some(why) = outcome.appearance_stale {
-                lines.push(crate::text::forms::field_appearance_stale(&why));
+            if let Some(why) = &outcome.appearance_stale {
+                lines.push(crate::text::forms::field_appearance_stale(why));
             }
-            lines.push(crate::text::forms::field_widget_moved(outcome.resized).to_owned());
+            // ★★ **`appearance_regenerated`, not `resized`** (O76). The outcome
+            // carries both and this line was reading the wrong one, so a resize
+            // that redrew nothing was reported as one that had.
+            lines.push(
+                crate::text::forms::field_widget_moved(
+                    outcome.resized,
+                    outcome.appearance_regenerated,
+                )
+                .to_owned(),
+            );
             if outcome.siblings_untouched > 0 {
                 lines.push(crate::text::forms::field_siblings_untouched(
                     outcome.siblings_untouched,

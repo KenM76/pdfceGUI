@@ -1,31 +1,53 @@
-//! `a_pan_leaves_the_fit` — **fit, pan away, resize, and the view stays where
-//! the operator put it.**
+//! `a_pan_keeps_the_fit_and_the_resize_keeps_the_position` — **fit, pan away,
+//! resize: the view stays where the operator put it AND the fit is still
+//! live.**
 //!
-//! # The request
+//! # ★★★ The request changed by one clause, and this file is the record
 //!
 //! `OPERATOR_REQUESTS.md` **O55**, 2026-08-28:
 //!
-//! > *"if the canvas window is resized the pdf should resize to match **unless
-//! > the person has changed the zoom or panned around**."*
+//! > *"if the canvas window is resized the pdf should resize to match unless
+//! > the person has changed the zoom **or panned around**."*
 //!
-//! Its sibling `a_fit_command_puts_the_page_on_screen` proves the first half —
-//! a resize re-fits and re-places. **This one proves the exception**, and the
-//! two are deliberately separate checks because they assert opposite outcomes
-//! from the same gesture: there, the resize must move the page; here, it must
-//! not.
+//! `OPERATOR_REQUESTS.md` **O78**, 2026-08-31:
 //!
-//! ## ★★★ Why this half is the one with the bite
+//! > *"unless I have **manually changed the zoom** after clicking one of the
+//! > preset options, the pdf should maintain whichever option was selected."*
 //!
-//! `ViewState::set_zoom` has always dropped out of a fit, so *"changed the
-//! zoom"* held before today. **Panning did not.** `doc.last_scroll_offset` is
-//! written every frame from the scroll area's own state and nothing consulted
-//! the fit — so an operator who fitted, then panned to look at a corner, was
-//! still *in* fit mode.
+//! The pan clause is gone, and the same message says why it could go:
+//! *"whatever area was centered in the current canvas should stay centered."*
 //!
-//! ⇒ On its own that was harmless, because a fit only ever placed the page
-//! once. The moment a resize re-places — which is the other half of O55 — it
-//! becomes **the resize throwing the operator's position away**, and the two
-//! changes have to land together or the pair is worse than neither.
+//! ## ★★★ Why the clause was only ever load-bearing by accident
+//!
+//! A fit is a rule about **zoom**; where the operator is looking is a rule
+//! about **position**. Until O78 nothing owned the second, so a resize under a
+//! live fit *re-placed* the view — and the only defence available for an
+//! operator who had panned somewhere deliberately was to stop them being in a
+//! fit at all. Leaving the mode was a **proxy** for defending the position.
+//!
+//! `canvas::fit::placement` now preserves the centred page point across any
+//! viewport change, in or out of a fit. The proxy is unnecessary, and keeping
+//! it would cost him the thing he has now asked for twice: a page that stops
+//! re-fitting the moment he drags it an inch.
+//!
+//! ## ★★ What this check had to gain to stay honest
+//!
+//! Steps A–D are **unchanged**, and they still have teeth: preserving an
+//! off-centre point keeps it off centre, so "the margins are not equal" is
+//! still the right assertion and still fails a build that re-centres.
+//!
+//! But it passes on BOTH builds — the old one did not re-centre because it had
+//! dropped the fit, the new one does not re-centre because it preserves the
+//! centre — so on its own it would have been a check that survived the change
+//! instead of testing it. **Step E is the falsifier**: the page's drawn width
+//! must have CHANGED across the resize, because a live fit re-scales from the
+//! viewport every frame. On the pre-O78 build the pan froze the zoom and the
+//! width is identical, and step E fails by name.
+//!
+//! ⇒ Nothing was deleted. A check written to an earlier reading of a request
+//! is evidence about that reading, and the honest amendment is to add the
+//! assertion that separates the two rather than to remove the one that no
+//! longer distinguishes them.
 //!
 //! ## ★★ Why the HAND tool, and why the primary button
 //!
@@ -129,7 +151,7 @@ pub struct APanLeavesTheFit;
 
 impl Check for APanLeavesTheFit {
     fn name(&self) -> &'static str {
-        "a_pan_leaves_the_fit"
+        "a_pan_keeps_the_fit_and_the_resize_keeps_the_position"
     }
 
     fn defect(&self) -> &'static str {
@@ -289,16 +311,53 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         return Ok(Some(format!(
             "★★★ THE RESIZE RE-CENTRED A PAGE THE OPERATOR HAD PANNED AWAY FROM: margins \
              l={left:.1} r={right:.1} t={top:.1} b={bottom:.1} are equal on both axes.\n\
-             `OPERATOR_REQUESTS.md` O55: *\"unless the person has changed the zoom or panned \
-             around\"*. The fit is still active after the pan, so `canvas::fit::placement` \
-             re-placed on the viewport change and discarded the position they chose.\n\
-             `canvas::offset`'s pan arm must call `doc.view.set_fit(FitMode::None)`. Note that \
-             the WHEEL deliberately does not — `a_fit_command_puts_the_page_on_screen` asserts \
-             the opposite for it, and a build that treats all view movement alike fails one of \
-             this pair whichever way it goes. Trace: {}.",
+             `OPERATOR_REQUESTS.md` O78: *\"whatever area was centered in the current canvas \
+             should stay centered\"*. Preserving an OFF-CENTRE point keeps it off centre, so \
+             equal margins mean the position was discarded rather than preserved.\n\
+             `canvas::fit::placement` must measure the centred page fraction from the previous \
+             frame (`canvas::geometry::centred_frac`) and place it back with \
+             `offset_holding_anchor_at`, rather than re-placing the page from the fit. Trace: \
+             {}.",
             session.trace_path().display()
         )));
     }
-    report.note("★ the pan survived the resize, so the fit was left as the operator expected");
+    report.note("★ the pan survived the resize, so the position was preserved as he expected");
+
+    // --- E: …AND THE FIT IS STILL LIVE, which is O78's reversal -----------
+    //
+    // ★★★ The assertion that makes this check a FALSIFIER for the change
+    // rather than a survivor of it.
+    //
+    // Step D alone passes on both builds: the old one dropped the fit on the
+    // pan and therefore did not re-centre, and the new one keeps the fit and
+    // preserves the centre, and both leave the page off centre. A check that
+    // passes either way is measuring nothing, which this project has recorded
+    // three times as its own commonest defect.
+    //
+    // So: the page's drawn WIDTH must have changed across the resize. A live
+    // fit re-scales from the viewport every frame (`ViewState::apply_fit`), so
+    // a narrower canvas means a narrower page. On the pre-O78 build the pan
+    // dropped the fit, the zoom was frozen, and the width is unchanged — this
+    // fails, by name.
+    let width_before = panned.width();
+    let width_after = page_after.width();
+    report.note(format!(
+        "★★ page width across the resize: {width_before:.1} pt → {width_after:.1} pt"
+    ));
+    if (width_after - width_before).abs() < CENTRED_TOLERANCE {
+        return Ok(Some(format!(
+            "★★★ THE FIT DID NOT SURVIVE THE PAN: the canvas narrowed by {RESIZE_BY_PX} px and \
+             the page is still {width_after:.1} pt wide, so nothing re-scaled it.\n\
+             `OPERATOR_REQUESTS.md` O78: *\"unless I have manually changed the zoom after \
+             clicking one of the preset options, the pdf should maintain whichever option was \
+             selected\"*. His earlier sentence (O55, 2026-08-28) also said \"or panned around\"; \
+             this one does not, and it does not have to — a rule about POSITION now protects \
+             the position, so a rule about ZOOM no longer has to be abandoned to do it.\n\
+             `canvas::offset`'s pan arm must NOT call `doc.view.set_fit(FitMode::None)`. Only \
+             `set_zoom` leaves a fit. Trace: {}.",
+            session.trace_path().display()
+        )));
+    }
+    report.note("★★ …and the fit re-scaled the page, so it survived the pan (O78)");
     Ok(None)
 }

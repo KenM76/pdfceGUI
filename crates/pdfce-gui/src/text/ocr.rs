@@ -134,6 +134,38 @@ pub fn scope_current(page: usize) -> String {
     format!("This page only (page {page})")
 }
 
+/// ★★★ **The pages picked in the thumbnail rail** —
+/// `OPERATOR_REQUESTS.md` O79.
+///
+/// The operator: *"I should have options to do the whole document, or the
+/// pages I have selected in the thumbnails."*
+///
+/// `count` is how many are picked, so the label states the operand rather than
+/// naming a place the operator then has to go and count. *"Selected pages"*
+/// alone would be a promise whose size is invisible from the dialog — and this
+/// is a run that can take minutes, so the number is the part that decides
+/// whether he presses the button.
+///
+/// # ★ Why it is drawn only when something is picked
+///
+/// R9. With an empty rail selection this option has no operand at all, and a
+/// greyed radio saying *"Selected pages (0)"* would be a control explaining
+/// its own uselessness in a window that already has three working answers. The
+/// remedy is not on this surface — it is *go and pick some pages* — so there
+/// is nothing a hover could usefully say either.
+///
+/// The plural is written out for the same reason every count in this crate is:
+/// *"1 pages"* costs credibility on a surface whose whole job is being
+/// believed.
+#[must_use]
+pub fn scope_picked(count: usize) -> String {
+    if count == 1 {
+        "The 1 page picked in the thumbnails".to_owned()
+    } else {
+        format!("The {count} pages picked in the thumbnails")
+    }
+}
+
 /// The pages the operator types.
 #[must_use]
 pub fn scope_range() -> &'static str {

@@ -255,6 +255,9 @@ fn navigating_the_view_never_alters_the_selection() {
         extent,
         display: (extent.0, extent.1),
         viewport: (400.0, 400.0),
+        // No scroll bar in a test world, so the outer and inner sizes agree.
+        // See `CanvasFrame::outer` for when they do not.
+        outer: (400.0, 400.0),
         viewport_rect: Rect::from_min_size(Pos2::new(10.0, 5.0), egui::vec2(400.0, 400.0)),
         offset: (0.0, 0.0),
         // The single-page world every test in here builds: one page,
