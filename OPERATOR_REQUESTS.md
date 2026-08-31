@@ -80,7 +80,39 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
-## O80 — ⬜ Page display and wheel paging must survive closing the program
+## O80 — ✅ BUILT 2026-08-31, not yet driven
+
+> **Two causes, and the second was a function written for an exit path that did
+> not exist.**
+>
+> ✅ **A standing page-display preference.** It was already remembered *per
+> document*, written the moment you press the control — but there was no answer
+> for a document the program had never seen, so a choice made on one drawing
+> meant nothing on the next. Three tiers now: this document's own record, your
+> standing preference, then the mode's rule. Pressing a page-display button
+> records it as the standing preference, which is your sentence exactly.
+>
+> ★★★ ✅ **And the program had no exit hook at all.**
+> `LayoutStore::flush` says what it is for in as many words — *"for an exit
+> path, which must not lose the last change to a debounce that had not yet
+> expired"* — and had **no production caller**. So the layout is written 750 ms
+> after it changes and a change made in the last three quarters of a second
+> before you closed the window was silently thrown away.
+>
+> That reaches you through page display: the active ribbon **mode** rides in the
+> layout file, and the mode picks the default for a document with no remembered
+> entry. Switch to Edit, close quickly, reopen in Read, get continuous.
+>
+> **Wheel paging was already persisted correctly** — status-bar toggle and
+> Settings both write. One caveat found while checking: the toggle is hidden
+> under a continuous display, so in Read mode the control you pressed last time
+> is not on screen, which reads identically to "it forgot". The page-display fix
+> above removes that.
+>
+> **Verified:** the prefs round trip (which caught that the writer must not
+> invent a key for an unstated preference) and a precedence table. **NOT
+> driven.**
+
 
 **Asked:** 2026-08-31.
 
@@ -127,7 +159,28 @@ coincidence rather than by memory.
 
 ---
 
-## O79 — ◑ OCR needs a "the pages I picked in the thumbnails" scope — and he is not finding the three that exist
+## O79 — ◑ HALF BUILT 2026-08-31, and the other half is a question for you
+
+> ✅ **"The pages I picked in the thumbnails" now exists**, as a fourth scope in
+> the Recognise-text window, drawn only when something is picked and labelled
+> with the count. The rail's selection is already the operand for delete,
+> extract, rotate and the page clipboard; OCR was the one page-scoped verb that
+> ignored it.
+>
+> ⬜ **The half I cannot close from here: All pages and a typed range ALREADY
+> EXIST**, and have since 2026-08-27, in the build you are running. All pages is
+> even the default. So *"still only has a button to recognize this page"* is a
+> report about the ROUTE, not about the feature — something is wrong with how
+> that group presents and I cannot tell what from here.
+>
+> ★ The candidates are ones this project has been caught by twice: a control
+> published to the harness but scrolled out of its pane, or a window whose first
+> group is above the fold. There is no check asserting the scope group is
+> **visible** rather than merely declared, which is its own defect.
+>
+> **What would settle it in one line from you:** when you open Recognise text,
+> is there a "Pages" heading with radio buttons above the Recognise button?
+
 
 **Asked:** 2026-08-31.
 
@@ -174,7 +227,35 @@ is the one page-scoped verb that ignores it.
 
 ---
 
-## O78 — ⬜ A resize keeps what was centred centred, a fit survives until you change the zoom, and an opened document starts centred
+## O78 — ✅ BUILT 2026-08-31, not yet driven
+
+> **All three, and the middle one resolved the way your two sentences allow.**
+>
+> ✅ **A resize keeps the centred point centred**, in or out of a fit. There was
+> exactly one viewport-change detector in the shell and it was gated on being in
+> a fit, so a document that was not in one got no resize handling at all — and
+> it was worse than "the offset is kept in pixels": widening a dock by Δ slid
+> the page across the screen by the *whole* of Δ.
+>
+> ✅ **A pan no longer leaves the fit.** Only changing the zoom does, which is
+> the clause that survives in both of your sentences. It could go because
+> preserving the centre defends your position in its own right — leaving the fit
+> was only ever a proxy for that.
+>
+> ★★★ And it is a **theorem**, not a preference: on an axis a fit pins, holding
+> the page's centre at the viewport centre solves to exactly the offset the fit
+> would have chosen. So a fit-page document nobody has panned is re-centred for
+> free, and the old resize path could be deleted rather than kept beside it.
+>
+> ✅ **An opened document starts centred.** Under the shipped default (fit page)
+> the new expression is exactly the old one, so nothing common moves; what
+> changes is an opening preference of Actual size on a sheet larger than the
+> window, where you used to get the top-left corner of an A1 drawing.
+>
+> **Verified:** five unit tests including the theorem. The driven check was
+> AMENDED rather than replaced and gained the assertion that makes it a
+> falsifier. **NOT driven.**
+
 
 **Asked:** 2026-08-31.
 
@@ -409,7 +490,31 @@ current state is wrong twice.
 
 ---
 
-## O69 — ◑ HALF BUILT 2026-08-31, not yet driven
+## O69 — ✅ BUILT 2026-08-31, all four, not yet driven
+
+> **The two remaining halves landed the same day.**
+>
+> ✅ **No box over the nodes.** The outline was stroked in an unconditional loop
+> with no rung test anywhere on the path, so at the Part and Node rungs it was
+> drawn on top of the very anchors you were trying to see. And the move ghost
+> stroked a *translated copy* of it — for node drags too — so dragging a point
+> gave you the box AND its ghost, which is O63's *"it just had a perimeter box
+> around it"* surviving inside the gesture O63 was about.
+>
+> ✅ **The nodes are visible and hittable.** The unselected anchor was a 6 px
+> HOLLOW square, 1 px of accent over black CAD linework. It is filled now, at
+> 7 px, and the catch radius went to 8 — which is what a Bézier control point
+> already got, so an anchor stopped being harder to hit than the handle hanging
+> off it. Object picking is untouched.
+>
+> ★★★ **And on a dense path there were NO dots at all.** The 400-anchor cap
+> counted every anchor in the path, so a contour over 400 points drew nothing
+> and published no regions — you armed Points, clicked, watched the box change,
+> and the program went quiet. It now counts what is **on screen**, so zooming in
+> makes the dots appear, which is already the gesture you perform to work on a
+> point and which made no difference at all before. And it now says so when the
+> cap fires, which on that route it never did.
+
 
 > **Two of your four complaints are fixed, and one of them was worse than you
 > said.**
@@ -600,7 +705,13 @@ arriving from a second direction, and the two should be measured together.
 
 ---
 
-## O75 — ◑ HALF BUILT 2026-08-31, not yet driven
+## O75 — ✅ BUILT 2026-08-31, not yet driven
+
+> **The second half landed the same day** — see below the click-through note for
+> what it turned out to be. The document section now starts collapsed whenever
+> something above it is describing your selection, and it is collapsed rather
+> than hidden because the document form is a real capability you may want.
+
 
 > ✅ **The click-through is fixed, and it was one guard.**
 >
@@ -650,7 +761,39 @@ Two defects:
 
 ---
 
-## O76 — ⬜ A form field's outline thickens when you drag it bigger, and the scale-behaviour options are incomplete
+## O76 — ◑ HALF BUILT 2026-08-31 — the honesty half; the fix is an ENGINE row
+
+> **The cause is neither of the two this row guessed.** The outline does not
+> thicken because pdfce wrote a bigger border width. It thickens because
+> **nothing was rewritten at all**: the engine redraws a field's appearance for
+> Text and Choice fields only, and a check box is a button — so the appearance
+> pdfce itself drew, at the ORIGINAL size with a hard-coded 1 pt stroke, is kept
+> and the PDF placement matrix stretches it into the new box. Drag a 12 pt check
+> box to 40 pt and its 1 pt border draws at about 3.3 pt.
+>
+> ★★ That is exactly the case the ANNOTATION resize **refuses by name** — *"a
+> foreign appearance cannot be rebuilt without replacing somebody else's artwork
+> with pdfce's rendering of it"* — and the widget path takes it silently, on
+> artwork pdfce drew and could therefore rebuild exactly.
+>
+> ✅ **Shipped: pdfce stops lying about it.** The sentence was chosen on
+> "was it resized" and said *"its contents were redrawn to fit"* — a claim the
+> very outcome it was reading denied on the next field. There is now a third
+> case saying the contents are stretched, plus the trace this verb never had,
+> which its two siblings have always emitted.
+>
+> ⛔ **The fix is the engine's** and is filed:
+> `open/request_resizing_a_check_box_stretches_its_appearance.md`. It asks for
+> two things — that a button's appearance be redrawn after a `/Rect` change, and
+> that `WidgetEdit` carry the same three scale answers `ResizeOptions` already
+> takes, so your Tool-row switches reach a form field at all.
+>
+> ⬜ **Corner radii: nothing to scale, and that is a finding rather than a
+> refusal.** A form field's border style carries no radius, and pdfce's own
+> check-box artwork draws square corners. What you are seeing thicken is the
+> square artwork, which the engine row fixes. A genuine "scale rounded corners"
+> toggle needs a rounded-rectangle primitive to exist first, and that is a
+> feature to scope with you rather than improvise under a bug report.
 
 **Asked:** 2026-08-31.
 
