@@ -1252,8 +1252,38 @@ pub const FX_CONST: &str = "fx.constant";
         // recorded"** is the FIRST one to re-derive, not the last — it is the
         // one where somebody has already established that nothing is defending
         // the deferral.
+        // ★★★ **4 → 0 on 2026-08-31, and the list is EMPTY** —
+        // `OPERATOR_REQUESTS.md` O68. Ken: *"the Merge files and Split files
+        // buttons don't do anything."*
+        //
+        // All four entries went in one commit, two ways:
+        //
+        // | id | why it left |
+        // |---|---|
+        // | `tools.merge_files` | **wired** — `pageops::merge` was complete and uncalled, and its blocker named a missing PANEL |
+        // | `tools.split_files` | **unregistered** — its blocker names a missing capability, and R9 says a capability that is not built renders nothing |
+        // | `pages.split` | **unregistered** — the same dialog, the same blocker |
+        // | `view.sidebar` | **unregistered** — there was never anything behind it; this build has a dock, not a rail |
+        //
+        // ★★ Kept rather than deleted, exactly as `UNREACHED_ARMS` is kept at
+        // zero and for the same reason: an empty allow-list is still a gate. A
+        // fifth entry cannot be added quietly — it has to be written here with
+        // a reason, and this assertion is what makes adding one a visible act.
+        //
+        // ★★★ **And the honest verdict on this list, now that it has been
+        // emptied once.** It forced an explanation for every dead control and
+        // it never once forced a fix. `tools.merge_files` sat here for weeks
+        // with a reason that was true about the batch pane and false about the
+        // requirement, nine lines above the note that names that exact failure
+        // mode, and survived an audit that re-derived six of its eleven
+        // neighbours. The operator found it by pressing the button.
+        //
+        // ⇒ The replacement is not a better list. It is a **driven check that
+        // presses every registered id and fails on `command-unimplemented`** —
+        // a claim about the running program, which no paragraph can satisfy.
+        // See `tools/ui-verify`.
         assert_eq!(
-            total, 4,
+            total, 0,
             "the allow-list holds {total} entries — a command was scaffolded or wired"
         );
         assert_eq!(
@@ -1271,8 +1301,21 @@ pub const FX_CONST: &str = "fx.constant";
             // *"what can I change on this page?"* is one group; a group of
             // three where one does nothing reads as a broken program rather
             // than as a missing feature, which is precisely the cost P3 names.
+            // ★★★ 2 -> 0 on 2026-08-31 (O68). `pages.split` and
+            // `view.sidebar` were the last two P3 breaches on record, and both
+            // are now UNREGISTERED rather than fixed — which is R9's answer and
+            // is the direction this count exists to make visible.
+            //
+            // ★★ A caution for whoever reads a zero here. This census counts
+            // `reason.contains("★ P3")`, i.e. **self-assigned prose**, and it
+            // never saw the two worst breaches in the build: `tools.merge_files`
+            // and `tools.split_files` were enabled at application startup with
+            // no document, drawn on the ribbon, and inert — which is the most
+            // severe form of P3 available — and neither carried the mark. The
+            // census reported the state of the ANNOTATIONS, not the state of
+            // the ribbon. Zero here means the list is empty, and nothing more.
             p3,
-            2,
+            0,
             "{p3} entries are marked as breaching P3 by being drawn at all; the \
              report to the operator quotes the figure, so move both together"
         );

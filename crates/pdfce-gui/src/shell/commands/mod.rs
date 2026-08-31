@@ -286,7 +286,20 @@ mod tests {
         // The count moves WITH the list, in the same commit, which is this
         // file's standing rule and the reason four earlier drifts are recorded
         // above it.
-        assert_eq!(registry().len(), 129);
+        // ★★★ 129 → 126 on 2026-08-31: `tools.split_files`, `pages.split`
+        // and `view.sidebar` UNREGISTERED — `OPERATOR_REQUESTS.md` O68. Ken
+        // named the first; the sweep found the other two. All three were
+        // drawn, enabled and had no dispatch arm at all, so a press traced
+        // `command-unimplemented` and did nothing he could see.
+        //
+        // ★ Note which way each went. `tools.merge_files` was the fourth of
+        // that set and is IMPLEMENTED, because its blocker named a missing
+        // host and the engine verb was complete. These three are removed
+        // because R9 says a capability that is not built renders nothing —
+        // greying is for the temporarily unavailable, and "the dialog was
+        // never written" is not temporary. The two splits come back together
+        // when the boundary chooser exists.
+        assert_eq!(registry().len(), 126);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -362,7 +375,11 @@ mod tests {
         // directory — `icons/assets/PROVENANCE.md` makes that the operator's
         // own work and deleting his drawing because a button went away is not
         // ours to do — but no command claims it.
-        assert_eq!(named, 109, "commands naming an icon");
+        // ★ 109 → 106 on 2026-08-31: the three unregistered by O68 each
+        // named a glyph (`split` twice, `sidebar` once). The assets stay in
+        // the directory — `icons/assets/PROVENANCE.md` makes them the
+        // operator's own work — but no command claims them.
+        assert_eq!(named, 106, "commands naming an icon");
         // ★ 12 → 17 on 2026-08-27: the Format ▸ Font group's five commands
         // all refuse a glyph, and they refuse it for one reason argued once at
         // their registration. Word draws `B` and `I` as glyphs; this build has
@@ -634,7 +651,6 @@ mod tests {
             "mode.review",
             "tools.font_folders",
             "tools.merge_files",
-            "tools.split_files",
             "view.fullscreen",
             // ★ The Tool panel is live with NOTHING OPEN, and it is the only
             // panel toggle that is. Its body still names the tools this mode
@@ -645,7 +661,6 @@ mod tests {
             "view.panel_tool",
             "view.read_mode",
             "view.reset_layout",
-            "view.sidebar",
         ]
         .into_iter()
         .collect();

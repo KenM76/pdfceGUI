@@ -122,7 +122,10 @@ pub(super) fn tab() -> Tab {
                     command("pages.extract"),
                     command("pages.move_up"),
                     command("pages.move_down"),
-                    command("pages.split"),
+                    // ★★★ `pages.split` was HERE until 2026-08-31 — O68.
+                    // Unregistered with `tools.split_files`; see
+                    // `catalog::tools` for the argument. R9: nothing is drawn
+                    // until the boundary chooser exists.
                     command("pages.merge_into"),
                 ],
             ),

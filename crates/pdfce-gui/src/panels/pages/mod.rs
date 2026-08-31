@@ -1321,18 +1321,27 @@ mod tests {
                  nothing at all"
             );
         }
-        // …and the two the menu deliberately leaves out are absent from that
-        // list rather than forgotten: `pages.split` and `pages.merge_into`
-        // are document-level verbs that act on the whole file rather than on
-        // the sheets pointed at, and both open a dialog this build has not
-        // built. They stay on the ribbon's Pages tab.
-        for id in ["pages.split", "pages.merge_into"] {
-            assert!(
-                registry.get(id).is_some(),
-                "`{id}` is expected to exist on the ribbon even though the \
-                 tile menu does not offer it"
-            );
-        }
+        // …and the one the menu deliberately leaves out is absent from that
+        // list rather than forgotten: `pages.merge_into` is a document-level
+        // verb that acts on the whole file rather than on the sheets pointed
+        // at. It stays on the ribbon's Pages tab.
+        //
+        // ★★★ `pages.split` was the second id here until 2026-08-31 and is
+        // now UNREGISTERED — `OPERATOR_REQUESTS.md` O68. It was drawn, enabled
+        // and had no dispatch arm; R9 says a capability that is not built
+        // renders nothing, and its blocker (no boundary chooser, no
+        // destination directory, no name template) is real and unchanged. It
+        // comes back with `tools.split_files` when the chooser exists.
+        //
+        // ★ A single assertion rather than a one-element loop — clippy
+        // refuses the loop and is right to. It becomes a loop again with two
+        // members and a reason when `pages.split` comes back.
+        let id = "pages.merge_into";
+        assert!(
+            registry.get(id).is_some(),
+            "`{id}` is expected to exist on the ribbon even though the \
+             tile menu does not offer it"
+        );
     }
 
     /// **★ The measurement behind this panel's policy, on the real

@@ -166,7 +166,6 @@
                     id: "panels",
                     caption: "Panels",
                     items: [
-                        Command(id: "view.sidebar"),
                         Command(id: "view.panel_tool"),
                         Command(id: "view.panel_pages"),
                         Command(id: "view.panel_bookmarks"),
@@ -222,7 +221,6 @@
                         Command(id: "pages.extract"),
                         Command(id: "pages.move_up"),
                         Command(id: "pages.move_down"),
-                        Command(id: "pages.split"),
                         Command(id: "pages.merge_into"),
                     ],
                 ),
@@ -393,7 +391,6 @@
                     caption: "Batch",
                     items: [
                         Command(id: "tools.merge_files"),
-                        Command(id: "tools.split_files"),
                     ],
                     collapse: 3,
                 ),

@@ -73,6 +73,42 @@
 /// reader checking §5.3 against it wants the Pages entries together and in
 /// the document's order.
 pub const PLANNED: &[(&str, &str)] = &[
+    // -- The two splits, moved here from SCAFFOLDED on 2026-08-31 -----------
+    //
+    // ★★★ `OPERATOR_REQUESTS.md` O68. Ken: *"the Merge files and Split files
+    // buttons don't do anything."*
+    //
+    // They were REGISTERED with no dispatch arm — drawn, enabled, and inert —
+    // and their entries sat on the `SCAFFOLDED` allow-list, which forces an
+    // explanation and never forces a fix. Merge was wired (the engine verb was
+    // complete and its blocker named a missing panel); these two are
+    // **unregistered**, because their blocker names a missing capability and
+    // R9 says a capability that is not built renders nothing.
+    //
+    // ⇒ The move between registers is the whole point. `SCAFFOLDED` means
+    // *"registered, drawn, and does nothing"*; `PLANNED` means *"named in the
+    // IA and not built"*. These were the first for weeks and should always
+    // have been the second. `no_scaffolded_command_is_also_planned` keeps the
+    // two lists disjoint, which is what makes the distinction mean something.
+    (
+        "pages.split",
+        // ui-text-exempt: developer note about an ABSENT command; never rendered.
+        "N — the boundary chooser does not exist. `pageops::plan_split` takes a plan \
+         (every N pages, at bookmarks, at an explicit list) plus a destination directory \
+         and a name template, and there is no honest default: splitting a 36-sheet \
+         drawing set into 36 files because nobody was asked is not a lesser version of \
+         the feature. The engine half is COMPLETE and was built for this dialog — \
+         `plan_split` is separate from `split` precisely so a UI can preview the parts \
+         before anything is written.",
+    ),
+    (
+        "tools.split_files",
+        // ui-text-exempt: developer note about an ABSENT command; never rendered.
+        "N — the same dialog as `pages.split` with a different operand set: one or more \
+         files chosen on disk rather than the open document. It comes back when that \
+         dialog does, and not before, because half a chooser is a control that splits \
+         somebody's drawing set the way pdfce guessed.",
+    ),
     // -- File -- `RIBBON_IA.md` §5.1 ----------------------------------------
     //
     // ★ `file.new` was here — "N — a blank or from-template document. pdfce has

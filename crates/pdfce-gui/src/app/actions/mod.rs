@@ -70,6 +70,12 @@ mod chrome;
 /// rather than changing the open document. Split out of `pages` under R2 on
 /// 2026-08-28; its header carries the seam.
 mod extract;
+/// ★ Combine several PDFs into a new file — `OPERATOR_REQUESTS.md` O68.
+///
+/// Beside [`extract`] rather than in `pages`, because the two share the
+/// property that decides where they live: both produce **new file bytes** and
+/// touch neither the session nor the undo log. See its header.
+pub(crate) mod merge;
 /// Authoring the annotations that carry WORDS — the sticky note, the text box
 /// and the stamp. Split out of `apply` under R2 on 2026-08-28; its header
 /// carries the seam, which is *composes rather than routes*.

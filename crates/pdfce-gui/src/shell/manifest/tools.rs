@@ -113,7 +113,15 @@ pub(super) fn tab() -> Tab {
             group(
                 "batch",
                 ribbon::group_tools_batch(),
-                [command("tools.merge_files"), command("tools.split_files")],
+                // ★★★ **`tools.split_files` LEFT this band on 2026-08-31** —
+                // O68. Merge is wired and stays; Split is unregistered until
+                // the boundary chooser exists (R9), so the band is one item.
+                //
+                // ★ The band is NOT deleted, unlike Edit ▸ Clipboard and
+                // View ▸ Render before it, because it is not empty: it has a
+                // live member. An empty captioned band is a caption offering
+                // nothing; a band of one is a band of one.
+                [command("tools.merge_files")],
             ),
             // ---------------------------------------------------------------
             // Fonts — configured once, rarely touched.

@@ -47,7 +47,22 @@ pub(super) fn band() -> Vec<Command> {
         // distinction between this tab and Pages, expressed as a predicate.
         // ===================================================================
         command("tools.merge_files", t::tools_merge_files(), 700).with_icon("combine"),
-        command("tools.split_files", t::tools_split_files(), 701).with_icon("split"),
+        // ★★★ `tools.split_files` was HERE until 2026-08-31 — O68, and it is
+        // UNREGISTERED rather than implemented or greyed.
+        //
+        // The operator pressed it and nothing happened. It had no dispatch arm
+        // and its blocker is real and names a missing capability in THIS
+        // repository: a boundary chooser (every N pages / at bookmarks / an
+        // explicit list), a destination directory and a name template.
+        // `plan_split` was built to feed exactly that dialog — the engine's own
+        // comment says *"nothing is written until you click Split"* — and the
+        // dialog does not exist.
+        //
+        // R9 decides the rest: an unavailable capability renders NOTHING.
+        // Greying is reserved for the *temporarily* unavailable and is always
+        // explained on hover, and there is no honest hover sentence for "this
+        // was never written". It returns with `pages.split`, which is the same
+        // dialog with a different operand set. Both are in `manifest::PLANNED`.
         command("tools.font_folders", t::tools_font_folders(), 710).with_icon("font-folders"),
         command("tools.embed_fonts", t::tools_embed_fonts(), 711)
             .with_icon("fonts")

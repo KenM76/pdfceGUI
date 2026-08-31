@@ -155,12 +155,6 @@ pub mod fonts;
 pub mod formfield;
 pub mod forms;
 pub mod images;
-/// Every word the Markup ▸ Style group shows — three tooltips and a unit.
-///
-/// Small, and load-bearing out of proportion to its size: the controls are a
-/// colour swatch and a number, so the tooltip is the only place they can say
-/// what they are, and the only place an operator learns the setting applies to
-/// the **next** mark rather than to one already drawn.
 pub mod markup;
 /// ★ Every word the **maximum-zoom** control says — the popup behind the
 /// status bar's zoom readout (O24).
@@ -174,6 +168,17 @@ pub mod measure;
 /// its rows borrow from [`commands`]. Currently empty by construction; its
 /// header carries the argument and the list of what would land there.
 pub mod menus;
+/// Every word the Markup ▸ Style group shows — three tooltips and a unit.
+///
+/// Small, and load-bearing out of proportion to its size: the controls are a
+/// colour swatch and a number, so the tooltip is the only place they can say
+/// what they are, and the only place an operator learns the setting applies to
+/// the **next** mark rather than to one already drawn.
+/// ★ What pdfce says after combining files — `OPERATOR_REQUESTS.md` O68.
+///
+/// Separate from [`files`], which owns the dialog HEADINGS the operating
+/// system draws. These are what pdfce says afterwards, on its own status row.
+pub mod merge;
 /// The sized-New dialog's copy — the size list, the orientation pair, the
 /// custom fields and the one refusal. Consumed by
 /// `crate::dialogs::new_document`.

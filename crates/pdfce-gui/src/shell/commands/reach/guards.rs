@@ -126,6 +126,20 @@ pub(crate) fn guard_claiming(id: &str) -> Option<&'static str> {
     if crate::app::dispatch::fonts::handles(id) {
         return Some("handles");
     }
+    // ★ `dispatch::batch`, split out 2026-08-31 when `tools.merge_files` was
+    // wired (`OPERATOR_REQUESTS.md` O68). Everything the `pages::handles`
+    // paragraph says applies unchanged, mitigation included: `batch::dispatch`
+    // ends in `unreachable!` naming the id.
+    //
+    // ★★ Added in the SAME commit as the arm, deliberately. This checker has
+    // failed closed five times on exactly this — a new `dispatch::*` module is
+    // invisible here until somebody adds a line, and while it is invisible all
+    // of its commands report as unreachable. Writing the entry with the module
+    // rather than after the test goes red is the only version of this that does
+    // not cost a diagnosis.
+    if crate::app::dispatch::batch::handles(id) {
+        return Some("handles");
+    }
     // ★ The Settings commands, in `app::dispatch::settings` since 2026-08-28,
     // when this file crossed 1,500 lines for the third time in one session.
     //

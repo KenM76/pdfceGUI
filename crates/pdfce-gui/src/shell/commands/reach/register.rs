@@ -125,27 +125,42 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
     // No arm in `dispatch` — it is a `ViewChrome` variant, so
     // `shell::commands::mapping::chrome_command` routes it with the other
     // three, and `canvas::painting::draw_anchors` reads it.
-    (
-        "view.sidebar",
-        "★ P3 — the only justification on record is provably stale. `panels/pages/mod.rs` \
-         quotes the old shell's note — “page thumbnails are the sidebar rail's first pane \
-         and have no independent toggle; the rail toggle shows the rail” — and then \
-         answers it: “**There is no sidebar rail in this build — there is a dock.**” \
-         `manifest/view.rs` still claims this id is in PLANNED, which is false: it is \
-         registered, drawn first in View ▸ Panels, and available with nothing open.",
-    ),
+    // ★★★ **`view.sidebar` was HERE until 2026-08-31 and the COMMAND is gone**
+    // — `OPERATOR_REQUESTS.md` O68's sweep, which found it while looking for
+    // the two the operator had named.
+    //
+    // Its own entry said the justification was provably stale and that there is
+    // no sidebar rail in this build, only a dock — every dock panel already has
+    // its own command. So there was nothing behind it to implement, and an
+    // entry explaining why a control that can never do anything does nothing is
+    // an explanation where a deletion was owed. Under R8, absence is expressed
+    // by not registering; under R9, it renders nothing.
+    //
+    // It was drawn FIRST in View ▸ Panels and enabled with nothing open, which
+    // makes it the most prominent dead control in the build. The operator had
+    // not reported it, which is the argument for sweeping rather than fixing
+    // only what is named.
     // ===================================================================
     // PAGES — the three the dispatcher already argues in place
     // ===================================================================
-    (
-        "pages.split",
-        "★ P3 — already recorded as such. `app::dispatch` carries a ★ table where these \
-         three arms would be, and `FEATURES.md` calls the trio “the P3 breach the audit was \
-         about”. What is missing here is a BOUNDARY CHOOSER: `plan_split` takes a plan \
-         (every N pages, at bookmarks, at an explicit list) plus a destination directory and \
-         a name template, and “there is no honest default: splitting a 36-sheet drawing set \
-         into 36 files because nobody was asked is not a lesser version of the feature”.",
-    ),
+    // ★★★ **`pages.split` was HERE until 2026-08-31 and the COMMAND is gone**
+    // — O68, and it goes with `tools.split_files` because they are the same
+    // dialog with a different operand set.
+    //
+    // Its reason was the strong kind and is unchanged and still true: what is
+    // missing is a BOUNDARY CHOOSER — `plan_split` takes a plan, a destination
+    // directory and a name template, and *"there is no honest default:
+    // splitting a 36-sheet drawing set into 36 files because nobody was asked
+    // is not a lesser version of the feature."*
+    //
+    // ⇒ **What changed is not the blocker, it is what to DO about a blocker.**
+    // R9: a capability that is not built renders nothing. Greying is for the
+    // *temporarily* unavailable and must be explained on hover, and "the dialog
+    // was never written" is neither temporary nor a sentence anyone can write.
+    // Both ids come back together when the chooser exists, and they are in
+    // `manifest::PLANNED` until then — which is the list that means "named,
+    // not built", and which `no_scaffolded_command_is_also_planned` keeps
+    // disjoint from this one.
     // ★★★ `pages.merge_into` was HERE until 2026-08-28, and its entry is
     // **deleted rather than reworded** — the fourth such deletion in two days.
     // It is also the entry whose history best shows what this list is FOR and
@@ -311,20 +326,42 @@ pub(crate) const SCAFFOLDED: &[(&str, &str)] = &[
     // ===================================================================
     // TOOLS
     // ===================================================================
-    (
-        "tools.merge_files",
-        "Salvage, Class C. `SALVAGE.md`'s inventory carries one row for the whole surface — \
-         “Batch pane — merge, split, insert, font folders | ~700 lines | `panels/batch/`” — \
-         and the pane has not been brought across. `manifest/tools.rs` explains only that the \
-         pane's contents were surfaced AS COMMANDS, which is the ribbon half of a job whose \
-         other half is a panel.",
-    ),
-    (
-        "tools.split_files",
-        "The second verb on the same unsalvaged batch pane row in `SALVAGE.md`. It is the \
-         document-set twin of the Pages tab's split, and it inherits that one's missing \
-         boundary chooser on top of the missing pane.",
-    ),
+    // ★★★ **`tools.merge_files` was HERE until 2026-08-31 and is DELETED
+    // because the work landed** — `OPERATOR_REQUESTS.md` O68. The operator
+    // found it: *"the Merge files and Split files buttons don't do anything."*
+    //
+    // Its reason was, in full: *"Salvage, Class C … the pane has not been
+    // brought across."* Every clause about the batch pane was true. The
+    // inference was not: **nothing about combining files on disk needs that
+    // pane.** `pageops::merge` was complete and uncalled, and two pickers were
+    // the whole of the missing host.
+    //
+    // ★★ It sat **immediately above** the `tools.font_folders` note below,
+    // which was retired on 2026-08-28 with the finding *"a blocker naming a
+    // missing HOST is weaker than one naming a missing capability, and it goes
+    // stale the moment any other host will do."* Six of eleven entries were
+    // re-derived in that audit; this one names a missing host, is nine lines
+    // from the sentence that says so, and survived. Seven of eleven.
+    //
+    // ⇒ **The lesson is about the CHECK, not about the entry.** An allow-list
+    // whose entries are prose can only ever force an explanation, never a fix:
+    // `no_scaffolded_entry_is_stale` can prove an entry is registered, has no
+    // arm, and that its reason is long enough — and cannot prove the reason is
+    // TRUE. The runtime replacement now lives in `tools/ui-verify`: press every
+    // registered id, fail on any `command-unimplemented` line. No paragraph can
+    // satisfy that.
+    //
+    // ★ And this list did its remaining job on the day of the fix: wiring the
+    // arm turned `no_scaffolded_entry_is_stale` red naming the entry, one test
+    // run after the commit. It cannot catch a false reason; it does catch a
+    // reason that has become false because the work landed.
+    //
+    // ★★★ `tools.split_files` was HERE too, and is gone for the OPPOSITE
+    // reason: the command is **unregistered**. Its blocker named a missing
+    // capability in this repository — no boundary chooser, no destination
+    // directory, no name template — which is the strong kind of blocker, and
+    // R9 says a capability that is not there renders NOTHING rather than a
+    // control that swallows the press. See `catalog::tools`.
     // ★★★ `tools.font_folders` was HERE until 2026-08-28. Its reason was
     // **accurate about the engine and wrong about this shell**, which is a
     // third distinct way for one of these to go stale and worth naming.

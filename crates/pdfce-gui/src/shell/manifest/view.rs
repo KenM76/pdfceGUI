@@ -331,7 +331,18 @@ pub(super) fn tab() -> Tab {
                 "panels",
                 ribbon::group_view_panels(),
                 [
-                    command("view.sidebar"),
+                    // ★★★ `view.sidebar` was the FIRST item here until
+                    // 2026-08-31 — `OPERATOR_REQUESTS.md` O68's sweep. The
+                    // command is unregistered, so this item would be dropped
+                    // at load anyway (an item naming an unregistered command
+                    // is not drawn, which is R8's mechanism); it is deleted
+                    // rather than left to be silently dropped, because a
+                    // manifest is the SPEC and a spec naming something that
+                    // does not exist is a lie a reader has to discover.
+                    //
+                    // There is no sidebar rail in this build — there is a
+                    // dock, and every dock panel below already has its own
+                    // command. So the group loses nothing.
                     // ★★ FIRST among the panels, and the placement is the
                     // operator's complaint answered in the IA rather than only
                     // in the code.

@@ -180,6 +180,47 @@ pub fn extract_pages_dialog_title() -> &'static str {
     "Save the extracted pages as a new document"
 }
 
+/// ★★★ The heading on the picker that chooses what to combine —
+/// `OPERATOR_REQUESTS.md` O68.
+///
+/// Two things it has to say and neither is optional. **"Combine"** rather than
+/// "Merge", which is Acrobat's word for this operation and therefore the one an
+/// operator arrives with; the ribbon control keeps *Merge files* because that
+/// is where `RIBBON_IA.md` put it, and the two agreeing on the verb matters
+/// less than the dialog being recognised for what it is. And **"several"**,
+/// because this is the only picker in pdfce that takes more than one file and
+/// nothing else on screen says so — an operator who picks one and presses Open
+/// has to be able to tell it was their mistake rather than the program's limit.
+#[must_use]
+pub fn merge_dialog_title() -> &'static str {
+    "Choose several PDFs to combine"
+}
+
+/// The heading on the picker that chooses where the combined file goes.
+///
+/// The fourth caller of `crate::app::files::pick_save_path`, and the fourth
+/// distinct heading, for the reason that function's docs give: a harness or an
+/// operator must be able to tell which of the questions is being asked. Says
+/// **new** for `extract_pages_dialog_title`'s reason — a combine does not
+/// modify any of its sources, and this is the one place the operating system
+/// lets pdfce say so before any bytes exist.
+#[must_use]
+pub fn merge_target_dialog_title() -> &'static str {
+    "Save the combined document as a new file"
+}
+
+/// The name `tools.merge_files` suggests for the combined document.
+///
+/// A bare name rather than a suffix, because unlike an extract there is no ONE
+/// source document to derive one from — that is the whole difference between
+/// the two verbs. `Combined.pdf` names the result rather than the verb, which
+/// is `save_copy_suffix`'s rule, and it lands in whatever folder the first
+/// source came from, which is the only folder pdfce has any evidence about.
+#[must_use]
+pub fn merge_target_name() -> &'static str {
+    "Combined.pdf"
+}
+
 /// The suffix `pages.extract` appends to suggest a name for the new document.
 ///
 /// `-pages` rather than `-extract`, on the same *name the result, not the verb*

@@ -367,7 +367,16 @@ pub(super) fn band() -> Vec<Command> {
             .enabled_when("doc.pages"),
         // The sidebar is the application's own furniture and toggles with
         // or without a document; the panels inside it need one to describe.
-        command("view.sidebar", t::view_sidebar(), 240).with_icon("sidebar"),
+        // ★★★ `view.sidebar` was HERE until 2026-08-31 — O68's sweep.
+        //
+        // There is no sidebar rail in this build; there is a dock, and every
+        // dock panel already has its own command. So the control had nothing
+        // behind it and never would have: it was not deferred work, it was a
+        // command for a concept this shell does not have. Drawn FIRST in
+        // View ▸ Panels and enabled with nothing open, which made it the most
+        // prominent dead control in the program.
+        //
+        // R8: absence is expressed by not registering. R9: it renders nothing.
         // ★★ **The Tool panel**, registered 2026-08-19 — the operator's item 4,
         // *"no side bar area showing what tool is active and its options"*, and
         // the fix for his item 5 as well.

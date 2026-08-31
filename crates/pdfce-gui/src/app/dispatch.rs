@@ -96,6 +96,9 @@ use super::PdfceApp;
 /// each raising `Action::Command` and doing no more. Split out under R2 when
 /// this file crossed 1,500 lines for the fourth time; see its header for why
 /// the seam is a subject rather than a size.
+/// ★ The Tools ▸ Batch band — `OPERATOR_REQUESTS.md` O68. Its own module under
+/// R2, on the same argument as the six splits above it.
+pub(crate) mod batch;
 pub(crate) mod fonts;
 mod forms;
 pub(crate) mod routes;
@@ -770,6 +773,15 @@ impl PdfceApp {
             id if fonts::handles(id) => {
                 fonts::dispatch(id, &mut self.dialogs, &self.status, &self.prefs);
             }
+            // ★★★ **`tools.merge_files`, wired 2026-08-31 — O68.** It was
+            // registered, drawn, enabled at startup, and had no arm at all:
+            // the operator pressed it and the program traced
+            // `command-unimplemented` and did nothing he could see. The engine
+            // verb (`pageops::merge`) had been complete and uncalled the whole
+            // time; the recorded blocker named a missing PANEL, which is the
+            // weak-blocker shape `reach::register` retired an entry for three
+            // days earlier, in the same const, ten lines below this one.
+            id if batch::handles(id) => batch::dispatch(self, id, actions),
             id if routes::handles(id) => routes::dispatch(id, actions),
             "file.export_form_data" => actions.push(Action::Write(
                 crate::app::actions::write::WriteAction::FormData,

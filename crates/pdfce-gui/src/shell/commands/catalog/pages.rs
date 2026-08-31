@@ -83,9 +83,10 @@ pub(super) fn band() -> Vec<Command> {
         command("pages.move_down", t::pages_move_down(), 313)
             .with_icon("chevron-down")
             .enabled_when("doc.pages"),
-        command("pages.split", t::pages_split(), 314)
-            .with_icon("split")
-            .enabled_when("doc.pages"),
+        // ★★★ `pages.split` was HERE until 2026-08-31 — O68. Unregistered
+        // with `tools.split_files`, which is the same dialog with a different
+        // operand set; see that one's note in `catalog::tools` for the whole
+        // argument. R9: nothing is drawn until the boundary chooser exists.
         command("pages.merge_into", t::pages_merge_into(), 315)
             .with_icon("combine")
             .enabled_when("doc.pages"),

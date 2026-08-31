@@ -196,6 +196,21 @@ pub const DIAG_FONT_FOLDER_PATH: &str = "PDFCE_DIAG_FONT_FOLDER"; // ui-text-exe
 /// | set but **empty** | [`Picked::Cancelled`] — no dialog opens | a harness exercising the path where the operator declines to save, which must leave nothing behind |
 pub const DIAG_SAVE_PATH: &str = "PDFCE_DIAG_SAVE_PATH"; // ui-text-exempt: an environment variable name, never displayed
 
+/// ★★★ **The seam for the MULTI-file picker** — `OPERATOR_REQUESTS.md` O68.
+///
+/// `PDFCE_DIAG_MERGE_SOURCES`, and it is the only one of these that names
+/// **several** paths: they are separated by `;`, which is the Windows path-list
+/// separator and therefore the one character that cannot appear in a path on
+/// this platform. (`:` would have been wrong — `C:\` — and a newline is
+/// unwritable in a `set` on a command line.)
+///
+/// Empty answers `Cancelled`, exactly as every other seam here does, so a
+/// driven check can exercise the branch where the operator dismisses the
+/// dialog. A single path is a legal answer and produces a one-source merge,
+/// which `pageops::merge` accepts and which is worth being able to drive: it is
+/// the case where the report's page count must equal the source's exactly.
+pub const DIAG_MERGE_SOURCES: &str = "PDFCE_DIAG_MERGE_SOURCES"; // ui-text-exempt: an environment variable name, never displayed
+
 /// What asking for a document produced.
 ///
 /// Three answers rather than `Option<PathBuf>`, because the third one is not
@@ -582,6 +597,65 @@ pub fn pick_insert_source() -> Picked {
         format!(
             // ui-text-exempt: diagnostic trace, never displayed.
             "insert-picked source=native answer={answer:?}"
+        )
+    });
+    answer
+}
+
+/// **Ask for several PDFs to combine into a new one** —
+/// `OPERATOR_REQUESTS.md` O68.
+///
+/// The only picker in this shell that answers with more than one path, and it
+/// is a separate function rather than a flag on [`pick_document`] for the
+/// reason that file's other seven pickers are separate: each one has a title,
+/// a filter set and a diagnostic seam of its own, and a harness that could
+/// answer "the Open dialog" and "the Combine dialog" with the same variable
+/// could not drive a check that used both.
+///
+/// # ★ Why `Vec<PathBuf>` and not `Picked`
+///
+/// Because [`Picked`] carries exactly one path and widening it would touch
+/// eight call sites to serve one. The three states are expressed instead as:
+/// a non-empty vector (the operator chose), an empty vector (cancelled, or the
+/// build cannot ask), and — deliberately **not** distinguished — which of those
+/// two the empty case was. That collapse is safe here and is not elsewhere: a
+/// merge writes a NEW file and changes nothing, so "the operator changed their
+/// mind" and "there was no dialog" have the same correct consequence, which is
+/// to do nothing quietly. `Picked::Unavailable` exists for verbs where the two
+/// must be told apart because one of them is a silent failure.
+///
+/// Blocks while the dialog is open, exactly as its siblings do, and carries the
+/// same frame-timing requirement: the caller runs it after its frame's layout
+/// closure has returned.
+#[must_use]
+pub fn pick_merge_sources() -> Vec<PathBuf> {
+    if let Some(raw) = std::env::var_os(DIAG_MERGE_SOURCES) {
+        let text = raw.to_string_lossy().into_owned();
+        let answer: Vec<PathBuf> = text
+            .split(';')
+            .filter(|part| !part.is_empty())
+            .map(PathBuf::from)
+            .collect();
+        crate::diag::trace(|| {
+            format!(
+                // ui-text-exempt: diagnostic trace, never displayed.
+                "merge-picked source=env n={}",
+                answer.len()
+            )
+        });
+        return answer;
+    }
+    let answer = rfd::FileDialog::new()
+        .set_title(crate::text::files::merge_dialog_title())
+        .add_filter(crate::text::files::filter_pdf(), &["pdf"])
+        .add_filter(crate::text::files::filter_all(), &["*"])
+        .pick_files()
+        .unwrap_or_default();
+    crate::diag::trace(|| {
+        format!(
+            // ui-text-exempt: diagnostic trace, never displayed.
+            "merge-picked source=native n={}",
+            answer.len()
         )
     });
     answer
