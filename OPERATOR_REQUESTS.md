@@ -80,6 +80,73 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## ★★★ THE DRIVEN SWEEP, 2026-08-31 — 67 / 0 / 52 on your machine
+
+**Everything below that says BUILT has now been driven**, on `SW41177.pdf` at
+`--doc-point 0,1140,62`, 119 checks, against a copy of the binary in a scratch
+folder rather than the one you keep — so the suite's side effects (layout,
+preferences, recent files, remembered page display) landed in
+`target/sweep-scratch/userdata` and not in your own state.
+
+| | |
+|---|---|
+| passed | **67** |
+| failed | **0** |
+| skipped | 52 |
+
+★ **The skip count is the same as it was before today's work** — 52 either way,
+with two checks moving in each direction. So none of this cost coverage. Most of
+the 52 are the aim point landing on a text run, which has no anchors; that is a
+fixture matter and is recorded as such.
+
+### ★★★ It caught a regression I had shipped that morning
+
+`resize_scales_a_shape` and `shift_constrains_a_resize` failed with *"the grip
+drag committed nothing and declined nothing"* — the exact state the resize
+feature exists to fix. **O72's marquee guard was second-guessing a press on a
+resize grip.** A grip sits on the box's edge, outside the object's geometry, so
+the "did this land on the selection?" test answered no for all eight of them and
+the press re-selected instead of resizing. One `matches!(grip, Grip::Move)`
+fixed all three failures.
+
+The eight grips and the rotate handle are **drawn**. A press on one is
+unambiguous and must never be re-interpreted. `Grip::Move` is the only member
+with no visible mark of its own, which is exactly why it is the only one worth a
+second question — and I had applied the question to the whole set.
+
+⇒ Filed to `D:/dev/rag/egui/`, because the general form is worth keeping: when
+two call sites share a predicate, extracting the predicate is half the job —
+they must also agree on **when to ask it**.
+
+### ★★ And one finding that is a consequence of a fix rather than a break
+
+`the_line_weight_switch_reaches_the_resize` failed because the Tool panel was
+**closed**. Its launch presses `view.panel_tool` believing that opens the panel;
+it is a toggle, and the dock layout persists. It became reliably wrong **because
+O80 wired the exit hook** — before that, a layout change in the last 750 ms
+before exit was lost to the debounce, so the panel state usually did not carry
+over and the check got away with it.
+
+The program is more correct and the suite is less independent. The check now
+looks before it toggles. Also filed to the RAG.
+
+### ⬜ One flaky check, named rather than fixed
+
+`the_format_tab_offers_font_controls_for_swept_text` skips in the suite and
+passes alone — twice, having swept **266** characters and then **29**. A
+text-sweep check whose count varies tenfold is measuring the harness's drag
+timing as much as the feature. Not caused by anything here; it read the same way
+on the pre-change binary.
+
+### What the sweep confirms about today
+
+`a_pan_keeps_the_fit_and_the_resize_keeps_the_position` passes with **both**
+assertions, including the new falsifier: the page's drawn width went 468.0 pt →
+308.0 pt across the resize, so the fit was still live after a pan. On the old
+build the pan froze the zoom and that number would not have moved.
+
+---
+
 ## O80 — ✅ BUILT 2026-08-31, not yet driven
 
 > **Two causes, and the second was a function written for an exit path that did
