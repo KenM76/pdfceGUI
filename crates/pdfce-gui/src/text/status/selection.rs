@@ -433,3 +433,43 @@ pub fn text_style_used_other_family(style: &str, face: &str) -> String {
         "No {style} face of this text's own family is on the page, so pdfce used {face} instead. The letterforms will look different, not just heavier or slanted."
     )
 }
+
+/// ★★★ **The cap fired on a PART, and nothing was said** —
+/// `OPERATOR_REQUESTS.md` O69: *"the nodes are hard to see and click on."*
+///
+/// The sibling of [`crate::text::status::too_many_anchors`], and it exists
+/// because that one's guard excluded the exact route the operator reported.
+///
+/// # What he saw, and why it read as broken rather than as limited
+///
+/// The Points tool puts the selection at the **Part** rung, so
+/// `entered_object()` is `Some` — and the disclosure was gated on it being
+/// `None`. A subpath with more than four hundred anchors therefore drew no
+/// dots and said nothing: he armed the tool, clicked a shape, watched the
+/// selection box change, and the program went quiet. A limit reported as an
+/// absence is the failure `RESUME.md` records four separate occasions of.
+///
+/// # ★★ Why it is not the same sentence
+///
+/// [`crate::text::status::too_many_anchors`] ends *"Double-click into a part
+/// of it, or use the Points tool, to see that part's"* — advice that is
+/// correct at the Object rung and **wrong here**, because there is nothing
+/// below a subpath to descend into. Reusing it would send him looking for a
+/// rung that does not exist.
+///
+/// The remedy this one names is the one that now works: **zoom in**. Since
+/// 2026-08-31 the cap counts what is on screen rather than what the path
+/// contains, so magnifying the area genuinely makes the dots appear — which it
+/// did not before, and which is why this sentence could not have been written
+/// honestly until the cull shipped.
+///
+/// ★ It lives here rather than beside its sibling in `text::status` because
+/// that module is at 1,482 lines against R2's 1,500. The seam is noticed
+/// rather than trimmed, which is that file's own standing note.
+#[must_use]
+pub fn too_many_anchors_in_part(count: usize, cap: usize) -> String {
+    format!(
+        "This part has {count} points and pdfce draws at most {cap} at a time, so none are \
+         shown here. Zoom in to see the ones you are looking at."
+    )
+}

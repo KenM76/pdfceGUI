@@ -101,6 +101,41 @@ pub struct Grabbable {
     /// nothing changes, which is why the flag exists rather than the check
     /// running unconditionally.
     pub content: bool,
+    /// ★★★ **Whether this box DESCRIBES the subject, and may therefore be
+    /// stroked** — `OPERATOR_REQUESTS.md` O69.
+    ///
+    /// The operator: *"If we are at a point where we are showing the nodes in
+    /// an editable state there shouldn't be a bounding box around the
+    /// objects."*
+    ///
+    /// `true` for the three `/Rect` kinds — a ce dimension, a markup, a form
+    /// field's widget — because their box **is** the object. `true` for page
+    /// content at the **Object** rung, where the box is the thing selected.
+    /// `false` at the **Part** and **Node** rungs, where the subject is a
+    /// subpath or a set of anchors and the box is a bound around something the
+    /// operator is working *inside*.
+    ///
+    /// # ★★ Three things it is deliberately NOT
+    ///
+    /// - **Not [`Self::content`].** That is `true` at every content rung
+    ///   including Object, and answers a different question — *is this box
+    ///   mostly empty paper?*, which decides whether a press on it is a move
+    ///   (O72). No single boolean expresses both.
+    /// - **Not a [`SelectionLevel`].** Three of the four rows of
+    ///   [`grabbable`]'s table have no rung at all — an annotation is not on
+    ///   the content ladder — so a rung field would force this function to
+    ///   invent one for a markup.
+    /// - **Not `offer.resize` in disguise.** A ce dimension offers no resize
+    ///   (`rotate_only`) and a locked annotation offers nothing, and both keep
+    ///   their outline. *"Draw the box iff you can scale it"* is not the rule,
+    ///   and inferring it would break silently the day an inner rung gains a
+    ///   grip.
+    ///
+    /// ★ It exists here rather than being re-derived in the painter because
+    /// [`grabbable`] already computes `at_object_rung`, uses it twice, and
+    /// threw it away — and a second spelling of one predicate is the failure
+    /// this module's own header condemns.
+    pub outline: bool,
 }
 
 /// What the pointer may grab, given what is selected.
@@ -159,6 +194,8 @@ pub fn grabbable(
             // A ce dimension's box IS its `/Rect`, not a bound around
             // scattered geometry. See `Grabbable::content`.
             content: false,
+            // …and for the same reason it is stroked: the box is the object.
+            outline: true,
         };
     }
     if let Some(bounds) = annotdrag::grab_box(map, selection) {
@@ -178,6 +215,7 @@ pub fn grabbable(
             offer: handles::GripSet::all(),
             // A markup annotation's box IS its `/Rect`.
             content: false,
+            outline: true,
         };
     }
     if let Some(bounds) = widgetdrag::grab_box(ctx, doc, map) {
@@ -196,6 +234,7 @@ pub fn grabbable(
             offer: handles::GripSet::scale_only(),
             // A widget's box IS its `/Rect`.
             content: false,
+            outline: true,
         };
     }
     let at_object_rung = selection.level() == SelectionLevel::Object;
@@ -217,6 +256,13 @@ pub fn grabbable(
         // `overlay::grip_box` is `selection.outline_union()`, so on a CAD sheet
         // it is mostly empty paper. See `Grabbable::content`.
         content: true,
+        // ★★★ …and the box is stroked only at the OBJECT rung (O69). At the
+        // Part and Node rungs the anchors are the picture and the box is
+        // clutter drawn on top of them. Note this is the same boolean the two
+        // lines above already turn on: the rung decides the grips, the move-box
+        // inflation AND the outline, which is one decision with three
+        // consequences rather than three decisions.
+        outline: at_object_rung,
     }
 }
 
@@ -349,6 +395,10 @@ pub fn look(
         bounds: grip_box,
         offer,
         content,
+        // Not read here — this function decides what a press MEANS, and
+        // whether a box is stroked is a question for the painter. Named
+        // rather than wildcarded so a fifth field has to be ruled on.
+        outline: _,
     } = grabbable(ctx, doc, map, selection);
     let origin = ctx.input(|i| i.pointer.press_origin()).or(screen_pos);
 
@@ -529,5 +579,65 @@ pub fn look(
         handle,
         visible_handles,
         meaning,
+    }
+}
+
+#[cfg(test)]
+mod o69_outline_tests {
+    use super::*;
+    use crate::canvas::handles::GripSet;
+
+    /// ★★★ **The four rows of `grabbable`'s table, and what each says about
+    /// the outline** — `OPERATOR_REQUESTS.md` O69.
+    ///
+    /// Asserted as `Grabbable` literals rather than by driving `grabbable`,
+    /// which needs a `Context` and an `OpenDoc`. What is under test is the
+    /// *relationship between the three flags*, which is where a mistake would
+    /// hide: the whole point of `outline` is that it is not expressible as
+    /// either of the other two.
+    #[test]
+    fn the_outline_flag_is_not_the_content_flag_nor_the_grip_set() {
+        // Page content at the OBJECT rung: the box is the subject, it is
+        // stroked, and it is also a bound around scattered geometry.
+        let object = Grabbable {
+            bounds: None,
+            offer: GripSet::all(),
+            content: true,
+            outline: true,
+        };
+        // Page content at an INNER rung: still a bound, no longer the subject.
+        let inner = Grabbable {
+            bounds: None,
+            offer: GripSet::default(),
+            content: true,
+            outline: false,
+        };
+        // A ce dimension: the `/Rect` IS the object, so it is stroked — and it
+        // offers no resize. This is the pair that proves `outline` is not
+        // `offer.resize` in disguise.
+        let dimension = Grabbable {
+            bounds: None,
+            offer: GripSet::rotate_only(),
+            content: false,
+            outline: true,
+        };
+
+        assert_eq!(
+            (object.content, inner.content),
+            (true, true),
+            "`content` cannot distinguish the rungs — it is true at both"
+        );
+        assert_ne!(
+            object.outline, inner.outline,
+            "…and `outline` must, which is why it is a second flag"
+        );
+        assert!(
+            !dimension.offer.resize && dimension.outline,
+            "a ce dimension is stroked and offers no resize, so `outline` is not `offer.resize`"
+        );
+        assert!(
+            !dimension.content && dimension.outline,
+            "…and it is not `content` either: the two disagree here"
+        );
     }
 }

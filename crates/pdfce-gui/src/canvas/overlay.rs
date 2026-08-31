@@ -51,6 +51,32 @@ use crate::canvas::handles;
 use crate::canvas::mapping::PageMapping;
 use crate::canvas::selection::SelectionState;
 
+/// The anchor marks and the Bézier handles — split out under R2 on 2026-08-31.
+///
+/// ★ Re-exported below rather than left behind a module path, so every
+/// existing `overlay::ANCHOR_PX` / `overlay::draw_anchors` call site keeps its
+/// spelling. Nothing moved but its address, which is the property that makes
+/// an R2 split reviewable.
+pub mod anchors;
+
+pub use anchors::{
+    ANCHOR_PX, HANDLE_PX, MAX_UNSELECTED_ANCHORS, PUBLISHED_ANCHORS, anchor_region, draw_anchors,
+    draw_handles, handle_region,
+};
+
+/// The region the selection's grip box publishes.
+///
+/// ★ It is the box the eight grips are laid out on, not the union of the
+/// outlines: `visible_outline_rect` widens a degenerate outline to a minimum
+/// extent so a hairline is still grabbable, and a check aiming at the un-widened
+/// rect would miss the grips on exactly the objects that needed the widening.
+///
+/// ★★ It stayed in the parent when the anchors were split out on 2026-08-31,
+/// because it names the OUTLINE and the grips — `overlay`'s subject — and not
+/// the points. Three call sites publish it: the annotation branch, the content
+/// grip box, and `canvas::forms`' widget box.
+pub const SELECTION_OUTLINE_REGION: &str = "canvas.selection-outline"; // ui-text-exempt: trace region name, never displayed
+
 /// The minimum on-screen extent, in egui logical points, that a selection
 /// outline is guaranteed to have on each axis.
 ///
@@ -161,7 +187,11 @@ pub fn draw_selection(
     visuals: &Visuals,
     mapping: &PageMapping,
     selection: &SelectionState,
-    offer: crate::canvas::handles::GripSet,
+    // ★ The whole answer, not just its grip set — `OPERATOR_REQUESTS.md` O69.
+    // The caller already holds it and was narrowing it to one field; the
+    // outline needs a second, and re-deriving that second one here would be a
+    // predicate spelled in two places. See `Grabbable::outline`.
+    grab: crate::canvas::pressing::Grabbable,
 ) {
     if selection.is_empty() {
         return;
@@ -232,11 +262,39 @@ pub fn draw_selection(
         // — no box at all from `grabbable`, so nothing is painted and nothing
         // is grabbable. **R9**: rendering nothing is the honest answer for a
         // capability that does not exist.
-        draw_grips(painter, visuals, screen, offer);
+        draw_grips(painter, visuals, screen, grab.offer);
         return;
     }
 
-    for (_, page_rect) in selection.outlines() {
+    // ★★★ **THE BOX IS NOT DRAWN OVER THE NODES** — `OPERATOR_REQUESTS.md`
+    // O69: *"If we are at a point where we are showing the nodes in an
+    // editable state there shouldn't be a bounding box around the objects."*
+    //
+    // At the Part and Node rungs `selection::outline_rect` returns the entered
+    // SUBPATH's bounding box, and it was stroked on top of that subpath's own
+    // anchors — so the operator got a rectangle around the thing whose points
+    // he was trying to see. The eight grips were already correctly withheld
+    // there (`GripSet::default()`); the outline was the half nobody had gated.
+    //
+    // ★ Traced rather than only changed, because "no box" and "no selection"
+    // are the same screenshot. `canvas-outline` is a new first token — checked
+    // against `tools/gates/check-trace-names.py`, which matches on first
+    // tokens, and deliberately not `canvas-selection`, which
+    // `canvas::clicking` already owns.
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed in the UI
+        format!(
+            "canvas-outline drawn={} entries={}",
+            grab.outline,
+            selection.outlines().len()
+        )
+    });
+    for (_, page_rect) in
+        selection
+            .outlines()
+            .iter()
+            .take(if grab.outline { usize::MAX } else { 0 })
+    {
         let screen =
             visible_outline_rect(mapping.rect_to_screen(*page_rect), MIN_OUTLINE_EXTENT_PX);
         painter.rect_stroke(screen, CornerRadius::ZERO, stroke, StrokeKind::Middle);
@@ -272,314 +330,9 @@ pub fn draw_selection(
         // worse, because it is an invisible target that steals the press aimed
         // at the anchor underneath it. That second case is the defect that made
         // this rule necessary in the first place.
-        draw_grips(painter, visuals, box_, offer);
+        draw_grips(painter, visuals, box_, grab.offer);
     }
 }
-
-/// The size of an anchor mark, in screen pixels, edge to edge.
-///
-/// Smaller than a resize grip on purpose. A grip is a **target** — it must be
-/// grabbable — and an anchor mark is primarily a **statement**: *these are the
-/// points, and these four are the ones you picked*. Six pixels is legible at
-/// any zoom and small enough that a run of anchors along a polyline reads as a
-/// row of dots rather than as a second outline drawn on top of the first.
-pub const ANCHOR_PX: f32 = 6.0;
-
-/// The most anchors that will be drawn as *unselected* marks.
-///
-/// ★ A real number from a real document rather than a round one: `canvas::moving`
-/// records **6,681 anchors on one measured CAD export**, and a single object on
-/// this operator's drawings routinely carries thousands. Painting all of them
-/// would put several thousand filled rects in the frame for a rung the operator
-/// entered in order to move *one* point, and the canvas would visibly stutter
-/// at the exact moment they are doing precision work.
-///
-/// Above the cap the **selected** anchors still draw — they always draw, at any
-/// count, because they are the answer to "what did I pick?" and that question
-/// has no other surface — and the fact that the rest were suppressed is
-/// disclosed off-canvas. That is rule 4's half that survives: an operator who
-/// cannot see the unselected anchors would otherwise conclude the object has
-/// none.
-pub const MAX_UNSELECTED_ANCHORS: usize = 400;
-
-/// Paint the entered object's anchors, and mark the selected ones.
-///
-/// # ★★ Why this exists at all, and why it is late
-///
-/// `FEATURES.md` recorded, against `view.show_points`, that **this build draws
-/// no anchor mark at any rung** — and the Node rung has been enterable, and
-/// multi-node selection representable, since S4. So an operator could descend
-/// two rungs, Shift-click four anchors, and have **no way whatever** of seeing
-/// which four. The feature was not merely undiscoverable; it was invisible.
-///
-/// It landed with the multi-node *move*, on 2026-08-19, because the two are one
-/// feature: a set the operator cannot see is a set they cannot choose
-/// deliberately, and a move of an invisible set is indistinguishable from a bug.
-///
-/// # Why selected and unselected are drawn differently, and how
-///
-/// Filled for selected, hollow for not. The same language as the resize grips
-/// one rung up — filled square, selection-coloured stroke — so the visual
-/// vocabulary of "a thing you can grab" is one vocabulary across the ladder,
-/// and a reader who has learned the grips has learned these.
-///
-/// # ★ This is the CURSOR, not content
-///
-/// Rule 4 forbids styling *applied content* to express pdfce's own uncertainty
-/// and explicitly welcomes *pre-commit affordances*: "snap indicators, hover
-/// highlights, rubber-bands and selection handles are the cursor". An anchor
-/// mark is a selection handle. It describes where the operator may act, changes
-/// nothing about how the page renders, and disappears the moment the rung is
-/// left — so the one-line test holds: a screenshot of this canvas and a
-/// screenshot of the same document saved and reopened differ only in the
-/// cursor.
-/// `points` are in **canvas space**, already converted by the caller.
-///
-/// ★ The conversion is the caller's because `PageMapping` speaks canvas ⟷
-/// screen and knows nothing about PDF user space — turning a `vector::Point`
-/// into a canvas position needs the `Page`'s own box and rotation, which is
-/// `viewer::pdf_space_to_canvas`' job. Passing the `Page` in here so that this
-/// function could do it would give the overlay a second coordinate authority,
-/// and `coords`' standing rule is that a coordinate is produced by exactly one
-/// conversion in exactly one place.
-pub fn draw_anchors(
-    painter: &Painter,
-    visuals: &Visuals,
-    mapping: &PageMapping,
-    points: &[(usize, egui::Pos2)],
-    selected: &std::collections::BTreeSet<usize>,
-) {
-    let stroke = Stroke::new(1.0, visuals.selection.stroke.color);
-    let draw_unselected = points.len() <= MAX_UNSELECTED_ANCHORS;
-
-    // ★★★ **The census is written BEFORE the empty return, since 2026-08-29.**
-    //
-    // It used to sit at the bottom, after `if points.is_empty() { return; }` —
-    // so an object with no anchors and a draw that never happened produced the
-    // **same trace**: nothing. That is the shape `tools/ui-verify`'s own rule 4
-    // forbids from the other side (an absence is not evidence unless the thing
-    // that would have produced it is known to run), and it cost a whole sweep's
-    // worth of misclassification:
-    //
-    // * `the_points_tool_shows_points_on_one_click` and
-    //   `show_points_draws_an_objects_points_without_descending` **FAILED**,
-    //   each accusing a named line of `painting::draw_anchors`;
-    // * `multi_node_move_moves_every_picked_anchor` and
-    //   `bezier_handle_drag_changes_a_curve` **SKIPPED**, on the identical
-    //   absence, saying *"the point named a text run or an image"*;
-    //
-    // and all four had aimed at the same `--doc-point 0,1140,62` on
-    // `SW41177.pdf`, where `the_text_tool_types_on_one_click` passed on
-    // `text-edit-caret run=426` — i.e. the aim is a **text run**, which has no
-    // anchors, and the two failures were reports about the aim wearing the
-    // clothes of reports about the code. All three of the callers that read
-    // this line already have a `total == 0` arm written for exactly that case;
-    // none of them could reach it, because the line they read it from was the
-    // one being suppressed.
-    //
-    // ⇒ A census line states *what the draw was asked to draw*, which is a fact
-    // even when the answer is nothing. Writing it unconditionally costs one
-    // formatted string per frame in which anchors are in scope at all, and buys
-    // the difference between "this object has no points" and "this function did
-    // not run" — which is the whole question every anchor check asks first.
-    crate::diag::trace(|| {
-        // ui-text-exempt: diagnostic trace, never displayed.
-        format!(
-            "canvas-anchors total={} selected={} unselected_drawn={}",
-            points.len(),
-            selected.len(),
-            if draw_unselected { points.len() } else { 0 }
-        )
-    });
-    if points.is_empty() {
-        return;
-    }
-
-    for (index, point) in points {
-        let is_selected = selected.contains(index);
-        if !is_selected && !draw_unselected {
-            continue;
-        }
-        // Through the same mapping the outlines use — never a screen position
-        // carried from the click, which would be a frame stale the instant the
-        // operator scrolled.
-        let at = mapping.to_screen(*point);
-        let rect = Rect::from_center_size(at, egui::vec2(ANCHOR_PX, ANCHOR_PX));
-        if is_selected {
-            painter.rect(
-                rect,
-                CornerRadius::ZERO,
-                visuals.selection.stroke.color,
-                stroke,
-                StrokeKind::Middle,
-            );
-        } else {
-            painter.rect_stroke(rect, CornerRadius::ZERO, stroke, StrokeKind::Middle);
-        }
-    }
-
-    // ★★ Published so a driven check can aim at an anchor — the same argument
-    // `SELECTION_OUTLINE_REGION`'s comment makes about the grips, and it is
-    // stronger here: an anchor's position is a fact about the *decomposition*,
-    // which no harness can compute without re-implementing the page walk.
-    // ★★ The first selected anchor, and the first few DRAWN ones, published so
-    // a driven check can aim at them.
-    //
-    // The selected one alone was not enough, and driving it is what showed
-    // that: a check that has descended to the Part rung has selected *no*
-    // anchor yet, so there was nothing to aim at and it could never reach the
-    // Node rung at all. An anchor's screen position is a fact about the page's
-    // decomposition — no harness can compute it without re-implementing the
-    // content walk — so if the application does not say where they are, they
-    // are undrivable.
-    //
-    // Bounded at `PUBLISHED_ANCHORS`, because `ui-rect` is a change log and a
-    // subpath with two hundred anchors would put two hundred lines in the trace
-    // on every frame the layout moved. A handful is all a check needs: it aims
-    // at one, and the sweep in `multi_node` finds a neighbour from there.
-    if let Some((_, first)) = points.iter().find(|(i, _)| selected.contains(i)) {
-        let at = mapping.to_screen(*first);
-        crate::diag::ui_rect(
-            SELECTED_ANCHOR_REGION,
-            Rect::from_center_size(at, egui::vec2(ANCHOR_PX, ANCHOR_PX)),
-        );
-    }
-    if draw_unselected {
-        for (n, (_, point)) in points.iter().take(PUBLISHED_ANCHORS).enumerate() {
-            let at = mapping.to_screen(*point);
-            crate::diag::ui_rect(
-                anchor_region(n),
-                Rect::from_center_size(at, egui::vec2(ANCHOR_PX, ANCHOR_PX)),
-            );
-        }
-    }
-}
-
-/// The diameter of a Bézier-handle mark, in screen pixels.
-///
-/// ★ Slightly larger than an anchor mark and **round** where anchors are
-/// square, which is the vector-editor idiom every tool this operator has used
-/// shares — Illustrator, Inkscape, Figma and the old shell all draw an on-curve
-/// point as a square and a control point as a circle. It is not decoration: the
-/// two are different kinds of thing and the shape is what says so at a glance,
-/// with no legend and no hover.
-pub const HANDLE_PX: f32 = 7.0;
-
-/// Paint the Bézier handles of the selected anchors, each tethered to its
-/// anchor.
-///
-/// # ★ Why the tether is not optional
-///
-/// A control point with no line back to the anchor it governs is an unexplained
-/// dot floating beside a curve — and on a path with two selected anchors, four
-/// such dots are ambiguous about which belongs to which. The tether is the only
-/// thing that says *this handle steers that point*, and every editor draws it
-/// for that reason.
-///
-/// It is drawn **thin and in the selection colour**, not dashed: a dashed line
-/// on a CAD drawing competes with the drawing's own dashed linework, which is
-/// the class of collision `DEFECTS.md` D12 records for the guide overlay.
-///
-/// # This is the CURSOR, not content
-///
-/// Rule 4's welcome list — "snap indicators, hover highlights, rubber-bands and
-/// selection handles are the cursor". These vanish when the rung is left and
-/// change nothing about how the page renders, so a screenshot of this canvas
-/// and one of the same document saved and reopened differ only in the cursor.
-pub fn draw_handles(
-    painter: &Painter,
-    visuals: &Visuals,
-    mapping: &PageMapping,
-    handles: &[(usize, pdfce_core::vector::Handle, egui::Pos2)],
-    anchors: &[(usize, egui::Pos2)],
-) {
-    if handles.is_empty() {
-        return;
-    }
-    let colour = visuals.selection.stroke.color;
-    let stroke = Stroke::new(1.0, colour);
-    let radius = HANDLE_PX / 2.0;
-
-    for (n, (node, _side, canvas)) in handles.iter().enumerate() {
-        let at = mapping.to_screen(*canvas);
-        // The tether, drawn FIRST so the marks sit on top of it rather than
-        // being crossed by it.
-        if let Some((_, anchor)) = anchors.iter().find(|(i, _)| i == node) {
-            painter.line_segment([mapping.to_screen(*anchor), at], stroke);
-        }
-        // Hollow, always. A filled circle would read as "selected", and a
-        // handle is never selected — it is grabbed and released. The one thing
-        // a filled mark could mean here is a state this feature does not have.
-        painter.circle_stroke(at, radius, stroke);
-
-        if n < PUBLISHED_ANCHORS {
-            crate::diag::ui_rect(
-                handle_region(n),
-                Rect::from_center_size(at, egui::vec2(HANDLE_PX, HANDLE_PX)),
-            );
-        }
-    }
-    crate::diag::trace(|| {
-        // ui-text-exempt: diagnostic trace, never displayed.
-        format!("canvas-handles n={}", handles.len())
-    });
-}
-
-/// The region name for the `n`th drawn handle.
-///
-/// Same closed list and same reason as [`anchor_region`]: a region name is part
-/// of the application's published vocabulary, not a runtime string.
-#[must_use]
-pub fn handle_region(n: usize) -> &'static str {
-    // ui-text-exempt: diagnostic region names, never displayed.
-    const NAMES: [&str; PUBLISHED_ANCHORS] = [
-        "canvas.handle.0",
-        "canvas.handle.1",
-        "canvas.handle.2",
-        "canvas.handle.3",
-        "canvas.handle.4",
-        "canvas.handle.5",
-    ];
-    NAMES[n.min(PUBLISHED_ANCHORS - 1)]
-}
-
-/// How many drawn anchors publish a `ui-rect` region.
-///
-/// Six: enough for a driven check to aim at one and find a neighbour, few
-/// enough that a subpath with two hundred anchors does not put two hundred
-/// lines in the trace every time the layout moves.
-pub const PUBLISHED_ANCHORS: usize = 6;
-
-/// The region name for the `n`th drawn anchor.
-///
-/// A fixed set of `&'static str`s rather than a `format!`, because
-/// `crate::diag::ui_rect` takes a `&'static str` by design — a region name is
-/// part of the application's published vocabulary, not a runtime string, and
-/// the harness's `driving::declared` matches on it exactly.
-#[must_use]
-pub fn anchor_region(n: usize) -> &'static str {
-    // ui-text-exempt: diagnostic region names, never displayed.
-    const NAMES: [&str; PUBLISHED_ANCHORS] = [
-        "canvas.anchor.0",
-        "canvas.anchor.1",
-        "canvas.anchor.2",
-        "canvas.anchor.3",
-        "canvas.anchor.4",
-        "canvas.anchor.5",
-    ];
-    NAMES[n.min(PUBLISHED_ANCHORS - 1)]
-}
-
-/// The region the first selected anchor publishes.
-pub const SELECTED_ANCHOR_REGION: &str = "canvas.selected-anchor"; // ui-text-exempt: trace region name, never displayed
-
-/// The region the selection's grip box publishes.
-///
-/// ★ It is the box the eight grips are laid out on, not the union of the
-/// outlines: `visible_outline_rect` widens a degenerate outline to a minimum
-/// extent so a hairline is still grabbable, and a check aiming at the un-widened
-/// rect would miss the grips on exactly the objects that needed the widening.
-pub const SELECTION_OUTLINE_REGION: &str = "canvas.selection-outline"; // ui-text-exempt: trace region name, never displayed
 
 /// Paint the grips `offer` says a screen-space box has.
 ///
@@ -747,7 +500,20 @@ pub fn draw_move_ghost(
     mapping: &PageMapping,
     selection: &SelectionState,
     delta: egui::Vec2,
+    // ★★★ The same flag `draw_selection` takes, for the same reason and then
+    // some — O69. `MovePreview` returns a ghost for `MoveSubject::Node` and
+    // `Nodes` too, so while DRAGGING a point the operator was getting the
+    // subpath's box *and* a translated copy of it. That is O63's complaint
+    // word for word — *"it just had a perimeter box around it"* — surviving in
+    // the one gesture O63 was about.
+    //
+    // Nothing is lost by removing it: O63's shape preview already draws the
+    // real geometry moving, which is what he asked to see instead.
+    outline: bool,
 ) {
+    if !outline {
+        return;
+    }
     let stroke = Stroke::new(1.5, ghost(visuals.selection.stroke.color));
     for (_, page_rect) in selection.outlines() {
         let screen = visible_outline_rect(

@@ -93,6 +93,34 @@ use crate::viewer;
 /// that test, restored.
 pub const SELECT_SCREEN_TOLERANCE_PX: f32 = 6.0;
 
+/// ★★★ **The catch radius for an ANCHOR**, in egui logical points —
+/// `OPERATOR_REQUESTS.md` O69: *"the nodes are hard to see and click on."*
+///
+/// Eight rather than six, and both halves of that are borrowed rather than
+/// invented:
+///
+/// * it is the number [`crate::canvas::handledrag::GRAB_PX`] already gives a
+///   **Bézier control point**, whose own doc says *"a target that requires
+///   hitting its exact pixels is a target an operator misses"* — so an anchor
+///   stops being harder to hit than the handle that hangs off it, which it
+///   was;
+/// * it is Inkscape's *grab sensitivity* default, which is the operator's
+///   stated tie-breaker for this family of decisions.
+///
+/// # ★★ A SIBLING of [`SELECT_SCREEN_TOLERANCE_PX`], not a change to it
+///
+/// Widening the shared constant would have widened **object picking** too, on
+/// a sheet this project has measured at 129,758 objects — where a larger catch
+/// radius means more candidates under every press and a different answer to
+/// *"what did I click?"*. The two answer different questions and are allowed
+/// to drift, which is the same argument that constant's own header makes about
+/// the snap radius.
+///
+/// It reaches exactly one call: `canvas::input::probe`'s `nearest_node`, and
+/// only from the **Node tool**'s click. The general click path still passes
+/// [`SELECT_SCREEN_TOLERANCE_PX`], so its behaviour is byte-identical.
+pub const NODE_SCREEN_TOLERANCE_PX: f32 = 8.0;
+
 /// Convert a fixed SCREEN-space pixel radius into a **canvas/page-space**
 /// tolerance at `zoom` (points per PDF user-space unit).
 ///
@@ -284,6 +312,21 @@ impl PageMapping {
     #[must_use]
     pub fn tolerance(&self) -> f64 {
         screen_tolerance_to_page(SELECT_SCREEN_TOLERANCE_PX, self.zoom)
+    }
+
+    /// The **anchor** catch radius for this frame, in canvas/page units —
+    /// `OPERATOR_REQUESTS.md` O69.
+    ///
+    /// [`Self::tolerance`]'s sibling, wider by two pixels, and it exists here
+    /// rather than at the call site for this module's standing reason: no
+    /// other file in `canvas/` divides by zoom, and keeping that true is what
+    /// stops a second conversion drifting from this one.
+    ///
+    /// See [`NODE_SCREEN_TOLERANCE_PX`] for why it is a separate constant
+    /// rather than a change to the shared one.
+    #[must_use]
+    pub fn node_tolerance(&self) -> f64 {
+        screen_tolerance_to_page(NODE_SCREEN_TOLERANCE_PX, self.zoom)
     }
 
     /// The **snap** catch radius for this frame, in canvas/page units.
@@ -757,5 +800,77 @@ mod vector_tests {
             let page = at(bad).screen_vec_to_page(egui::vec2(60.0, 60.0));
             assert_eq!(page, egui::Vec2::ZERO, "zoom {bad}");
         }
+    }
+}
+
+#[cfg(test)]
+mod o69_tolerance_tests {
+    use super::*;
+
+    /// ★★★ **An anchor is easier to hit than an object, and exactly as easy
+    /// as its own control point** — `OPERATOR_REQUESTS.md` O69.
+    ///
+    /// Both halves are asserted because both are the argument. The first says
+    /// the widening happened; the second says which number was chosen and why
+    /// — an anchor that was harder to hit than the Bézier handle hanging off
+    /// it was the concrete absurdity the row is about.
+    #[test]
+    fn an_anchor_is_caught_more_easily_than_an_object_and_as_easily_as_a_handle() {
+        // ★ Bound through locals rather than compared as literals, so clippy
+        // reads them as values rather than as a constant assertion. The
+        // property is about the RELATIONSHIP between two constants, which is
+        // exactly what a `const` block would hide from a reader looking for
+        // why one of them was changed.
+        let node = NODE_SCREEN_TOLERANCE_PX;
+        let object = SELECT_SCREEN_TOLERANCE_PX;
+        let handle = crate::canvas::handledrag::GRAB_PX;
+        assert!(
+            node > object,
+            "an anchor is a small target and must be more forgiving than a whole object"
+        );
+        assert!(
+            (node - handle).abs() < f32::EPSILON,
+            "an anchor must be no harder to hit than the control point hanging off it — \
+             they were 6 and 8"
+        );
+    }
+
+    /// ★★ **Widening the anchor radius did NOT widen object picking.**
+    ///
+    /// The assertion that pins the scoping. On a sheet this project has
+    /// measured at 129,758 objects a larger catch radius means more candidates
+    /// under every press and a different answer to "what did I click?" — so
+    /// the two constants must stay two constants.
+    #[test]
+    fn the_object_catch_radius_is_unchanged() {
+        let object = SELECT_SCREEN_TOLERANCE_PX;
+        assert!(
+            (object - 6.0).abs() < f32::EPSILON,
+            "object picking must still catch at six pixels; O69 widened the ANCHOR radius only"
+        );
+    }
+
+    /// Both radii keep a constant ON-SCREEN size as the zoom changes.
+    ///
+    /// The sibling of `screen_tolerance_keeps_the_on_screen_catch_radius_constant`,
+    /// asserted for the new one because a radius that did not scale would be
+    /// eight page points at every zoom — a catch radius the size of a sheet
+    /// when zoomed out, and invisible when zoomed in.
+    #[test]
+    fn the_node_radius_scales_as_one_over_zoom() {
+        let at = |zoom: f32| {
+            let m = PageMapping::new(
+                egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(100.0, 100.0)),
+                (100.0, 100.0),
+                zoom,
+            );
+            m.node_tolerance()
+        };
+        let one = at(1.0);
+        let four = at(4.0);
+        assert!(
+            (one / four - 4.0).abs() < 1e-6,
+            "four times the zoom must be a quarter of the page-space radius: {one} vs {four}"
+        );
     }
 }

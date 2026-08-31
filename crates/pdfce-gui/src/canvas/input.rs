@@ -80,6 +80,20 @@ pub(super) fn probe(
     // `SELECT_SCREEN_TOLERANCE_PX` here would compile, run, and merely drift
     // with zoom — see `mapping`.
     let tolerance = map.tolerance();
+    // ★★★ **A wider radius for an ANCHOR, and only for an anchor** —
+    // `OPERATOR_REQUESTS.md` O69: *"the nodes are hard to see and click on."*
+    //
+    // Eight screen pixels rather than six, which is what a Bézier control
+    // point already got — so an anchor stops being harder to hit than the
+    // handle hanging off it — and what Inkscape's grab sensitivity defaults to.
+    //
+    // ★★ It is used for `nearest_node` alone. `nth_allowed` (object picking)
+    // and `part_hits` keep the shared radius, so a press on a sheet this
+    // project has measured at 129,758 objects still resolves to the same
+    // object it did before. Widening the shared constant would have changed
+    // the answer to *"what did I click?"* everywhere in order to make one
+    // rung easier, which is the trade this refuses.
+    let node_tolerance = map.node_tolerance();
     let object = nth_allowed(targets, page_index, point, tolerance, filter, depth);
 
     // ★ The part and node rungs are addressed by a **page** paint-order
@@ -114,7 +128,8 @@ pub(super) fn probe(
                 .copied();
             let node = part
                 .filter(|_| filter.allows(PickClass::Node))
-                .and_then(|p| targets.nearest_node(page_index, index, p, point, tolerance));
+                // ★ The wider radius, here and nowhere else. See its binding above.
+                .and_then(|p| targets.nearest_node(page_index, index, p, point, node_tolerance));
             (part, node)
         }
         _ => (None, None),

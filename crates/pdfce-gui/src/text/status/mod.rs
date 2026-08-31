@@ -103,10 +103,26 @@ pub mod waiting;
 pub use waiting::page_catching_up;
 
 pub use selection::{
-    TextStyleRefusal, selection_inside_form_declined, selection_many, selection_one,
-    selection_one_in_form, selection_one_in_form_unsized, selection_one_unsized,
-    selection_with_depth, text_style_faked_instead, text_style_faked_warning, text_style_multi,
-    text_style_used_other_family, text_style_used_real_face,
+    TextStyleRefusal,
+    selection_inside_form_declined,
+    selection_many,
+    selection_one,
+    selection_one_in_form,
+    selection_one_in_form_unsized,
+    selection_one_unsized,
+    selection_with_depth,
+    text_style_faked_instead,
+    text_style_faked_warning,
+    text_style_multi,
+    text_style_used_other_family,
+    text_style_used_real_face,
+    // ★ O69's sibling of `too_many_anchors` below. It lives in `selection`
+    // rather than in this file because this file is at 1,482 lines against
+    // R2's 1,500, and it is re-exported here so a caller says
+    // `text::status::too_many_anchors_in_part` beside
+    // `text::status::too_many_anchors` — two sentences about one limit, named
+    // the same way, which is what stops the second being missed.
+    too_many_anchors_in_part,
 };
 
 // ---------------------------------------------------------------------------

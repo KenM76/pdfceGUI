@@ -289,7 +289,7 @@ pub(super) fn draw(
     // resolved for this frame, and the dimension probe short-circuits unless an
     // annotation is selected at all.
     let offer = crate::canvas::pressing::grabbable(&ctx, doc, map, selection);
-    overlay::draw_selection(&painter, ui.visuals(), map, selection, offer.offer);
+    overlay::draw_selection(&painter, ui.visuals(), map, selection, offer);
     draw_anchors(
         &painter,
         ui,
@@ -315,7 +315,15 @@ pub(super) fn draw(
     // exactly the object the operator is aligning to it.
     guides::draw(ui, doc, pages, clip);
     if let Some(delta) = ghost {
-        overlay::draw_move_ghost(&painter, ui.visuals(), map, selection, delta);
+        overlay::draw_move_ghost(
+            &painter,
+            ui.visuals(),
+            map,
+            selection,
+            delta,
+            // ★ O69: no ghost box at an inner rung either. See the parameter.
+            offer.outline,
+        );
     }
     // The annotation ghost, on the same layer and under the same contract:
     // `annotdrag::drag` returns `Some` only for a selection whose release will
@@ -867,17 +875,39 @@ fn draw_anchors(
     // descent path, where the cap has always fired silently and where the
     // operator's subject is the subpath they entered rather than the whole
     // object.
-    if doc.view.show_points
-        && selection.entered_object().is_none()
-        && anchors.len() > crate::canvas::overlay::MAX_UNSELECTED_ANCHORS
-    {
-        crate::app::actions::record_note(
-            doc.edit_epoch,
+    //
+    // ★★★ **…AT EVERY RUNG, since 2026-08-31** — `OPERATOR_REQUESTS.md` O69.
+    // The note above said "not on the descent path, where the cap has always
+    // fired silently" — which described the defect and treated it as a
+    // decision. The Points tool puts the selection at the PART rung, so the
+    // one route the operator was reporting was the one route excluded: he
+    // armed the tool, clicked a dense contour, and got no dots and no
+    // sentence. A limit reported as an absence reads as a broken program.
+    //
+    // ★ Two sentences, because the remedy differs by rung. At the Object rung
+    // "descend into a part" is right; at the Part rung there is nothing below
+    // a subpath and the remedy is to zoom, which the viewport cull shipped in
+    // the same commit made true.
+    //
+    // ★★ `show_points` is no longer required at an inner rung. It gates
+    // whether the operator ASKED to see an object's points, which is the right
+    // question for the Object rung and the wrong one for the Points tool —
+    // arming that tool IS the ask.
+    let capped = anchors.len() > crate::canvas::overlay::MAX_UNSELECTED_ANCHORS;
+    let at_object_rung = selection.entered_object().is_none();
+    if capped && (doc.view.show_points || !at_object_rung) {
+        let note = if at_object_rung {
             crate::text::status::too_many_anchors(
                 anchors.len(),
                 crate::canvas::overlay::MAX_UNSELECTED_ANCHORS,
-            ),
-        );
+            )
+        } else {
+            crate::text::status::too_many_anchors_in_part(
+                anchors.len(),
+                crate::canvas::overlay::MAX_UNSELECTED_ANCHORS,
+            )
+        };
+        crate::app::actions::record_note(doc.edit_epoch, note);
     }
     let points: Vec<(usize, egui::Pos2)> = anchors
         .into_iter()
