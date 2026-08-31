@@ -73,6 +73,34 @@ pub struct Grabbable {
     pub bounds: Option<egui::Rect>,
     /// Which grips it offers, because it has a verb behind each.
     pub offer: handles::GripSet,
+    /// ★★★ **Whether the box is a BOUNDING box or the subject itself** —
+    /// `OPERATOR_REQUESTS.md` O72.
+    ///
+    /// `true` only for the last row of the table below: page **content**,
+    /// whose box is `selection.outline_union()` and is therefore mostly empty
+    /// space. `false` for a ce dimension, a markup annotation and a form
+    /// field's widget, every one of which is a `/Rect` — for those three the
+    /// rectangle **is** the object, and a press anywhere inside it genuinely
+    /// lands on the thing.
+    ///
+    /// # What it is for
+    ///
+    /// The operator: *"Click and hold shouldn't select an object - it should
+    /// allow me to draw a box around objects to select."*
+    ///
+    /// A marquee starts when a press finds no grip. `handles::grip_at` ends
+    /// `bounds.contains(pointer).then_some(Grip::Move)`, so while anything is
+    /// selected, a press **anywhere inside its union bounding box** became a
+    /// move. Select a title-block border once — a hollow rectangle spanning
+    /// the sheet — and the marquee became unreachable on the entire drawing,
+    /// because every press was inside the box and none of them was on the
+    /// object.
+    ///
+    /// ⇒ Where this is `true`, [`look`] confirms the press actually lands on
+    /// a selected object before honouring `Grip::Move`. Where it is `false`
+    /// nothing changes, which is why the flag exists rather than the check
+    /// running unconditionally.
+    pub content: bool,
 }
 
 /// What the pointer may grab, given what is selected.
@@ -128,6 +156,9 @@ pub fn grabbable(
         return Grabbable {
             bounds: Some(bounds),
             offer: handles::GripSet::rotate_only(),
+            // A ce dimension's box IS its `/Rect`, not a bound around
+            // scattered geometry. See `Grabbable::content`.
+            content: false,
         };
     }
     if let Some(bounds) = annotdrag::grab_box(map, selection) {
@@ -145,6 +176,8 @@ pub fn grabbable(
         return Grabbable {
             bounds: Some(bounds),
             offer: handles::GripSet::all(),
+            // A markup annotation's box IS its `/Rect`.
+            content: false,
         };
     }
     if let Some(bounds) = widgetdrag::grab_box(ctx, doc, map) {
@@ -161,6 +194,8 @@ pub fn grabbable(
         return Grabbable {
             bounds: Some(bounds),
             offer: handles::GripSet::scale_only(),
+            // A widget's box IS its `/Rect`.
+            content: false,
         };
     }
     let at_object_rung = selection.level() == SelectionLevel::Object;
@@ -178,7 +213,69 @@ pub fn grabbable(
         } else {
             handles::GripSet::default()
         },
+        // ★ The one row where the box is a BOUND rather than the subject.
+        // `overlay::grip_box` is `selection.outline_union()`, so on a CAD sheet
+        // it is mostly empty paper. See `Grabbable::content`.
+        content: true,
     }
+}
+
+/// ★★★ **Does the press really land on something that is selected?** —
+/// `OPERATOR_REQUESTS.md` O72.
+///
+/// The predicate [`look`] uses to decide whether a `Grip::Move` over a page
+/// **content** selection is genuine, and the one `crate::canvas::presspick`
+/// uses to decide whether the current selection already claims a point. One
+/// function, two callers, because the two must not be able to disagree — see
+/// the block comment at [`look`]'s grip downgrade for the incident that rule
+/// comes from.
+///
+/// # What it asks
+///
+/// Whatever is topmost under `point`, and whether that thing is a member of
+/// the selection. Deliberately the **same** hit test the canvas uses for
+/// picking (`input::topmost`), so "the press landed on the object" here means
+/// exactly what it means everywhere else, including its tolerance.
+///
+/// # Why `false` when there is no decomposition
+///
+/// A page whose objects have not decomposed cannot answer the question, and
+/// the honest answer to *"is the press on the selection?"* is then no. That
+/// direction is deliberate: `false` yields a marquee, which selects things;
+/// `true` would yield a move of a selection the operator may not have pressed
+/// on, which changes the document. When the question cannot be answered, the
+/// gesture that cannot damage anything is the right default.
+pub fn body_under(
+    doc: &OpenDoc,
+    selection: &SelectionState,
+    map: &PageMapping,
+    page_index: usize,
+    point: Pos2,
+    pick: crate::canvas::pick::PickFilter,
+) -> bool {
+    let page_point = map.to_page(point);
+    doc.page_objects()
+        .and_then(|provider| {
+            crate::canvas::input::topmost(&*provider, page_index, page_point, map, pick)
+        })
+        .is_some_and(|hit| {
+            selection
+                .entries()
+                .iter()
+                .any(|e| e.page == page_index && e.object == hit)
+        })
+}
+
+/// The pick filter [`body_under`] asks with.
+///
+/// ★ **Everything, deliberately, and not the operator's filter.** The question
+/// is *"is the press on the thing I have selected?"*, and the answer must not
+/// depend on whether that kind of object is currently pickable — an operator
+/// who selects an image, then switches images off in the selection filter, has
+/// not thereby asked for the image to become undraggable. The filter governs
+/// what a press may *acquire*; this asks about what is already held.
+fn pick_for_body() -> crate::canvas::pick::PickFilter {
+    crate::canvas::pick::PickFilter::all()
 }
 
 /// Everything the frame learned by looking at where a press would land.
@@ -251,12 +348,64 @@ pub fn look(
     let Grabbable {
         bounds: grip_box,
         offer,
+        content,
     } = grabbable(ctx, doc, map, selection);
     let origin = ctx.input(|i| i.pointer.press_origin()).or(screen_pos);
 
     let grip = grip_box
         .zip(origin)
         .and_then(|(bounds, p)| handles::grip_at(bounds, p, offer));
+
+    // ★★★ **A press on empty paper inside the selection's BOUNDING box is not
+    // a press on the selection** — `OPERATOR_REQUESTS.md` O72.
+    //
+    // The operator: *"Click and hold shouldn't select an object - it should
+    // allow me to draw a box around objects to select."*
+    //
+    // A marquee already exists and is already the default meaning of a press
+    // that finds no grip (`gesture::meaning`, `(None, None) => Marquee`). What
+    // made it unreachable is one line in `handles::grip_at`:
+    // `bounds.contains(pointer).then_some(Grip::Move)`. For page content
+    // `bounds` is `selection.outline_union()` — a rectangle around scattered
+    // geometry, mostly empty. Select a title-block border once, which on a CAD
+    // sheet is a hollow rectangle spanning the drawing, and **every** press on
+    // the sheet fell inside that box and became a move. The band could not be
+    // started anywhere.
+    //
+    // ⇒ Where the box is a bound rather than the subject (`Grabbable::content`),
+    // confirm the press really lands on something selected before honouring
+    // `Grip::Move`. It does not, so the grip falls to `None`, and
+    // `press_kind`'s existing `(None, None) => Marquee(Select)` arm runs. No
+    // new gesture, no new state, no new arm to audit.
+    //
+    // # ★ Only `Grip::Move`, never a resize grip and never Rotate
+    //
+    // Those eight-plus-one are **drawn**. The operator can see them, they sit
+    // on the box's edges and corners, and a press on one is unambiguous — so
+    // second-guessing it would break a gesture that is working. `Grip::Move`
+    // is the only member of the set with no visible affordance of its own: it
+    // is "anywhere inside", which is exactly why it is the one that can be
+    // claimed by mistake.
+    //
+    // # ★★ And it is the same predicate `presspick::covers` asks
+    //
+    // Not a similar one. That guard exists to agree with this function, and its
+    // own header records what happened the last time the two computed the same
+    // answer separately — *"a second opinion computed differently here would
+    // disagree with the gesture machine at the margins, and every disagreement
+    // is a press that selects when it should have transformed."* So the check
+    // lives in one exported function and both callers call it.
+    let grip = match grip {
+        Some(Grip::Move)
+            if content
+                && !origin.is_some_and(|p| {
+                    body_under(doc, selection, map, page_index, p, pick_for_body())
+                }) =>
+        {
+            None
+        }
+        other => other,
+    };
 
     // ★★★ **THE ANNOTATION UNDER THE ROTATE HANDLE, AND IT IS DERIVED FROM
     // `grip` RATHER THAN FROM A SECOND HIT TEST.**

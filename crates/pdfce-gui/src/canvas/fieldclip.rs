@@ -323,6 +323,11 @@ pub fn paste(
     doc: &OpenDoc,
     page: usize,
     mode: PasteAs,
+    // ★ Where the pointer is, in PDF user space, or `None` when the canvas has
+    // never drawn. `OPERATOR_REQUESTS.md` O73; resolved once by
+    // `app::dispatch::clipboard::paste` so all three paste kinds land in the
+    // same place for the same reason.
+    target: Option<egui::Pos2>,
     actions: &mut Vec<Action>,
 ) -> Result<(), Refusal> {
     let Some(crate::canvas::clipboard::Clipped::FormField(clipped)) =
@@ -331,7 +336,7 @@ pub fn paste(
         return Err(Refusal::NothingCopied);
     };
 
-    let rect = placed_rect(clipped.rect, clipped.page, page);
+    let rect = placed_rect(clipped.rect, clipped.page, page, target);
     let policy = match mode {
         PasteAs::NewField => FieldPastePolicy::NewField {
             name: unique_name(doc, &clipped.name),
@@ -407,16 +412,35 @@ pub fn carries_actions(ctx: &egui::Context) -> Option<bool> {
 }
 
 /// Where the pasted box goes. See [`paste`]'s header for the two rules.
-fn placed_rect(source: Rect, from_page: usize, to_page: usize) -> Rect {
-    if from_page != to_page {
-        return source;
-    }
-    let d = crate::canvas::clipboard::PASTE_OFFSET_PT;
+fn placed_rect(source: Rect, from_page: usize, to_page: usize, target: Option<egui::Pos2>) -> Rect {
+    // ★★★ **The pointer wins where there is one** — `OPERATOR_REQUESTS.md`
+    // O73. The field keeps its size and is **centred** on the cursor, which is
+    // the same rule `canvas::clipboard` applies to a markup and to page
+    // content: three paste kinds, one answer to *"where does it land"*.
+    //
+    // Size preserved rather than the rect being placed corner-first, because a
+    // widget's extent is a property of the field the operator copied and
+    // nothing about pointing at a spot asks for it to change.
+    let (dx, dy) = match target {
+        Some(t) => (
+            f64::from(t.x) - (source.llx + source.urx) / 2.0,
+            f64::from(t.y) - (source.lly + source.ury) / 2.0,
+        ),
+        // The two older rules, unchanged, as the fallback: a different page
+        // lands in place so a field copied to sheet 12 is where it was on
+        // sheet 1; the same page offsets so the copy is visible rather than
+        // stacked invisibly on its original.
+        None if from_page != to_page => return source,
+        None => {
+            let d = crate::canvas::clipboard::PASTE_OFFSET_PT;
+            (d, -d)
+        }
+    };
     Rect {
-        llx: source.llx + d,
-        lly: source.lly - d,
-        urx: source.urx + d,
-        ury: source.ury - d,
+        llx: source.llx + dx,
+        lly: source.lly + dy,
+        urx: source.urx + dx,
+        ury: source.ury + dy,
     }
 }
 
@@ -601,7 +625,7 @@ mod tests {
             urx: 260.0,
             ury: 220.0,
         };
-        let same = placed_rect(src, 3, 3);
+        let same = placed_rect(src, 3, 3, None);
         assert!(
             (same.llx - 110.0).abs() < 1e-9 && (same.lly - 190.0).abs() < 1e-9,
             "a same-page paste must be displaced down and to the right so the copy is visible"
@@ -610,10 +634,40 @@ mod tests {
             (same.urx - same.llx - (src.urx - src.llx)).abs() < 1e-9,
             "the displacement must not resize the box"
         );
-        let cross = placed_rect(src, 3, 11);
+        let cross = placed_rect(src, 3, 11, None);
         assert_eq!(
             cross, src,
             "a cross-page paste must land at the ORIGINAL coordinates -- that is the whole reason for copying a title-block field to another sheet"
         );
+    }
+
+    /// ★★★ **The pointer outranks both older rules, and keeps the size.**
+    ///
+    /// `OPERATOR_REQUESTS.md` O73. Asserted against BOTH fallback cases —
+    /// same page and cross page — because the target arm has to win in each,
+    /// and a fix that only reached one of them would look right in whichever
+    /// case the author happened to try.
+    #[test]
+    fn a_paste_with_a_target_centres_the_field_on_it_and_keeps_its_size() {
+        let src = Rect {
+            llx: 100.0,
+            lly: 200.0,
+            urx: 260.0,
+            ury: 220.0,
+        };
+        let target = egui::pos2(500.0, 700.0);
+        for (from, to, label) in [(3usize, 3usize, "same page"), (3, 11, "cross page")] {
+            let out = placed_rect(src, from, to, Some(target));
+            let (cx, cy) = ((out.llx + out.urx) / 2.0, (out.lly + out.ury) / 2.0);
+            assert!(
+                (cx - 500.0).abs() < 1e-9 && (cy - 700.0).abs() < 1e-9,
+                "{label}: the field must be CENTRED on the cursor, not cornered on it -- got ({cx}, {cy})"
+            );
+            assert!(
+                (out.urx - out.llx - (src.urx - src.llx)).abs() < 1e-9
+                    && (out.ury - out.lly - (src.ury - src.lly)).abs() < 1e-9,
+                "{label}: pointing at a spot does not ask for the field to be resized"
+            );
+        }
     }
 }

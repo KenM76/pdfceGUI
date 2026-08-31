@@ -222,6 +222,32 @@ fn paste(
     let page = doc.view.page_index;
     let epoch = doc.edit_epoch;
 
+    // ★★★ **WHERE THE POINTER IS, IN PDF USER SPACE** —
+    // `OPERATOR_REQUESTS.md` O73: *"When I cut or copy an object, when I paste
+    // it should paste where the mouse cursor is sitting."*
+    //
+    // Computed once, here, before the three forks below, so a markup paste, a
+    // content paste and a field paste cannot land in three different places
+    // for three different reasons.
+    //
+    // ★★ `zoom::anchor_point` answers the "what if the pointer is not over the
+    // canvas?" question and it is not a new rule: it honours the pointer only
+    // while it lies inside the viewport, and otherwise returns the viewport's
+    // own **centre**. So a `Ctrl+V` pressed while the pointer is over a dock,
+    // over the ribbon or off the window pastes into the middle of what the
+    // operator is looking at — which is the conventional answer — and it is
+    // the SAME function the zoom anchor uses, so there is one rule about where
+    // the pointer counts rather than two that can drift apart.
+    //
+    // ★ The page comes from the recorded frame rather than from
+    // `doc.view.page_index`, so a paste aimed at a strip page lands on the
+    // sheet the operator is pointing at. `None` — the canvas has never drawn —
+    // falls every paste back to the offset rule it used before today.
+    let target = crate::canvas::zoom::last_frame(ctx).and_then(|f| {
+        let canvas = crate::canvas::zoom::anchor_point(ctx.pointer_latest_pos(), &f);
+        crate::viewer::canvas_to_pdf_space(canvas, doc.pages.get(f.page)?)
+    });
+
     if matches!(
         clipped,
         Some(crate::canvas::clipboard::Clipped::FormField(_))
@@ -246,7 +272,8 @@ fn paste(
                 crate::text::fieldclip::brings_a_script().to_owned(),
             );
         }
-        if let Err(refusal) = crate::canvas::fieldclip::paste(ctx, doc, page, mode, actions) {
+        if let Err(refusal) = crate::canvas::fieldclip::paste(ctx, doc, page, mode, target, actions)
+        {
             crate::app::actions::record_note(epoch, crate::text::fieldclip::refusal(&refusal));
         }
         return;
@@ -256,7 +283,7 @@ fn paste(
     // to the ordinary paste rather than refusing. See the header: neither has a
     // second sense to duplicate into, so the paste is the honest answer to the
     // more specific chord.
-    if let Err(refusal) = crate::canvas::clipboard::paste(ctx, page, actions) {
+    if let Err(refusal) = crate::canvas::clipboard::paste(ctx, page, target, actions) {
         crate::app::actions::record_note(epoch, crate::text::clipboard::refusal(refusal));
     }
 }

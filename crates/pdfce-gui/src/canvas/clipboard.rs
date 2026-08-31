@@ -154,6 +154,38 @@ pub enum Clipped {
         spec: Box<MarkupSpec>,
         /// The 0-based page it was copied from.
         page: usize,
+        /// ★★★ **The point that is placed under the cursor on a paste** —
+        /// the clip's centre, in **PDF user space**.
+        ///
+        /// `OPERATOR_REQUESTS.md` O73: *"when I paste it should paste where
+        /// the mouse cursor is sitting."*
+        ///
+        /// # Why it is captured at COPY time and not derived at paste time
+        ///
+        /// Because at paste time the source may be gone. The clip outlives the
+        /// selection it came from, outlives an undo of the cut that produced
+        /// it, and — for a cut — outlives the objects themselves. Deriving the
+        /// centre from the document on paste would work in the common case and
+        /// fail in exactly the case `Ctrl+X` `Ctrl+V` exists for.
+        ///
+        /// # Why a CENTRE
+        ///
+        /// The operator pointing at a spot means *"put it here"*, not *"begin
+        /// its bounding box here"*. That is Inkscape's rule and Illustrator's;
+        /// top-left is the Word/Explorer convention and belongs to a text
+        /// caret rather than to a drawing canvas. Acrobat drops a pasted
+        /// comment centred on the click too.
+        ///
+        /// ★ It is also what preserves relative geometry inside a
+        /// multi-object paste **by construction**: one anchor for the whole
+        /// clip means one delta, applied to everything, so the arrangement
+        /// cannot drift no matter how many items are in it.
+        ///
+        /// `None` when the geometry could not be read — the paste then falls
+        /// back to the offset rule rather than guessing, because a clip that
+        /// pasted at `(0, 0)` would land in the bottom-left corner of the
+        /// sheet and read as data loss.
+        anchor: Option<(f64, f64)>,
         /// ★★★ **Everything the spec cannot say** — `/CA`, `/Contents`, `/T`
         /// and `/M`.
         ///
@@ -219,6 +251,38 @@ pub enum Clipped {
         /// deserialising, and the count is wanted in places that have no reason
         /// to.
         count: usize,
+        /// ★★★ **The point that is placed under the cursor on a paste** —
+        /// the clip's centre, in **PDF user space**.
+        ///
+        /// `OPERATOR_REQUESTS.md` O73: *"when I paste it should paste where
+        /// the mouse cursor is sitting."*
+        ///
+        /// # Why it is captured at COPY time and not derived at paste time
+        ///
+        /// Because at paste time the source may be gone. The clip outlives the
+        /// selection it came from, outlives an undo of the cut that produced
+        /// it, and — for a cut — outlives the objects themselves. Deriving the
+        /// centre from the document on paste would work in the common case and
+        /// fail in exactly the case `Ctrl+X` `Ctrl+V` exists for.
+        ///
+        /// # Why a CENTRE
+        ///
+        /// The operator pointing at a spot means *"put it here"*, not *"begin
+        /// its bounding box here"*. That is Inkscape's rule and Illustrator's;
+        /// top-left is the Word/Explorer convention and belongs to a text
+        /// caret rather than to a drawing canvas. Acrobat drops a pasted
+        /// comment centred on the click too.
+        ///
+        /// ★ It is also what preserves relative geometry inside a
+        /// multi-object paste **by construction**: one anchor for the whole
+        /// clip means one delta, applied to everything, so the arrangement
+        /// cannot drift no matter how many items are in it.
+        ///
+        /// `None` when the geometry could not be read — the paste then falls
+        /// back to the offset rule rather than guessing, because a clip that
+        /// pasted at `(0, 0)` would land in the bottom-left corner of the
+        /// sheet and read as data loss.
+        anchor: Option<(f64, f64)>,
     },
     /// ★★★ **A form field**, as of 2026-08-29 — `OPERATOR_REQUESTS.md` O58.
     ///
@@ -427,9 +491,14 @@ pub fn copy(ctx: &egui::Context, doc: &OpenDoc) -> Result<Clipped, Refusal> {
         selected.target.page,
         selected.target.id,
     ));
+    // ★ The `/Rect` centre, from the SAME dictionary the spec came from — one
+    // read, so the anchor and the geometry cannot describe different
+    // annotations. `OPERATOR_REQUESTS.md` O73; see `Clipped::Markup::anchor`.
+    let anchor = rect_centre_of(dict);
     let clipped = Clipped::Markup {
         spec: Box::new(spec),
         page: selected.target.page,
+        anchor,
         options,
     };
     store(ctx, clipped.clone());
@@ -484,10 +553,31 @@ fn copy_content(ctx: &egui::Context, doc: &OpenDoc) -> Result<Clipped, Refusal> 
         .session
         .copy_objects(page, &objects)
         .map_err(|_| Refusal::EngineRefused)?;
+    // ★★ The union of the copied objects' bounds, converted to PDF user space.
+    //
+    // `CanvasTargetProvider::bounds` answers in **canvas** space, which is the
+    // space the overlay draws in; the paste verb takes a PDF-space matrix. The
+    // conversion is `viewer::canvas_to_pdf_space`, the one bridge between the
+    // two, and it declines on a page whose device geometry does not invert —
+    // in which case the paste falls back to the offset rule rather than
+    // inventing a coordinate. See `Clipped::Content::anchor`.
+    let anchor = doc.page_objects().and_then(|provider| {
+        let page_dict = doc.pages.get(page)?;
+        let mut union: Option<egui::Rect> = None;
+        for &index in &objects {
+            let target = crate::canvas::target::TargetId::Object(index as u64);
+            if let Some(r) = provider.bounds(page, target) {
+                union = Some(union.map_or(r, |u| u.union(r)));
+            }
+        }
+        let centre = crate::viewer::canvas_to_pdf_space(union?.center(), page_dict)?;
+        Some((f64::from(centre.x), f64::from(centre.y)))
+    });
     let clipped = Clipped::Content {
         count: clip.len(),
         bytes: clip.to_bytes(),
         page,
+        anchor,
     };
     store(ctx, clipped.clone());
     // ★★★ AND A MARKER ON THE OS CLIPBOARD, WITHOUT WHICH CTRL+V DOES NOT
@@ -730,13 +820,19 @@ pub fn cut(
 /// # Errors
 ///
 /// [`Refusal::NothingCopied`] when the clipboard is empty.
-pub fn paste(ctx: &egui::Context, page: usize, actions: &mut Vec<Action>) -> Result<(), Refusal> {
-    let (spec, from, options) = match read(ctx) {
+pub fn paste(
+    ctx: &egui::Context,
+    page: usize,
+    target: Option<egui::Pos2>,
+    actions: &mut Vec<Action>,
+) -> Result<(), Refusal> {
+    let (spec, from, anchor, options) = match read(ctx) {
         Some(Clipped::Markup {
             spec,
             page: from,
+            anchor,
             options,
-        }) => (spec, from, options),
+        }) => (spec, from, anchor, options),
         // ★ Page content takes its own path: the clip is bytes and the verb is
         // `paste_objects`, which takes a page-space MATRIX rather than a
         // displacement — so the offset below cannot be shared even though the
@@ -745,8 +841,9 @@ pub fn paste(ctx: &egui::Context, page: usize, actions: &mut Vec<Action>) -> Res
             bytes,
             page: from,
             count,
+            anchor,
         }) => {
-            return paste_content(page, &bytes, from, count, actions);
+            return paste_content(page, &bytes, from, count, anchor, target, actions);
         }
         // ★★ Same fork as the cut above, and the same tripwire. A field paste
         // needs `&OpenDoc` -- to find a free name, and to know what the source
@@ -782,13 +879,44 @@ pub fn paste(ctx: &egui::Context, page: usize, actions: &mut Vec<Action>) -> Res
         }
         None => return Err(Refusal::NothingCopied),
     };
-    // See the module header: same page offsets so the copy is visible, a
-    // different page lands in place so a mark copied to sheet 12 is where it
-    // was on sheet 1.
-    let offset = if from == page { PASTE_OFFSET_PT } else { 0.0 };
+    // ★★★ **The pointer wins where there is one** — `OPERATOR_REQUESTS.md`
+    // O73: *"When I cut or copy an object, when I paste it should paste where
+    // the mouse cursor is sitting."*
+    //
+    // `target` is already resolved to PDF user space by the caller, and is
+    // `None` when the canvas has never drawn. The two older rules below survive
+    // as the fallback and are unchanged; what has changed is that they are no
+    // longer the ONLY answer.
+    //
+    // ★ Where the pointer is not over the canvas — over a dock, over the
+    // ribbon, off the window — the caller has already substituted the
+    // viewport's centre through `zoom::anchor_point`. That is one rule, in one
+    // place, shared with the zoom anchor, rather than a second convention for
+    // an operator to learn.
+    let (dx, dy) = match (target, anchor) {
+        // The mark is placed so that ITS OWN CENTRE lands under the cursor.
+        //
+        // Centre rather than top-left, and it is Inkscape's rule and
+        // Illustrator's: the operator is pointing at where the thing should
+        // BE, not at where its bounding box should begin. Top-left is the
+        // Word/Explorer convention and belongs to a text caret, not to a
+        // drawing canvas. Acrobat likewise drops a pasted comment centred on
+        // the click.
+        (Some(t), Some((cx, cy))) => (f64::from(t.x) - cx, f64::from(t.y) - cy),
+        // See the module header: same page offsets so the copy is visible, a
+        // different page lands in place so a mark copied to sheet 12 is where
+        // it was on sheet 1.
+        _ => {
+            let offset = if from == page { PASTE_OFFSET_PT } else { 0.0 };
+            (offset, -offset)
+        }
+    };
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
-        format!("clipboard-paste page={page} from={from} offset={offset:.1}")
+        format!(
+            "clipboard-paste page={page} from={from} at={} dx={dx:.1} dy={dy:.1}",
+            if target.is_some() { "cursor" } else { "offset" }
+        )
     });
     actions.push(Action::PasteMarkup {
         page,
@@ -801,15 +929,53 @@ pub fn paste(ctx: &egui::Context, page: usize, actions: &mut Vec<Action>) -> Res
         // — the funnel's own rule: an action carries a complete statement of
         // what the operator asked for, and geometry computed in the apply arm
         // cannot be tested without a document.
-        spec: Box::new(translated(*spec, offset, -offset)),
-        dx: offset,
-        // ★ Down the page, which is **negative** in PDF user space because y
-        // increases upward. Getting this backwards produces a paste that goes
+        spec: Box::new(translated(*spec, dx, dy)),
+        dx,
+        // ★ Down the page is **negative** in PDF user space because y increases
+        // upward. The fallback arm above encodes that as `-offset`; the cursor
+        // arm gets it for free, because both the target and the anchor are in
+        // the same space and the subtraction cannot have a sign convention of
+        // its own. Getting this backwards produces a paste that goes
         // up-and-right, which looks deliberate and is the kind of thing nobody
         // reports as a bug — they just think that is how it works.
-        dy: -offset,
+        dy,
     });
     Ok(())
+}
+
+/// **An annotation's `/Rect` centre**, in PDF user space — the point a paste
+/// places under the cursor.
+///
+/// `None` for a dictionary with no readable `/Rect`, which falls the paste
+/// back to the offset rule rather than guessing. That direction is deliberate:
+/// an unrecognised annotation pasting at the old offset is a mild surprise, and
+/// one pasting at `(0, 0)` — the bottom-left corner of the sheet — reads as
+/// data loss.
+///
+/// ★ Read from the raw dictionary rather than from the `MarkupSpec`, and the
+/// reason is the same one `carried_options` gives: the spec is a *translation*
+/// of the annotation, and every kind translates its geometry differently — an
+/// ink stroke into a point list, a line into two ends, a square into corners.
+/// `/Rect` is the one place every annotation states its extent in the same
+/// terms (§12.5.2), so reading it needs no per-kind match and therefore cannot
+/// silently omit a kind.
+fn rect_centre_of(dict: &pdfce_core::object::Dict) -> Option<(f64, f64)> {
+    use pdfce_core::object::Object;
+    let Object::Array(values) = dict.get(b"Rect")? else {
+        return None;
+    };
+    if values.len() != 4 {
+        return None;
+    }
+    let n = |i: usize| match values.get(i)? {
+        Object::Integer(v) => Some(*v as f64),
+        Object::Real(v) => Some(*v),
+        _ => None,
+    };
+    // Normalised (§7.9.5): a `/Rect` is not required to be written with its
+    // lower-left first, and averaging the pair gives the same centre either
+    // way — so no `min`/`max` pass is needed to get this right.
+    Some(((n(0)? + n(2)?) / 2.0, (n(1)? + n(3)?) / 2.0))
 }
 
 /// Paste page content onto `page`, raising the action that authors it.
@@ -839,31 +1005,46 @@ pub fn paste(ctx: &egui::Context, page: usize, actions: &mut Vec<Action>) -> Res
 /// is. A clip this shell wrote is a clip this shell can read; one it cannot is
 /// the engine's `ClipError::NotAClip`, and that reaches the status row through
 /// `vector_edit` like every other engine refusal.
+#[allow(clippy::too_many_arguments)]
 fn paste_content(
     page: usize,
     bytes: &[u8],
     from: usize,
     count: usize,
+    anchor: Option<(f64, f64)>,
+    target: Option<egui::Pos2>,
     actions: &mut Vec<Action>,
 ) -> Result<(), Refusal> {
-    let offset = if from == page { PASTE_OFFSET_PT } else { 0.0 };
+    // ★★★ The cursor rule (O73), expressed as the matrix this verb takes
+    // rather than as a pair of numbers. See `paste` for the argument about the
+    // CENTRE, which is shared: one delta for the whole clip, so relative
+    // geometry inside a multi-object paste is preserved by construction rather
+    // than by care.
+    let (dx, dy) = match (target, anchor) {
+        (Some(t), Some((cx, cy))) => (f64::from(t.x) - cx, f64::from(t.y) - cy),
+        _ => {
+            let offset = if from == page { PASTE_OFFSET_PT } else { 0.0 };
+            (offset, -offset)
+        }
+    };
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
         format!(
             "clipboard-paste kind=content page={page} from={from} objects={count} \
-             offset={offset:.1}"
+             at={} dx={dx:.1} dy={dy:.1}",
+            if target.is_some() { "cursor" } else { "offset" }
         )
     });
     actions.push(
         crate::app::actions::VectorAction::PasteObjects {
             page,
             clip: bytes.to_vec(),
-            // ★ Down the page, which is NEGATIVE in PDF user space because y
-            // increases upward — the identical trap `paste` names one function
-            // up, and worth repeating rather than cross-referencing because
-            // getting it backwards produces a paste that goes up-and-right,
-            // which looks deliberate and is the kind of thing nobody reports.
-            at: pdfce_core::vector::Matrix::translate(offset, -offset),
+            // ★ Down the page is NEGATIVE in PDF user space because y increases
+            // upward — the identical trap `paste` names one function up, and
+            // worth repeating rather than cross-referencing because getting it
+            // backwards produces a paste that goes up-and-right, which looks
+            // deliberate and is the kind of thing nobody reports.
+            at: pdfce_core::vector::Matrix::translate(dx, dy),
         }
         .into(),
     );

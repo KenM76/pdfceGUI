@@ -105,7 +105,7 @@ pub(super) fn at_press(
     // from the other direction.
     if press_selects(ctx, response, active_tool, caps, shift)
         && let Some(origin) = ctx.input(|i| i.pointer.press_origin())
-        && !covers(ctx, doc, map, selection, origin)
+        && !covers(ctx, doc, map, page_index, selection, origin)
     {
         let point = map.to_page(origin);
         let hit = doc.page_objects().and_then(|provider| {
@@ -315,13 +315,41 @@ fn covers(
     ctx: &egui::Context,
     doc: &OpenDoc,
     map: &PageMapping,
+    page_index: usize,
     selection: &SelectionState,
     point: egui::Pos2,
 ) -> bool {
-    crate::canvas::pressing::grabbable(ctx, doc, map, selection)
-        .bounds
-        .is_some_and(|b| {
-            crate::canvas::handles::grip_at(b, point, crate::canvas::handles::GripSet::all())
-                .is_some()
-        })
+    let grabbable = crate::canvas::pressing::grabbable(ctx, doc, map, selection);
+    let in_box = grabbable.bounds.is_some_and(|b| {
+        crate::canvas::handles::grip_at(b, point, crate::canvas::handles::GripSet::all()).is_some()
+    });
+    if !in_box {
+        return false;
+    }
+    // ★★★ **…and for page CONTENT, inside the box is not the same as on the
+    // object** — `OPERATOR_REQUESTS.md` O72, 2026-08-31.
+    //
+    // For a ce dimension, a markup annotation and a form field the box IS the
+    // `/Rect`, so `in_box` is the whole answer and nothing more is asked. For
+    // page content the box is `selection.outline_union()` — a rectangle around
+    // scattered geometry, mostly empty paper. Without this second question,
+    // selecting a title-block border (a hollow rectangle spanning a CAD sheet)
+    // made every subsequent press on the drawing "already covered", so nothing
+    // could be selected and no marquee could be started.
+    //
+    // ★★ It calls `pressing::body_under` rather than asking its own version.
+    // This function's header is explicit that a second opinion computed
+    // differently here would disagree with the gesture machine at the margins,
+    // and every disagreement is a press that selects when it should have
+    // transformed. `pressing::look` applies the identical downgrade to
+    // `Grip::Move` on the very next statement after this one runs.
+    !grabbable.content
+        || crate::canvas::pressing::body_under(
+            doc,
+            selection,
+            map,
+            page_index,
+            point,
+            crate::canvas::pick::PickFilter::all(),
+        )
 }
