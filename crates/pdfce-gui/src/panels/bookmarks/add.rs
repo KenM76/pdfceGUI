@@ -133,7 +133,17 @@ pub fn show(ui: &mut Ui, doc: &OpenDoc, ui_state: &mut BookmarksUi, actions: &mu
             // looking for where bookmarks are added.
             let disabled = ui.add_enabled(false, egui::Button::new(t::bookmark_add_button()));
             crate::diag::ui_rect(REGION_ADD, disabled.rect);
-            disabled.on_hover_text(t::bookmark_add_needs_a_title());
+            // ★★★ **`on_disabled_hover_text`, since 2026-08-31** —
+            // `OPERATOR_REQUESTS.md` O77's sweep.
+            //
+            // This read `on_hover_text`, and in egui 0.35 that builds
+            // `Tooltip::for_enabled`, which opens only when
+            // `response.enabled()` — so on a response that is already disabled
+            // it runs no content and paints nothing. The comment above
+            // promised *"greyed WITH an explanation"* and there was no
+            // explanation: the control was greyed, silent, and unexplainable
+            // by hovering, which is R9 breached by a one-word method name.
+            disabled.on_disabled_hover_text(t::bookmark_add_needs_a_title());
         } else {
             let button = ui.button(t::bookmark_add_button());
             crate::diag::ui_rect(REGION_ADD, button.rect);

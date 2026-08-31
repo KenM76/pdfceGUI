@@ -1000,6 +1000,24 @@ pub const fn settings_synthesised() -> &'static str {
     "This printer would not report its current settings, so the job was sent with only the settings shown here — media type, quality and finishing fell back to the driver's own. Open Properties… before printing again to send them."
 }
 
+/// ★★★ Why the Custom percentage field is greyed —
+/// `OPERATOR_REQUESTS.md` O77's sweep.
+///
+/// `dialogs::print::tabs` has always argued that greying is the correct side
+/// of R9 here *because* the field is only **temporarily** unavailable: one
+/// click on the radio beside it makes it live. R9's other half is that the
+/// argument has to reach the operator, and it never did — the control was
+/// greyed with no hover explanation of any kind, so the reasoning existed only
+/// in a source comment.
+///
+/// ★ It names the remedy and where the remedy is. *"Choose Custom"* alone
+/// would be true and would still leave him looking for what to choose it on;
+/// the radio is immediately to the left and saying so costs three words.
+#[must_use]
+pub fn scale_custom_disabled() -> &'static str {
+    "Choose Custom on the radio beside this field to set your own percentage."
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

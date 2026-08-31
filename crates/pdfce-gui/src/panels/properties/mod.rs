@@ -349,31 +349,71 @@ fn body_sections(
     // "change how this looks" rows and above the read-only facts.
     let drew_text = text::section(ui, doc, state.text_style_mut(), actions);
     let drew_geometry = geometry::section(ui, doc, state.geometry_mut(), actions);
-    object_section(
+    // ★★★ **BOUND, since 2026-08-31** — `OPERATOR_REQUESTS.md` O75.
+    //
+    // The operator: *"the Properties section is always showing the This
+    // document properties instead of just the properties of the objects I am
+    // editing."*
+    //
+    // He is describing `info::section`, which is drawn with **no condition of
+    // any kind** — so the "This document" heading is on screen every frame,
+    // and whenever no selection-scoped section above it has anything to say it
+    // is the only thing on screen. The six sections above DO read the
+    // selection; the document section never asked whether they had spoken.
+    //
+    // The disjunction already existed and was passed straight in as an inline
+    // expression, so nothing else could read it. Binding it is the whole of
+    // the plumbing.
+    let something_drew = drew_dimension
+        || drew_markup
+        || drew_annot_delete
+        || drew_geometry
+        || drew_form_field
+        || drew_text;
+    // ★★ …and `object_section`'s own answer is part of the predicate, which is
+    // load-bearing rather than tidy. `annotdelete::section` returns false for
+    // an ordinary unlocked annotation and `text::route` returns false for a
+    // non-text object — so for a selected **image or path**, the commonest
+    // selection in a CAD file, the only section that speaks is this one.
+    // Without its return value a single selected path would collapse nothing
+    // and the operator would see exactly what he reported.
+    let drew_object = object_section(ui, doc, something_drew);
+    ui.separator();
+    info::section(
         ui,
         doc,
-        drew_dimension
-            || drew_markup
-            || drew_annot_delete
-            || drew_geometry
-            || drew_form_field
-            || drew_text,
+        state.properties_mut(),
+        something_drew || drew_object,
+        actions,
     );
-    ui.separator();
-    info::section(ui, doc, state.properties_mut(), actions);
 }
 
 /// The focused page object's read-only facts.
 ///
-/// `drew_dimension` is passed rather than re-derived so this function knows
+/// `something_drew` is passed rather than re-derived so this function knows
 /// whether the panel is already saying something — see the *nothing focused*
 /// arm.
+///
+/// ★ It was named `drew_dimension` until 2026-08-31 while being fed a six-way
+/// disjunction since the line that calls it was written. The name was a live
+/// trap for the next reader and cost one word.
+///
+/// # ★★★ It returns whether it DREW — `OPERATOR_REQUESTS.md` O75
+///
+/// `true` on the two paths that draw property rows, `false` on both early
+/// returns **including** the *nothing is selected* label. That sentence draws,
+/// but it is not a description of a selection, and collapsing the document
+/// section to make room for "nothing is selected" would be absurd.
+///
+/// The answer joins the six above it to decide whether the document section
+/// starts collapsed. See the call site for why this one is the load-bearing
+/// term.
 /// ★ No `PanelsState` since 2026-08-26. This section used to take one, for the
 /// sole purpose of reading `focus` — see the read below for why it no longer
 /// does. Dropping the parameter rather than underscoring it is what keeps a
 /// future reader from wiring panel-local state back in without noticing they
 /// are recreating the thing that was removed.
-fn object_section(ui: &mut egui::Ui, doc: &OpenDoc, drew_dimension: bool) {
+fn object_section(ui: &mut egui::Ui, doc: &OpenDoc, something_drew: bool) -> bool {
     // ★★★ **THE CANVAS SELECTION**, since 2026-08-26. This read used to be
     // `state.focus()`.
     //
@@ -414,10 +454,10 @@ fn object_section(ui: &mut egui::Ui, doc: &OpenDoc, drew_dimension: bool) {
         // object tree is the ordinary state the instant an operator clicks one,
         // and *"nothing is selected"* under a section describing the thing that
         // is selected would be the panel contradicting itself.
-        if !drew_dimension {
+        if !something_drew {
             ui.label(t::properties_nothing_focused());
         }
-        return;
+        return false;
     };
     // The description is taken out of the shared decomposition and OWNED
     // (it is one small record), so the `Ref` into the document's cache is
@@ -437,7 +477,7 @@ fn object_section(ui: &mut egui::Ui, doc: &OpenDoc, drew_dimension: bool) {
         // is a guard, not a state with copy of its own. It reads as "nothing
         // is picked", which is the truth from the operator's side.
         ui.label(t::properties_nothing_focused());
-        return;
+        return false;
     };
     // Only a text object with a named font needs the inventory, and it is
     // the expensive one (it decodes every embedded font program), so it is
@@ -483,6 +523,11 @@ fn object_section(ui: &mut egui::Ui, doc: &OpenDoc, drew_dimension: bool) {
         }
     }
 
+    // ★ The region the panel's largest section has never published — O75.
+    // `ui_rect_visible` rather than `ui_rect`, on `geometry::section`'s
+    // recorded precedent: this panel is a `ScrollArea`, and a rect published
+    // for a scrolled-out control gets CLICKED by the harness.
+    crate::diag::ui_rect_visible(REGION_OBJECT, ui.min_rect(), ui.clip_rect());
     crate::diag::trace(|| {
         format!(
             "properties-panel object={index} kind={:?} notes={}",
@@ -490,7 +535,17 @@ fn object_section(ui: &mut egui::Ui, doc: &OpenDoc, drew_dimension: bool) {
             described.notes.len()
         )
     });
+    true
 }
+
+/// The region [`object_section`] publishes when it has drawn an object's
+/// properties — `OPERATOR_REQUESTS.md` O75.
+///
+/// ★ Published only on the frames it draws, so its ABSENCE is evidence that
+/// the panel is not describing a selection. That is the distinction the row is
+/// about, and without a region a driven check could only observe the document
+/// section being present — which it always was.
+const REGION_OBJECT: &str = "properties.object"; // ui-text-exempt: trace region name, never displayed
 
 /// The panel's field list, as `(label, value)` pairs in display order.
 ///

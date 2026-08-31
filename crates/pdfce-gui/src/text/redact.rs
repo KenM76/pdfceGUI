@@ -108,6 +108,23 @@ pub fn mark_whole_page_tooltip() -> &'static str {
     "Mark this entire page for redaction. Nothing is removed until you apply, and you can take the mark off again from the list below or with Undo."
 }
 
+/// ★★★ Why *Mark whole page* is greyed — `OPERATOR_REQUESTS.md` O77.
+///
+/// The control's only gate is `page_count > 0`, so there is exactly one reason
+/// and it can be stated flatly. It is a document with no pages, which is legal
+/// PDF (`/Count 0`) and which pdfce opens rather than refusing — so this is a
+/// real state an operator can be in, not a defensive branch.
+///
+/// ★ It names the cause rather than the remedy, and that is the right way
+/// round here: there is no action he can take inside this panel to give the
+/// document a page, so *"add a page first"* would be advice about somewhere
+/// else. Where a remedy exists — the search button beside it — the sentence
+/// names the remedy instead.
+#[must_use]
+pub fn mark_whole_page_disabled() -> &'static str {
+    "This document has no pages to mark."
+}
+
 /// The label beside the search field.
 #[must_use]
 pub fn search_label() -> &'static str {
@@ -489,6 +506,39 @@ pub fn confirm_checkbox() -> &'static str {
 #[must_use]
 pub fn confirm_button() -> &'static str {
     "Permanently remove & save as…"
+}
+
+/// ★★★ Why *Permanently remove & save as…* is greyed —
+/// `OPERATOR_REQUESTS.md` O77's sweep.
+///
+/// The most consequential of the seven dead explanations found on 2026-08-31:
+/// this is the last control before content is destroyed, it was greyed, and it
+/// had **no hover explanation at all**. An operator who could not press it had
+/// no way to find out why.
+///
+/// # ★★ It names WHICH box, because *"tick the box"* is ambiguous here
+///
+/// Two checkboxes gate this button and they do not both appear. The
+/// acknowledgement is always shown; the residual acknowledgement is shown only
+/// when the engine reported content it could not prove was removed — which is
+/// precisely the situation in which an operator is reading carefully and is
+/// least able to afford a vague refusal.
+///
+/// Four states, three of them reachable: the pair is only ever consulted when
+/// the button is off, so `(true, true)` cannot be seen here. It is answered
+/// anyway rather than left to a `_` arm, because a sentence that cannot be
+/// reached is better than a panic and better than a wrong one, and because the
+/// day the gate grows a third term this arm is where the omission shows.
+#[must_use]
+pub fn confirm_disabled(acknowledged: bool, residuals_acknowledged: bool) -> &'static str {
+    match (acknowledged, residuals_acknowledged) {
+        (false, false) => "Tick both boxes above to confirm you have read what will be removed.",
+        (false, true) => "Tick the box above to confirm you have read what will be removed.",
+        (true, false) => {
+            "Tick the second box above to confirm you have read what pdfce could not prove it removed."
+        }
+        (true, true) => "Ready.",
+    }
 }
 
 /// The control that closes the dialog without applying.

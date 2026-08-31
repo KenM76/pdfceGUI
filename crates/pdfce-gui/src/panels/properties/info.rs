@@ -123,6 +123,14 @@ const FIELDS: usize = InfoField::all().len();
 /// It also covers the case nobody thinks of: a field changed by some *other*
 /// surface. There is only one today (this panel), and the reload means there
 /// does not have to be a rule about it.
+/// The persistent id the document section's collapsed state is stored under.
+///
+/// A named constant rather than a literal at the call site, because the state
+/// is written in one place and read in another two lines later and the two
+/// must agree — an id typo would produce a header that collapses and instantly
+/// reopens, once per frame, which reads as a flicker rather than as a bug.
+const COLLAPSE_ID: &str = "properties-info-section"; // ui-text-exempt: an egui widget id, never displayed
+
 #[derive(Default)]
 pub struct InfoDrafts {
     /// One draft per `InfoField::all()` position.
@@ -136,6 +144,28 @@ pub struct InfoDrafts {
     /// indistinguishable, which is the state this panel spends most of its
     /// life in.
     seeded_at: Option<u64>,
+    /// ★★★ **Whether something above this section was speaking on the previous
+    /// frame** — `OPERATOR_REQUESTS.md` O75. `None` before the first frame.
+    ///
+    /// It exists so the collapse can be **edge-triggered**: written only on
+    /// the frame the answer flips, never every frame. That is what lets the
+    /// operator expand the document section by hand and keep it expanded while
+    /// the same object stays selected.
+    ///
+    /// # ★★ Why neither obvious egui mechanism works
+    ///
+    /// - `CollapsingHeader::default_open` is consulted through
+    ///   `load_with_default_open`, which returns the STORED state whenever one
+    ///   exists. It is dead after frame one, so it can set the initial answer
+    ///   and can never change it.
+    /// - `CollapsingState::open(Some(_))` forces the state every frame — and
+    ///   moves click handling into an `else` branch, so the header stops
+    ///   responding to the operator entirely. It would be correct and unusable.
+    ///
+    /// ⇒ The shape that works is `set_open` + `store`, run only on the
+    /// transition. Checked against the vendored egui 0.35 source rather than
+    /// remembered.
+    last_anything: Option<bool>,
 }
 
 impl std::fmt::Debug for InfoDrafts {
@@ -148,6 +178,7 @@ impl std::fmt::Debug for InfoDrafts {
         f.debug_struct("InfoDrafts")
             .field("lengths", &self.drafts.each_ref().map(String::len))
             .field("seeded_at", &self.seeded_at)
+            .field("last_anything", &self.last_anything)
             .finish()
     }
 }
@@ -183,12 +214,66 @@ impl InfoDrafts {
 /// `/Info` dictionary at all renders four empty boxes, which is the truth and
 /// is also exactly what the operator needs in order to add one — `set_info_field`
 /// **creates `/Info` if it is absent**.
-pub fn section(ui: &mut Ui, doc: &OpenDoc, drafts: &mut InfoDrafts, actions: &mut Vec<Action>) {
-    crate::diag::ui_rect(REGION, ui.max_rect());
-    // No `.strong()` — R84 / DEFECTS.md D11: egui resolves it to the
-    // accent-filled widget foreground, which on an ordinary panel is pale text
-    // on pale ground.
-    ui.label(t::properties_document_heading());
+pub fn section(
+    ui: &mut Ui,
+    doc: &OpenDoc,
+    drafts: &mut InfoDrafts,
+    // ★★★ **Whether any section above this one is describing the selection** —
+    // `OPERATOR_REQUESTS.md` O75: *"the Properties section is always showing
+    // the This document properties instead of just the properties of the
+    // objects I am editing."*
+    //
+    // The document form is never HIDDEN — R9 forbids that, because the
+    // capability is available and the operator may well want it — but it stops
+    // being the first thing in the panel whenever something is speaking about
+    // what he has selected.
+    //
+    // ★ The rule is *"collapse when something else is speaking about the
+    // selection"*, not *"collapse when something is selected"*. The two differ
+    // for exactly the case that matters: several of the sections above return
+    // false for an ordinary image or path, which is why the caller folds
+    // `object_section`'s own answer in.
+    anything_above: bool,
+    actions: &mut Vec<Action>,
+) {
+    let id = ui.make_persistent_id(COLLAPSE_ID);
+    // ★★ EDGE-TRIGGERED. Written only on the frame the answer flips, so the
+    // operator can expand this by hand and it stays expanded while the same
+    // object remains selected. See `InfoDrafts::last_anything` for why neither
+    // `default_open` nor `open(Some(_))` can do this.
+    //
+    // The memo write happens BEFORE the closure below is constructed, because
+    // `drafts` is borrowed mutably inside it too.
+    if drafts.last_anything != Some(anything_above) {
+        drafts.last_anything = Some(anything_above);
+        let mut state =
+            egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true);
+        state.set_open(!anything_above);
+        state.store(ui.ctx());
+    }
+    let state =
+        egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true);
+    state
+        .show_header(ui, |ui| {
+            // No `.strong()` — R84 / DEFECTS.md D11: egui resolves it to the
+            // accent-filled widget foreground, which on an ordinary panel is
+            // pale text on pale ground.
+            ui.label(t::properties_document_heading());
+        })
+        .body(|ui| info_body(ui, doc, drafts, actions));
+    // ★ `ui_rect_visible`, and published AFTER the body — O75.
+    //
+    // A collapsed section's `max_rect` is the whole remaining panel, so the
+    // old `ui_rect(REGION, ui.max_rect())` would have had a driven check click
+    // into empty space and report a dead control. That is the failure
+    // `geometry::section` already paid for once, and its answer is copied
+    // rather than re-derived.
+    crate::diag::ui_rect_visible(REGION, ui.min_rect(), ui.clip_rect());
+}
+
+/// The section's contents, unchanged — lifted out so the collapsing header's
+/// body closure is one line.
+fn info_body(ui: &mut Ui, doc: &OpenDoc, drafts: &mut InfoDrafts, actions: &mut Vec<Action>) {
     ui.label(
         egui::RichText::new(t::properties_document_note())
             .small()

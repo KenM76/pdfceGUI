@@ -746,7 +746,17 @@ impl DimensionGroupsUi {
             // instead would make the name field look like it does nothing.
             let response = ui.add_enabled(false, egui::Button::new(t::new_button()));
             crate::diag::ui_rect(REGION_ADD, response.rect);
-            response.on_hover_text(t::new_needs_a_name());
+            // ★★★ **`on_disabled_hover_text`, since 2026-08-31** —
+            // `OPERATOR_REQUESTS.md` O77's sweep.
+            //
+            // This read `on_hover_text`, and in egui 0.35 that builds
+            // `Tooltip::for_enabled`, which opens only when
+            // `response.enabled()` — so on a response that is already disabled
+            // it runs no content and paints nothing. The comment above
+            // promised *"greyed WITH an explanation"* and there was no
+            // explanation: the control was greyed, silent, and unexplainable
+            // by hovering, which is R9 breached by a one-word method name.
+            response.on_disabled_hover_text(t::new_needs_a_name());
         } else {
             let response = ui.button(t::new_button());
             crate::diag::ui_rect(REGION_ADD, response.rect);

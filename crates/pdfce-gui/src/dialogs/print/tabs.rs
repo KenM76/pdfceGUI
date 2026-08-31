@@ -266,12 +266,20 @@ pub(super) fn pages_layout(
         // absent** — which is the correct side of the no-placeholders rule
         // here, because this really is *temporarily* unavailable: one click
         // on the radio beside it makes it live.
-        ui.add_enabled(
+        // ★★★ …and it now SAYS so — O77's sweep. The comment above has
+        // always argued that greying is correct here *because* one click on
+        // the radio beside it makes the field live. R9 requires that argument
+        // to reach the operator, and it never did: the control was greyed with
+        // no hover explanation of any kind.
+        let custom = ui.add_enabled(
             custom_selected,
             egui::DragValue::new(&mut dialog.custom_percent)
                 .range(1..=1000)
                 .suffix(t::percent_suffix()),
         );
+        if !custom_selected {
+            custom.on_disabled_hover_text(t::scale_custom_disabled());
+        }
     });
     ui.add_space(8.0);
 

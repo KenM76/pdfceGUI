@@ -279,9 +279,14 @@ fn marking_controls(
     // Cloned because both controls need it and the panel keeps editing it.
     let chosen = state.redact_mut().appearance.to_core();
 
+    // ★★ BOTH, chained — O77. `Tooltip::for_enabled` and `for_disabled` gate
+    // on exact complements, so exactly one ever opens and chaining is safe.
+    // Until today only the enabled one was attached, so the operator got an
+    // explanation whenever he did not need one and silence whenever he did.
     let whole = ui
         .add_enabled(page_count > 0, egui::Button::new(t::mark_whole_page()))
-        .on_hover_text(t::mark_whole_page_tooltip());
+        .on_hover_text(t::mark_whole_page_tooltip())
+        .on_disabled_hover_text(t::mark_whole_page_disabled());
     crate::diag::ui_rect(REGION_WHOLE_PAGE, whole.rect);
     if whole.clicked() {
         actions.push(Action::MarkPageForRedaction {
@@ -325,7 +330,14 @@ fn marking_controls(
                 !query.is_empty() && page_count > 0,
                 egui::Button::new(t::search_button()),
             )
-            .on_hover_text(t::search_button_tooltip(!query.is_empty()));
+            // ★★★ …and the disabled half, which had been WRITTEN AND
+            // UNREACHABLE — O77. `search_button_tooltip(false)` exists, is
+            // documented, is unit-tested, and could never open, because it was
+            // attached with the enabled-only method. The boolean whose sole
+            // purpose is to select it was therefore a parameter with no live
+            // consumer.
+            .on_hover_text(t::search_button_tooltip(true))
+            .on_disabled_hover_text(t::search_button_tooltip(!query.is_empty()));
         crate::diag::ui_rect(REGION_SEARCH, search.rect);
         if search.clicked() {
             actions.push(Action::MarkRedactionsBySearch {
@@ -402,7 +414,11 @@ fn census_and_apply(
 
     let apply = ui
         .add_enabled(!marks.is_empty(), egui::Button::new(t::review_and_apply()))
-        .on_hover_text(t::review_and_apply_tooltip(!marks.is_empty()));
+        // ★★★ The same shape, and the same orphaned string — O77.
+        // `review_and_apply_tooltip(false)` was written for a tooltip that
+        // could not open.
+        .on_hover_text(t::review_and_apply_tooltip(true))
+        .on_disabled_hover_text(t::review_and_apply_tooltip(false));
     if !marks.is_empty() {
         crate::diag::ui_rect(REGION_APPLY, apply.rect);
     }

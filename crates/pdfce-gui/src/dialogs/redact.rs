@@ -481,7 +481,28 @@ impl RedactDialog {
         if ready {
             crate::diag::ui_rect(REGION_CONFIRM, confirm.rect);
         }
-        if confirm.clicked() {
+        let clicked = confirm.clicked();
+        // ★★★ **A greyed Confirm with no explanation at all** — O77's sweep,
+        // and the most consequential of the seven: this is the last control
+        // before content is destroyed, and an operator who cannot press it had
+        // no way to find out why.
+        //
+        // ★ It names WHICH box is unticked rather than refusing generically.
+        // Two checkboxes gate this button and they appear at different times —
+        // the residual one only when the engine reported residuals — so
+        // *"tick the box"* would be ambiguous exactly when it matters.
+        //
+        // ★★ The `if !ready` shape, and the borrow order, are copied from
+        // `dialogs::formfield` and `dialogs::textannot`:
+        // `on_disabled_hover_text` CONSUMES the response, so `.rect` and
+        // `.clicked()` are read first.
+        if !ready {
+            confirm.on_disabled_hover_text(t::confirm_disabled(
+                self.acknowledged,
+                self.residuals_acknowledged,
+            ));
+        }
+        if clicked {
             self.confirm_requested = true;
         }
         ui.add_space(6.0);

@@ -221,14 +221,49 @@ pub(crate) fn render_large(
         width(ui, ctx, command, ItemSize::Large),
         height.max(content_height),
     );
-    let (rect, mut response) = ui.allocate_exact_size(want, Sense::click());
-    if !enabled {
-        // ★ The response is neutered rather than the rect being skipped: the
-        // control still occupies its space, still reports where it was drawn,
-        // and still refuses the click. A disabled control that shrank would
-        // make the band re-flow every time a selection changed.
-        response = response.on_disabled_hover_text(command.tooltip.clone().unwrap_or_default());
-    }
+    // ★★★ **ALLOCATED FROM A DISABLED SCOPE WHEN IT IS DISABLED**, since
+    // 2026-08-31, and the line it replaces was wrong about the one thing it
+    // claimed.
+    //
+    // It read `ui.allocate_exact_size(want, Sense::click())` followed by
+    // `response.on_disabled_hover_text(...)`, with a comment promising *"the
+    // response is neutered … and still refuses the click."*
+    //
+    // **It refused nothing.** `Ui::interact` passes `self.enabled` into the
+    // response's `ENABLED` flag (egui 0.35 `ui.rs:928`, `context.rs:1385`),
+    // and this allocated from an *enabled* `Ui` — it only painted greyed,
+    // choosing `visuals.widgets.inactive` by hand fifteen lines below. So
+    // `response.enabled()` was **always true**, with two consequences:
+    //
+    // 1. **The tooltip was dead.** `on_disabled_hover_text` opens only when
+    //    `!response.enabled()`, so it never ran — here, and again at the
+    //    caller in `ribbon::control`, which attaches the same explanation the
+    //    same way. Every Large band command is greyed with no explanation, and
+    //    R9 requires one.
+    // 2. ★★★ **And the click still fired.** `ribbon::control` does
+    //    `if response.clicked() { ctx.invoke(command.handler) }` with no
+    //    second gate, so pressing a greyed Large control **invoked its
+    //    command**. The band said no and the shell did it anyway.
+    //
+    // ⇒ The scope is the fix for both, because both read one flag. It wraps
+    // the ALLOCATION only; the painting below still uses the outer `ui`'s
+    // painter, so the greyed appearance is unchanged to the pixel and the
+    // hand-picked `inactive` visuals keep working. Wrapping the painting too
+    // would multiply the disabled alpha a second time and dim every greyed
+    // Large control twice over.
+    //
+    // ★ Found by `OPERATOR_REQUESTS.md` O77's sweep for dead hover
+    // explanations. The sweep was looking for silence and found a control that
+    // acts.
+    let (rect, response) = if enabled {
+        ui.allocate_exact_size(want, Sense::click())
+    } else {
+        ui.scope(|ui| {
+            ui.disable();
+            ui.allocate_exact_size(want, Sense::click())
+        })
+        .inner
+    };
 
     let visuals = if enabled {
         ui.style().interact_selectable(&response, selected)
@@ -287,6 +322,54 @@ mod tests {
 
     fn command(id: &str) -> Command {
         Command::new(id, "Label", HandlerToken::new(1))
+    }
+
+    /// ★★★ **A response allocated from an ENABLED `Ui` is enabled, however it
+    /// is painted** — the assumption `render_large` made and that was false.
+    ///
+    /// This is a claim about **egui**, so it is asserted against egui rather
+    /// than reasoned about. `render_large` painted itself greyed by choosing
+    /// `visuals.widgets.inactive` by hand, and allocated its response from the
+    /// ordinary `Ui` — so `response.enabled()` stayed true, its
+    /// `on_disabled_hover_text` never opened, and `ribbon::control`'s
+    /// `if response.clicked() { ctx.invoke(…) }` **still invoked the command**.
+    /// The band said no and the shell did it anyway.
+    ///
+    /// The second half is the fix: allocating inside `ui.disable()`'s scope
+    /// produces a response that reports itself disabled, which is what both
+    /// the tooltip and the click gate read.
+    ///
+    /// ★ Written as a table over the two cases rather than asserting only the
+    /// fixed one, because a build in which BOTH were disabled would satisfy a
+    /// one-sided assertion and would grey every Large control permanently.
+    #[test]
+    fn only_a_disabled_scope_produces_a_disabled_response() {
+        let ctx = egui::Context::default();
+        let mut plain = None;
+        let mut scoped = None;
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let (_, response) =
+                ui.allocate_exact_size(egui::vec2(40.0, 20.0), egui::Sense::click());
+            plain = Some(response.enabled());
+
+            let (_, response) = ui
+                .scope(|ui| {
+                    ui.disable();
+                    ui.allocate_exact_size(egui::vec2(40.0, 20.0), egui::Sense::click())
+                })
+                .inner;
+            scoped = Some(response.enabled());
+        });
+        assert_eq!(
+            plain,
+            Some(true),
+            "painting a control greyed does not disable its response — that was the bug"
+        );
+        assert_eq!(
+            scoped,
+            Some(false),
+            "…and allocating inside a disabled scope is what does, which is what              `on_disabled_hover_text` and the click gate both read"
+        );
     }
 
     /// ★★★ `Small` is earned three ways, and failing any one of them falls
