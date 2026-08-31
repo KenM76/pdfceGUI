@@ -279,7 +279,14 @@ mod tests {
         // reaches text pdfce can read as text, and on a CAD drawing a
         // title-block value is often vector strokes and a stamp is often an
         // image. Neither is findable by typing.
-        assert_eq!(registry().len(), 130);
+        // ★★★ 130 → 129 on 2026-08-31: `edit.objects` DELETED — O69. Ken:
+        // *"We shouldn't even need an Edit Objects button."* It was a route to
+        // `view.tool_select` under a tooltip promising node dragging, so
+        // pressing it after arming the Points tool put him back on the arrow.
+        // The count moves WITH the list, in the same commit, which is this
+        // file's standing rule and the reason four earlier drifts are recorded
+        // above it.
+        assert_eq!(registry().len(), 129);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -350,7 +357,12 @@ mod tests {
         // ★ 109 → 110 on 2026-08-30: `edit.redact_selection` reuses the
         // `redact` glyph, as `edit.redact_apply` already does. Three controls
         // about one operation, told apart by their labels.
-        assert_eq!(named, 110, "commands naming an icon");
+        // ★ 110 → 109 on 2026-08-31: `edit.objects` deleted (O69), and the
+        // `edit-objects` glyph it named is now unused. The asset stays in the
+        // directory — `icons/assets/PROVENANCE.md` makes that the operator's
+        // own work and deleting his drawing because a button went away is not
+        // ours to do — but no command claims it.
+        assert_eq!(named, 109, "commands naming an icon");
         // ★ 12 → 17 on 2026-08-27: the Format ▸ Font group's five commands
         // all refuse a glyph, and they refuse it for one reason argued once at
         // their registration. Word draws `B` and `I` as glyphs; this build has

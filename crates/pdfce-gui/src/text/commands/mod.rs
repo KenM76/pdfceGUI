@@ -633,17 +633,6 @@ pub const fn edit_add_text() -> CommandText {
     )
 }
 
-/// `edit.objects`
-#[must_use]
-pub const fn edit_objects() -> CommandText {
-    CommandText::new(
-        "Edit objects",
-        "Edit vector drawing objects on the page: click to select, drag to move the object, \
-         drag an anchor to move that node, or press Delete to remove it. Delete removes a \
-         drawing object — it is not redaction, and does not securely remove covered content.",
-    )
-}
-
 /// `edit.insert_image`
 #[must_use]
 pub const fn edit_insert_image() -> CommandText {
@@ -1361,7 +1350,6 @@ mod tests {
             pages_rotate_right(),
             edit_text(),
             edit_add_text(),
-            edit_objects(),
             edit_insert_image(),
             edit_attachments(),
             edit_form_create_field(),
@@ -1481,6 +1469,5 @@ mod tests {
     fn the_content_tools_have_real_labels() {
         assert_eq!(edit_text().label, "Edit text");
         assert_eq!(edit_add_text().label, "Add text");
-        assert_eq!(edit_objects().label, "Edit objects");
     }
 }

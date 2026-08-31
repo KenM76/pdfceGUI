@@ -88,7 +88,11 @@ pub(super) fn tab() -> Tab {
                     // retyped a sentence in it, so it follows the tool that
                     // does the retyping.
                     command("edit.reflow_block"),
-                    command("edit.objects"),
+                    // ★ `edit.objects` was the fourth member until 2026-08-31.
+                    // Deleted, not moved — see its former registration in
+                    // `shell::commands::catalog::edit` for O69's argument. The
+                    // group is three again, and Content now means "the text on
+                    // this page", which is what its three members actually do.
                 ],
             ),
             // ---------------------------------------------------------------

@@ -39,6 +39,10 @@ use crate::canvas::tool::CanvasTool;
 #[allow(clippy::too_many_arguments)]
 pub(super) fn at_press(
     ctx: &egui::Context,
+    // The **acting page's own** response, and the answer to *"was this press
+    // mine?"*. See `press_selects` for `OPERATOR_REQUESTS.md` O75 and why the
+    // `Context` cannot answer it.
+    response: &egui::Response,
     doc: &OpenDoc,
     selection: &mut SelectionState,
     map: &PageMapping,
@@ -99,7 +103,7 @@ pub(super) fn at_press(
     // the click path owns it. Selecting on press would replace the selection the
     // operator was adding to — the same mid-gesture loss as case 2, arrived at
     // from the other direction.
-    if press_selects(ctx, active_tool, caps, shift)
+    if press_selects(ctx, response, active_tool, caps, shift)
         && let Some(origin) = ctx.input(|i| i.pointer.press_origin())
         && !covers(ctx, doc, map, selection, origin)
     {
@@ -115,15 +119,96 @@ pub(super) fn at_press(
 
 /// Whether a press this frame may select what is under it.
 ///
-/// Four conditions, each with its own reason in [`interact`]'s step 1b:
-/// the primary button went down **this frame**, the plain Select tool is armed,
-/// the mode may edit content, and no region zoom is waiting to be spent.
+/// **Five** conditions since 2026-08-31, each with its own reason in
+/// [`interact`]'s step 1b: the press **landed on this canvas**, the primary
+/// button went down **this frame**, the plain Select tool is armed, the mode
+/// may edit content, and no region zoom is waiting to be spent.
 ///
 /// `Shift` declines here rather than at the call site so that the whole
 /// predicate reads in one place — a reader asking *"when does a press select?"*
 /// gets one answer rather than a function plus a condition beside it.
-fn press_selects(ctx: &egui::Context, tool: CanvasTool, caps: Capabilities, shift: bool) -> bool {
-    matches!(tool, CanvasTool::Select)
+///
+/// # ★★★ The fifth condition, and why it was missing for so long
+///
+/// `OPERATOR_REQUESTS.md` row **O75**:
+///
+/// > *"When I am working in the right side panel objects are getting selected
+/// > through the side panel when I am trying to edit fields in the Properties
+/// > section."*
+///
+/// He is describing this function. Until today it asked the **`Context`** —
+/// i.e. the whole window — *"did the primary button go down this frame?"*, and
+/// then took `press_origin()` from the same place and mapped it straight
+/// through the page's affine transform. [`crate::viewer::screen_to_page`] is
+/// unbounded and unclamped, so **any** screen point converts to a valid page
+/// coordinate: a press on a `TextEdit` in the right dock resolves to real page
+/// content and replaces the selection the operator was editing the properties
+/// of.
+///
+/// It hid at fit zoom, because there the dock maps off the sheet and the hit
+/// test misses. Zoom past fit on a CAD sheet — which is every working session
+/// on an A1 drawing — and the whole window maps inside the page.
+///
+/// ★★ **This is `DEFECTS.md` D1's class, arrived at through the pointer
+/// instead of the keyboard**: a guard asking exactly the right question of
+/// exactly the wrong object. D1 was `egui_wants_keyboard_input()` (= *any*
+/// widget focused) where `text_edit_focused()` was meant, and it killed the
+/// Delete key. This is the same substitution, and the whole rest of this
+/// canvas already gets it right — every other signal in
+/// [`interact`]'s `PointerFrame` comes from the page's own
+/// [`egui::Response`]. Step 1b was the one that reached past it.
+///
+/// # Why [`egui::Response::is_pointer_button_down_on`] and nothing else
+///
+/// egui resolves it from `Memory::interaction()`'s `potential_click_id` /
+/// `potential_drag_id`, which are assigned with **full layer and z-order
+/// awareness**. So one term rejects, at once and with no rectangle
+/// arithmetic: a press on either dock, on the ribbon, on the document tab
+/// strip, on the status bar, on the find bar's floating `Area`, on a
+/// context-menu popup, and on a modal `Window`. A `clip.contains(origin)`
+/// test would cover **none** of the last three, because all three sit
+/// geometrically *inside* the canvas viewport.
+///
+/// It is also the term that keeps a legitimate gesture alive: it stays true
+/// for the widget that **owns** the press for the whole gesture, so a marquee
+/// dragged off the page and out over a dock — which [`interact`]'s step 1
+/// explicitly protects — is unaffected.
+///
+/// ★ **Do not substitute [`egui::Context::egui_wants_pointer_input`].** It is
+/// true whenever *any* egui widget wants the pointer, and this canvas's page
+/// **is** an egui widget, so it would be true during a legitimate canvas press
+/// and would suppress selection entirely. It is the pointer twin of the D1
+/// trap and swapping one for the other would trade a wrong selection for no
+/// selection. (`Context::is_pointer_over_area` does not exist in egui 0.35;
+/// it was looked for three ways before this was written.)
+///
+/// # Why BOTH terms, and not just the new one
+///
+/// `is_pointer_button_down_on` is true for **every frame the button is held**,
+/// not only the frame it went down. `button_pressed` is the this-frame edge.
+/// Collapsing them into one would re-run the pick on every frame of a drag —
+/// a different defect, and a worse one, because it would re-select mid-move.
+///
+/// # The one narrowing this accepts, recorded rather than left to be found
+///
+/// `response` is the **acting** page's response — the page
+/// [`crate::canvas::present`] chose as `active`, which is also the page
+/// `map` describes and the page `page_index` names. In a continuous strip a
+/// press on a *neighbouring* page therefore no longer selects. That is not a
+/// regression: such a press was already being mapped through the acting
+/// page's transform, so it was already resolving to a point on the wrong
+/// sheet. It is now refused instead of answered wrongly. If per-page pressing
+/// is wanted in the strip, the fix is to make the pressed page the acting
+/// page, not to widen this guard.
+fn press_selects(
+    ctx: &egui::Context,
+    response: &egui::Response,
+    tool: CanvasTool,
+    caps: Capabilities,
+    shift: bool,
+) -> bool {
+    response.is_pointer_button_down_on()
+        && matches!(tool, CanvasTool::Select)
         && caps.edit_content
         && !shift
         && !crate::canvas::zoom::region_zoom_armed(ctx)

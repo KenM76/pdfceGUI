@@ -658,6 +658,44 @@ pub const fn form_kind_hint(kind: crate::canvas::formfield::FormFieldKind) -> &'
     }
 }
 
+/// **The Points tool was asked for in a mode that cannot change page content.**
+///
+/// `OPERATOR_REQUESTS.md` row **O69**, the operator:
+///
+/// > *"I'm still not entirely clear how to reliably get to a point where I can
+/// > edit nodes."*
+///
+/// One of the two reasons it felt unreliable. The Points tool needs
+/// `Capabilities::edit_content`, which only Edit has, and its dispatch arm
+/// declined into the trace and said nothing on screen. The ribbon item is now
+/// withheld outside Edit (`shell::manifest::view`), so the only way left to
+/// reach the decline is the bare `A` chord — a chord is filtered by TAB
+/// visibility, not by item visibility, and View is in every mode.
+///
+/// ★ **So this sentence exists for a route the ribbon can no longer produce**,
+/// and that is deliberate rather than belt-and-braces. R83's rule is *a
+/// refusal must be a sentence, never a silence*, and a chord that does nothing
+/// is the worst kind of silence: there is no control to look at, so there is
+/// nowhere for the operator to discover why.
+///
+/// # Why it names the remedy rather than the rule
+///
+/// *"Editing points needs Edit mode"* would be a true statement of the rule
+/// and useless at the moment it is read — the operator pressed a key and
+/// nothing happened, and what they need is the next act, not a diagnosis.
+/// This names the control that fixes it, in the words printed on it, which is
+/// the same choice `resize_not_rebuildable` makes and for the same reason.
+///
+/// # Why it is here and not in `crate::text::status`
+///
+/// `text::status` is at 1,482 lines against R2's 1,500, and its own header
+/// records the seam being noticed rather than trimmed. This module already
+/// owns the tool panel's sentences, and this sentence is about a tool.
+#[must_use]
+pub fn node_tool_needs_edit_mode() -> &'static str {
+    "Switch to Edit to work on points."
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

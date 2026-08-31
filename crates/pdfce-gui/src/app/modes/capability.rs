@@ -559,7 +559,12 @@ mod tests {
     fn a_command_on_a_hidden_tab_is_not_offered() {
         let shell = built_in();
         // Edit-tab commands: reachable only in Edit.
-        for id in ["edit.text", "edit.add_text", "edit.objects"] {
+        // `edit.objects` was the third id here until 2026-08-31 (O69,
+        // deleted). `edit.reflow_block` replaces it rather than the list
+        // shrinking to two: the property under test is *a command on a hidden
+        // tab is not offered*, and it needs more than one witness or a build
+        // that offered exactly one Edit command everywhere would still pass.
+        for id in ["edit.text", "edit.add_text", "edit.reflow_block"] {
             assert!(!offers_command(Some(&shell), Some("read"), id), "read/{id}");
             assert!(
                 !offers_command(Some(&shell), Some("review"), id),

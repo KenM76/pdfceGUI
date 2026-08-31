@@ -93,7 +93,16 @@ fn target(id: &str) -> Option<&'static str> {
         // to *"what can I change on this page?"* is one group of three, and a
         // group of three where the third does nothing reads as a broken
         // program rather than as a missing feature.
-        "edit.objects" => Some("view.tool_select"),
+        // ★★★ `"edit.objects" => Some("view.tool_select")` was HERE until
+        // 2026-08-31 and the command is gone with it (O69). Kept as a comment
+        // for one reason only: this file's whole subject is *when is a second
+        // door legitimate*, and this is its one worked example of a door that
+        // was legitimate in principle and **pointed at the wrong room**. The
+        // rule the deletion adds to the two already in this header: a route's
+        // target must be derived from what the operator will SEE HAPPEN, not
+        // from what the source command is called. Its tooltip described the
+        // Points tool and it armed the Select tool, and nothing in a route
+        // table can catch that — only reading the two side by side can.
         // ★★★ `tools.font_folders` LEFT this file on 2026-08-28, and the reason
         // is worth more than the entry was.
         //
@@ -177,7 +186,7 @@ mod tests {
     /// The ids this file claims, as a list, so a fourth added to `target` and
     /// not here fails rather than going untested.
     // ui-text-exempt: registered command ids, never displayed.
-    const ROUTED: &[&str] = &["edit.form_manage_fields", "edit.objects"];
+    const ROUTED: &[&str] = &["edit.form_manage_fields"];
 
     /// **`handles` and `target` cannot disagree**, which is why there is one
     /// mapping and not a list beside a match.

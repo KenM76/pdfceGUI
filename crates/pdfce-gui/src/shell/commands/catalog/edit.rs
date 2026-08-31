@@ -55,9 +55,29 @@ pub(super) fn band() -> Vec<Command> {
         // enable-time gate would be a duplicate rule that can disagree with the
         // first, which is the shape `conditions`' own header argues against.
         command("edit.reflow_block", t::edit_reflow_block(), 406).enabled_when("doc.pages"),
-        command("edit.objects", t::edit_objects(), 402)
-            .with_icon("edit-objects")
-            .enabled_when("doc.pages"),
+        // ★★★ `edit.objects` was HERE until 2026-08-31, and it is DELETED
+        // rather than repointed. `OPERATOR_REQUESTS.md` row O69, the operator:
+        // *"We shouldn't even need an Edit Objects button."*
+        //
+        // He is right, and it was worse than redundant. It was a
+        // `dispatch::routes` alias for `view.tool_select`, so pressing it after
+        // arming the Points tool silently put him back on the black arrow —
+        // i.e. the control he had been told to press in order to edit a drawing
+        // was the one that ended node editing. Its tooltip promised *"drag an
+        // anchor to move that node"*, which is the POINTS tool described
+        // exactly, by a button that armed a different one.
+        //
+        // ★★ The route was added on 2026-08-28 on the argument that *"a second
+        // route to an existing command must not become a second implementation
+        // of it"*, and that argument is still sound. What was wrong is one step
+        // earlier: it was routed to the wrong target, and the tooltip is the
+        // evidence — it was written from what the button was NAMED, not from
+        // what it DID.
+        //
+        // ⇒ The one route to editing drawing objects is now the tool palette,
+        // View ▸ Navigate, in the order every program in this class puts it:
+        // arrow, white arrow, type, hand. Which is the convention argument, and
+        // the operator's own instruction, agreeing.
         // `insert-image` is the picture glyph the icon ui-spec §8.5 reserved
         // for OCR. This command is the earlier and primary claim on it: it
         // places an actual raster on the page, where OCR only reads one.

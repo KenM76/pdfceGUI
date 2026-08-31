@@ -642,6 +642,14 @@ impl PdfceApp {
                         // ui-text-exempt: diagnostic trace, never displayed.
                         format!("command-declined id={id} reason=mode-cannot-edit-content")
                     });
+                    // ★ …and SAY so, 2026-08-31 (O69). The trace above is for
+                    // a reader of a machine they cannot see; this is for the
+                    // operator in front of one. The ribbon item is withheld
+                    // outside Edit now, so the route that reaches here is the
+                    // bare `A` chord — and a chord that does nothing offers no
+                    // control to hover, which is why it is the case that most
+                    // needs a sentence.
+                    crate::app::status::decline::record_node_tool_needs_edit_mode();
                 }
             }
             // ★ **The markup shape tools — one arm for all four.**

@@ -80,6 +80,282 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## ★★★ 2026-08-31 — FOURTEEN NEW ROWS, RECORDED BEFORE ANY WORK STARTED
+
+Ken sent one message containing thirteen distinct complaints and one standing
+instruction. They are split into one row each below (O64 … O77) because a merged
+row gets partly dropped, which is the failure this file exists to stop. **None
+of them has been investigated at the time of writing.** Each row is his words
+first, then whatever is known.
+
+The standing instruction, which governs all of them:
+
+> *"Please don't just fix the bugs and add the features for the exact tools I am
+> outlining. You need to do a proper sweep and diagnosis to ensure all tools and
+> features."*
+
+⇒ That is **O77**, and it is not a footnote — several of these rows are almost
+certainly one cause wearing many faces (see O64/O13 and O76/O51, both of which
+are re-reports of rows already believed shipped).
+
+---
+
+## O64 — ⬜ A newly inserted object cannot be EDITED until the document is saved and reopened
+
+**Asked:** 2026-08-31.
+
+> *"When I add a new image to a pdf I can't edit it unless I save the document
+> first, at which point it closes the document after saving. When I open it I
+> can then edit the image. I assume this probably affects more than just
+> images."*
+
+★★ **This is a re-report against O13, which is recorded in this file as fixed
+and driven on 2026-08-20.** O13 was *"the image does not appear until you save
+and reopen"* — the page-tree walk returned early when the page object id had not
+moved. The picture now appears. What he is reporting is one step further along:
+the image **draws** but is **not selectable/editable** until a reload, which
+points at a *different* cache — the decomposed object model
+(`app::cache::page_objects`) rather than the render.
+
+**His own generalisation is the important half** and is to be treated as the
+scope of the row, not a guess: *"probably affects more than just images"*.
+Every insert path must be checked — image, text, annotation, form field,
+ce dimension, stamp, link, redaction mark.
+
+**Status:** not investigated.
+
+---
+
+## O65 — ⬜ Saving closes the document
+
+**Asked:** 2026-08-31.
+
+> *"… I can't edit it unless I save the document first, at which point it closes
+> the document after saving."*
+
+Split from O64 deliberately: it is a separate defect with a separate cause and
+it would be lost inside the image row. Saving must leave the document open, on
+the same page, at the same zoom, with the same selection.
+
+**Status:** not investigated.
+
+---
+
+## O66 — ⬜ Every insert dialog needs "place it with the mouse" as well as coordinates
+
+**Asked:** 2026-08-31.
+
+> *"Also anything we are inserting like this should have an option in its
+> dialogue box to place it with the mouse instead of by positional
+> co-ordinates."*
+
+Note *"anything we are inserting"* — this is a rule about the whole class of
+insert dialogs, not a feature for the image dialog. The ce-dimension placement
+preview already proves the mechanism exists in this shell
+(`painting.rs:437-450`); what is missing is the dialog offering it.
+
+**Status:** not investigated.
+
+---
+
+## O67 — ⬜ Drag and drop a PDF onto the thumbnails panel to import its pages
+
+**Asked:** 2026-08-31.
+
+> *"I should be able to drag and drop documents into the thumbnails section of
+> another pdf to import the pages."*
+
+Page drag *between two open documents* already ships (S5). This is the same
+gesture sourced from the **operating system** — a file dropped from Explorer.
+
+**Status:** not investigated.
+
+---
+
+## O68 — ⬜ The Merge files and Split files buttons do nothing
+
+**Asked:** 2026-08-31.
+
+> *"Also the Merge files and Split files buttons don't do anything."*
+
+Two ribbon commands that are registered — so they are drawn, per R8 — and
+either dispatch to nothing or dispatch to something that silently fails. Under
+R9 a command that cannot act must not be drawn at all, so whichever it is, the
+current state is wrong twice.
+
+**Status:** not investigated.
+
+---
+
+## O69 — ⬜ There is no reliable route to editing nodes, and the route that exists fights you
+
+**Asked:** 2026-08-31.
+
+> *"I'm still not entirely clear how to reliably get to a point where I can edit
+> nodes. It seems like I click on Edit-> Edit Objects, but also have to click on
+> View-> and the node selector under Navigate, then double click several times,
+> but then the nodes are hard to see and click on. If we are at a point where we
+> are showing the nodes in an editable state there shouldn't be a bounding box
+> around the objects. We shouldn't even need an Edit Objects button. In edit
+> mode I should be able to click Navigate -> select points, then single click an
+> object to see its points and single click the points to edit."*
+
+Four separate defects in one paragraph, all of which are in scope:
+
+1. **The route is two controls in two menus** — `Edit ▸ Edit Objects` *and*
+   `View ▸ Navigate ▸ node selector`. It should be one.
+2. **`Edit Objects` should not exist.** Mode already says whether editing is on.
+3. **A bounding box is drawn around an object whose nodes are showing.** Those
+   are two different affordances for two different operations and only one
+   applies at a time.
+4. **The nodes are too small to see and too small to hit.** Related to O57, the
+   grips row, which is still half open.
+
+**Status:** not investigated.
+
+---
+
+## O70 — ⬜ A Smart-Selector checkbox in Navigate, following Inkscape's descent convention
+
+**Asked:** 2026-08-31.
+
+> *"we should have a checkbox in navigate for a Smart-Selector option, in Edit
+> Mode this makes it so if I click on an object and it is enabled to be selected
+> in the Smart Selector it puts it in a bounding box with handles to move, resize
+> and rotate, if a click selects an object that is made of multiple objects
+> (group, form, etc) a double click should bring me further down the chain, until
+> a double click reaches the bottom and lets me edit the nodes. If I recall this
+> is similar to how Inscape does things and we should follow that convention.
+> Selecting a text box or similar item does the same thing, but double-clicking
+> inside the bounding box should edit the text."*
+
+★ **He named the convention himself, so the convention is the spec** — see the
+standing rule about never inventing an interaction model. Inkscape's actual
+behaviour is to be checked and followed, not approximated from memory.
+
+This row and O69 and O17 (the selection filter) are the same subject seen from
+three angles. They should be designed together and shipped together.
+
+**Status:** not investigated.
+
+---
+
+## O71 — ⬜ In Read mode the ordinary pointer must select an image so it can be copied out of pdfce
+
+**Asked:** 2026-08-31.
+
+> *"In read mode the regular pointer should also allow us to select images so we
+> can copy and paste them as well as text outside of the pdfcegui."*
+
+Two halves: (a) selecting an image with the read-mode pointer at all, and
+(b) `Ctrl+C` putting a **bitmap** on the Windows clipboard that Word or Paint
+will accept — not pdfce's private clipboard format. O18 covers the text half of
+that and is a useful precedent for what went wrong last time.
+
+**Status:** not investigated.
+
+---
+
+## O72 — ⬜ Click-and-hold on empty space must rubber-band, not select
+
+**Asked:** 2026-08-31.
+
+> *"Click and hold shouldn't select an object - it should allow me to draw a box
+> around objects to select."*
+
+**Status:** not investigated.
+
+---
+
+## O73 — ⬜ Paste lands where the mouse cursor is
+
+**Asked:** 2026-08-31.
+
+> *"When I cut or copy and object, when I paste it should paste where the mouse
+> cursor is sitting."*
+
+**Status:** not investigated.
+
+---
+
+## O74 — ⬜ One edit re-renders EVERY page preview, and it makes a checkbox slow
+
+**Asked:** 2026-08-31.
+
+> *"When I make edits or even just fill out a form I notice all of the page
+> previews get re-rendered instead of just the one that is being changed, and it
+> seems to really slow down clicking a checkbox in a form. The last thing that
+> should matter is updating the preview, and it should just update the pages that
+> were actually altered."*
+
+★★ He has given the priority rule as well as the bug: **the thumbnail is the
+lowest-priority work in the program.** It must never be on the path between a
+click and its result. This is the same complaint as the 430 ms commit under O63
+arriving from a second direction, and the two should be measured together.
+
+**Status:** not investigated.
+
+---
+
+## O75 — ⬜ The right-hand panel passes clicks through to the canvas, and Properties shows the wrong subject
+
+**Asked:** 2026-08-31.
+
+> *"When I am working in the right side panel objects are getting selected
+> through the side panel when I am trying to edit fields in the Properties
+> section. Also the Properties section is always showing the This document
+> properties instead of just the properties of the objects I am editing."*
+
+Two defects:
+
+1. **Click-through.** A press inside a docked panel is reaching the canvas hit
+   test. This is a layer/consumption bug and is a strong candidate for the same
+   class as the Delete-key guard from `DEFECTS.md` — a condition asked of the
+   wrong object.
+2. **Properties shows the document, not the selection.** O39 shipped
+   *"clicking a field shows its properties"*; this says that regressed or was
+   only ever true for form fields.
+
+**Status:** not investigated.
+
+---
+
+## O76 — ⬜ A form field's outline thickens when you drag it bigger, and the scale-behaviour options are incomplete
+
+**Asked:** 2026-08-31.
+
+> *"Form shape outlines of checkboxes and such scale when I drag them larger.
+> There is supposed to be an option on the menu to choose the behaviour of
+> resizing items - when scaling objects scale stroke width by the same proportion
+> and when scaling rectangles scale the radii of the rounded corners"*
+
+★★ **Re-report against O51**, *"Inkscape-style scale toggles: line weight follows
+a resize, if you say so"*, recorded as shipped. Either the toggle does not reach
+the form-field resize path, or its default is the wrong way round, or it is not
+findable. The corner-radius half appears not to exist at all.
+
+**Status:** not investigated.
+
+---
+
+## O77 — ★★★ ⬜ The standing instruction: sweep everything, do not fix only what was named
+
+**Asked:** 2026-08-31.
+
+> *"Please don't just fix the bugs and add the features for the exact tools I am
+> outlining. You need to do a proper sweep and diagnosis to ensure all tools and
+> features."*
+
+This is the same instruction that produced O14 (fourteen gaps found by asking
+what an application of this class must have) and O56 (confirm every editable
+surface the engine implements has a surface in the GUI). It is now standing:
+**a reported defect is a sample, not a specification.** Every row above is to be
+generalised to its class before it is fixed, and the classes are to be swept.
+
+**Status:** in progress from 2026-08-31.
+
+---
+
 ## O63 — DONE SO FAR, 2026-08-30 (read this before the analysis below)
 
 All three pieces he approved are **built, gate-clean and DRIVEN**:

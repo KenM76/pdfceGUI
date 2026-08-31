@@ -197,7 +197,46 @@ pub(super) fn tab() -> Tab {
                 // read a single label.
                 [
                     icon_only("view.tool_select"),
-                    icon_only("view.tool_node"),
+                    // ★★★ **Withheld outside Edit, 2026-08-31 — O69.**
+                    //
+                    // The operator: *"I'm still not entirely clear how to
+                    // reliably get to a point where I can edit nodes. It seems
+                    // like I click on Edit → Edit Objects, but also have to
+                    // click on View → and the node selector under Navigate."*
+                    //
+                    // The Points tool has always been gated on
+                    // `Capabilities::edit_content` at the dispatch arm — a
+                    // press in Read or Review armed nothing, traced one line
+                    // and said nothing on screen. So the button was drawn,
+                    // enabled, and inert in two of the three modes: P3's
+                    // definition, and the exact silent decline this project
+                    // keeps removing.
+                    //
+                    // ★★ It is the ONE authoring tool parked on a tab that
+                    // every mode shows. Markup and Measure tools are gated the
+                    // same way and are never wrong, because their whole TAB
+                    // disappears outside the modes that can use them — the
+                    // second state cannot be set while the first is wrong. View
+                    // is in every mode by design, so it cannot do that, and
+                    // this item has to carry the condition itself.
+                    //
+                    // ★ `shown_when`, not `enabled_when`, and R9 is the
+                    // reason: greying is for a capability that is
+                    // *temporarily* unavailable and is explained on hover.
+                    // "This mode does not edit page content" is not temporary
+                    // — it is what the mode *is*, and the mode selector two
+                    // inches away already says so. The Tool rail
+                    // (`panels::tool::idle`) has hidden this exact row outside
+                    // Edit since it was written; this brings the ribbon into
+                    // line with the answer the shell already had in the other
+                    // place the control appears.
+                    //
+                    // The `A` chord is unaffected in Read for the better
+                    // reason: `capability::offers_command` filters chords by
+                    // tab visibility, not item visibility, so the chord still
+                    // reaches the arm — and the arm still declines. That is
+                    // the next thing to fix under O69, not this one.
+                    icon_only("view.tool_node").shown_when("mode.edit_content"),
                     icon_only("view.tool_text"),
                     icon_only("view.tool_hand"),
                 ],

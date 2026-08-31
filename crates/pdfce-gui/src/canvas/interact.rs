@@ -426,6 +426,11 @@ pub(super) fn interact(
     // disturb, and why this is nine statements rather than a new `DragKind`.
     crate::canvas::presspick::at_press(
         &ctx,
+        // ★ The acting page's response, added 2026-08-31 for O75: this step
+        // was the one place on the canvas that asked the *window* whether a
+        // press had happened rather than asking *itself*, so a press in a
+        // dock selected page content through the panel.
+        response,
         doc,
         &mut selection,
         map,

@@ -129,7 +129,11 @@
                     caption: "Navigate",
                     items: [
                         Command(id: "view.tool_select", size: Small),
-                        Command(id: "view.tool_node", size: Small),
+                        Command(
+                            id: "view.tool_node",
+                            size: Small,
+                            visible_when: "mode.edit_content",
+                        ),
                         Command(id: "view.tool_text", size: Small),
                         Command(id: "view.tool_hand", size: Small),
                     ],
@@ -245,7 +249,6 @@
                         Command(id: "edit.text"),
                         Command(id: "edit.add_text"),
                         Command(id: "edit.reflow_block"),
-                        Command(id: "edit.objects"),
                     ],
                 ),
                 (

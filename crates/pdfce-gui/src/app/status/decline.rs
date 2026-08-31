@@ -536,6 +536,22 @@ pub(crate) enum Declined {
     /// [`crate::text::status::field_delete_declined_structural`] carries the
     /// full argument for every word the two do not share.
     FieldDeleteRefused,
+    /// ★★★ **The Points tool was pressed in a mode that cannot author.**
+    ///
+    /// `OPERATOR_REQUESTS.md` row **O69**. The arm has always declined — an
+    /// anchor is selected in order to be *dragged*, and a mode that refuses
+    /// the drag must refuse the tool rather than arm it and say no to every
+    /// gesture afterwards — but it declined into the trace alone, so the
+    /// operator pressed a control and the program did nothing and said
+    /// nothing. That silence is half of why he reported the route as
+    /// unreliable.
+    ///
+    /// The ribbon item is now withheld outside Edit, so the only surviving
+    /// route to this decline is the bare `A` chord: chords are filtered by
+    /// **tab** visibility and View is in every mode, so the key still reaches
+    /// the arm. A key that does nothing has no control to hover, which makes
+    /// it the case that most needs a sentence rather than the least.
+    NodeToolNeedsEditMode,
     /// **The field-group deletion PREVIEW refused**, so the operator was never
     /// offered the confirmation.
     ///
@@ -758,7 +774,14 @@ impl Declined {
             // pay for a `read_outline` sixty times a second to learn an answer
             // that cannot change without a command — and a command is what
             // `retire` catches.
-            Self::FlattenCertified
+            // ★ The mode is not going to change between one frame and the
+            // next without a **command**, and a command is exactly what
+            // `retire` catches — so there is no live predicate to re-ask, on
+            // the identical argument the five below it make. Note the
+            // asymmetry with `NothingToFrame`: a selection can appear while
+            // the operator reads, a mode cannot.
+            Self::NodeToolNeedsEditMode
+            | Self::FlattenCertified
             | Self::FieldDeleteRefused
             | Self::FieldGroupPreviewRefused
             | Self::FieldGroupDeleteRefused
@@ -827,6 +850,12 @@ impl Declined {
             Self::ResizeNotRebuildable { uniform } => t::resize_not_rebuildable(uniform),
             Self::FlattenCertified => t::flatten_declined_certified(),
             Self::FieldDeleteRefused => t::field_delete_declined_structural(),
+            // ★ Reaches across to `crate::text::tool` rather than adding an
+            // entry to `crate::text::status`, on the precedent the two field
+            // -group sentences below already set: a string lives with the
+            // surface that owns its subject, and `text::status` is at 1,482
+            // lines against R2's 1,500.
+            Self::NodeToolNeedsEditMode => crate::text::tool::node_tool_needs_edit_mode(),
             // ★ These two reach across to `text::forms::groups` rather than
             // adding entries here, and that is the catalog rule honoured rather
             // than bent: a string lives in `crate::text::…`, and the module
@@ -1015,6 +1044,17 @@ pub(crate) fn record_field_group_preview_refused() {
 /// See [`record_field_group_preview_refused`].
 pub(crate) fn record_field_group_delete_refused() {
     LAST.with_borrow_mut(|slot| *slot = Some(Declined::FieldGroupDeleteRefused));
+}
+
+/// Record that the **Points tool** was asked for in a mode that cannot change
+/// page content — [`Declined::NodeToolNeedsEditMode`].
+///
+/// Called from `PdfceApp::dispatch_command`'s `view.tool_node` arm, beside the
+/// trace it already wrote. The trace stays: it names the id and the reason for
+/// a reader of a machine they cannot see, and this names the remedy for the
+/// operator in front of it. Two audiences, two lines, one event.
+pub(crate) fn record_node_tool_needs_edit_mode() {
+    LAST.with_borrow_mut(|slot| *slot = Some(Declined::NodeToolNeedsEditMode));
 }
 
 pub(crate) fn record_field_delete_refused() {
