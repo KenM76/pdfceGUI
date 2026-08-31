@@ -38,11 +38,78 @@ use pdfce_core::edit::EditSession;
 use super::{EditDisclosure, record_edit_disclosure};
 use crate::app::state::OpenDoc;
 
+/// ★★★ **How much of the document this edit could have changed** —
+/// `OPERATOR_REQUESTS.md` O74.
+///
+/// The whole design is in which of these two is the *default*. See
+/// [`crate::app::state::pageepoch`] for the measurements and for why getting
+/// this wrong is worse than the slowness it fixes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum EditScope {
+    /// **Anything might have changed**, which is the honest answer for every
+    /// verb that has not been examined, and remains the answer for most of
+    /// them. [`vector_edit`] uses this, so a call site that knows nothing
+    /// about this enum behaves exactly as it did before the enum existed.
+    Document,
+    /// **Only this page's CONTENT changed**, and the caller has established it
+    /// as a property of the verb rather than as an observation.
+    ///
+    /// ★ Note the word *content*. A verb may narrow to a page and still be
+    /// caught by the `bump_all` that `pages::resync` raises when the page
+    /// SET moved — the two are independent, and the resync runs after this, so
+    /// a narrowed verb that unexpectedly renumbered is still covered.
+    Page(usize),
+}
+
+/// The document-scoped funnel, and the one ~78 call sites use.
+///
+/// ★ `page` here is **for the trace only** and always has been: a third of the
+/// call sites pass a literal `0` because their verb has no page (a bookmark, a
+/// font, a metadata field). It is therefore **not** a safe narrowing signal,
+/// which is exactly why [`EditScope::Page`] has to be passed deliberately
+/// through [`vector_edit_on_page`] rather than inferred from this argument.
+/// Inferring it would have narrowed `set-info-field`, `embed-fonts` and
+/// `paste-bookmark` to page 0 and left every other page's thumbnail stale.
 pub(super) fn vector_edit<E: std::fmt::Display>(
     doc: &mut OpenDoc,
     label: &str,
     page: usize,
     operands: usize,
+    edit: impl FnOnce(&mut EditSession) -> Result<Vec<String>, E>,
+) {
+    vector_edit_scoped(doc, label, page, operands, EditScope::Document, edit);
+}
+
+/// The same funnel, for a verb whose effect is confined to **one page's
+/// content**.
+///
+/// Identical in every respect except the invalidation breadth, so the four-step
+/// protocol still exists once. The scope argument is separate from `page`
+/// deliberately — see [`vector_edit`]'s note on why `page` cannot be trusted
+/// as a narrowing signal.
+///
+/// # ★ What a caller is asserting by using this
+///
+/// Not *"it only touched that page this time"*. **Every** call of this verb, on
+/// every document, with every operand, changes nothing a rasteriser would draw
+/// on any other sheet. If that is a property of the operands rather than of the
+/// verb, use [`vector_edit`] and take the extra work.
+pub(super) fn vector_edit_on_page<E: std::fmt::Display>(
+    doc: &mut OpenDoc,
+    label: &str,
+    page: usize,
+    operands: usize,
+    edit: impl FnOnce(&mut EditSession) -> Result<Vec<String>, E>,
+) {
+    vector_edit_scoped(doc, label, page, operands, EditScope::Page(page), edit);
+}
+
+fn vector_edit_scoped<E: std::fmt::Display>(
+    doc: &mut OpenDoc,
+    label: &str,
+    page: usize,
+    operands: usize,
+    scope: EditScope,
     edit: impl FnOnce(&mut EditSession) -> Result<Vec<String>, E>,
 ) {
     doc.render_worker.cancel_and_wait();
@@ -56,6 +123,20 @@ pub(super) fn vector_edit<E: std::fmt::Display>(
     match edit(session) {
         Ok(disclosures) => {
             doc.edit_epoch = doc.edit_epoch.wrapping_add(1);
+            // ★★★ …and the per-page answer beside it (O74). `edit_epoch`
+            // above keeps its exact meaning and every one of its readers is
+            // untouched; this is the finer number the three per-page caches
+            // read instead of throwing all of their entries away.
+            //
+            // ★ Note the ordering with `pages::resync` below: a narrowed verb
+            // that unexpectedly moved the page SET is still caught, because
+            // resync raises its own `bump_all` on `renumbered`. So the failure
+            // mode of narrowing a verb wrongly is bounded — it can be wrong
+            // about *content*, never about *which sheet an index names*.
+            match scope {
+                EditScope::Document => doc.page_epochs.bump_all(),
+                EditScope::Page(p) => doc.page_epochs.bump(p),
+            }
             // ★★ Stamped in the SAME statement group as the bump, because the
             // two are one fact — *the document changed, at this moment* — and a
             // second place that set one without the other would produce a

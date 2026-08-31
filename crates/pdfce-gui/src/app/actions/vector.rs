@@ -375,7 +375,24 @@ pub enum VectorAction {
 /// drop the texture) whose whole reason for existing is that seven hand-written
 /// copies would be seven chances to omit a step.
 pub(super) fn apply(doc: &mut crate::app::state::OpenDoc, action: VectorAction) {
-    use super::apply::vector_edit;
+    // ★★★ `vector_edit_on_page`, not `vector_edit` — `OPERATOR_REQUESTS.md`
+    // O74. Every verb in this module addresses paint-order indices **into one
+    // page's content stream**, which is the module header's own opening claim
+    // and the property that makes the whole file a subject rather than a
+    // size-driven cut. That property is exactly the one `EditScope::Page`
+    // requires: it is true of the VERB, on every document and every operand,
+    // not an observation about a particular call.
+    //
+    // ★ So this is the strongest narrowing available anywhere in `actions`,
+    // and it is the one the operator asked about — "when I make edits … all of
+    // the page previews get re-rendered". A node drag on sheet 12 now leaves
+    // the other thirty-five thumbnails alone.
+    //
+    // It stays bounded even if that reasoning is ever wrong: `pages::resync`
+    // runs after the bump and raises `bump_all` whenever the page SET moved, so
+    // a mistake here can be about which page's content changed and never about
+    // which sheet an index names.
+    use super::apply::vector_edit_on_page;
     match action {
         VectorAction::DeleteSelection { page, objects } => {
             if !objects.is_empty() {
@@ -417,7 +434,7 @@ pub(super) fn apply(doc: &mut crate::app::state::OpenDoc, action: VectorAction) 
                 if let Some(preview) = preview {
                     doc.hold_preview(preview);
                 }
-                vector_edit(doc, "delete-objects", page, objects.len(), |session| {
+                vector_edit_on_page(doc, "delete-objects", page, objects.len(), |session| {
                     session.delete_objects(page, &objects)
                 });
             }
@@ -429,7 +446,7 @@ pub(super) fn apply(doc: &mut crate::app::state::OpenDoc, action: VectorAction) 
             dy,
         } => {
             if !objects.is_empty() {
-                vector_edit(doc, "move-objects", page, objects.len(), |session| {
+                vector_edit_on_page(doc, "move-objects", page, objects.len(), |session| {
                     session.move_objects(page, &objects, dx, dy)
                 });
             }
@@ -441,7 +458,7 @@ pub(super) fn apply(doc: &mut crate::app::state::OpenDoc, action: VectorAction) 
             dx,
             dy,
         } => {
-            vector_edit(doc, "move-subpath", page, 1, |session| {
+            vector_edit_on_page(doc, "move-subpath", page, 1, |session| {
                 session.move_subpath(page, object, subpath, dx, dy)
             });
         }
@@ -451,7 +468,7 @@ pub(super) fn apply(doc: &mut crate::app::state::OpenDoc, action: VectorAction) 
             node,
             to,
         } => {
-            vector_edit(doc, "move-node", page, 1, |session| {
+            vector_edit_on_page(doc, "move-node", page, 1, |session| {
                 session.move_node(page, object, node, to)
             });
         }
@@ -486,7 +503,7 @@ pub(super) fn apply(doc: &mut crate::app::state::OpenDoc, action: VectorAction) 
             // to be recorded against the epoch the edit produced — which
             // does not exist until `vector_edit` has returned.
             let mut said = Vec::new();
-            vector_edit(doc, "move-handle", page, 1, |session| {
+            vector_edit_on_page(doc, "move-handle", page, 1, |session| {
                 let out = session.move_handle(page, object, node, handle, to);
                 if let Ok(disclosures) = &out {
                     said.clone_from(disclosures);
@@ -503,7 +520,7 @@ pub(super) fn apply(doc: &mut crate::app::state::OpenDoc, action: VectorAction) 
             moves,
         } => {
             let count = moves.len();
-            vector_edit(doc, "move-nodes", page, count, |session| {
+            vector_edit_on_page(doc, "move-nodes", page, count, |session| {
                 session.move_nodes(page, object, &moves)
             });
         }
@@ -550,7 +567,7 @@ pub(super) fn apply(doc: &mut crate::app::state::OpenDoc, action: VectorAction) 
         VectorAction::PasteObjects { page, clip, at } => {
             let mut added = 0_u64;
             let mut pasted = 0_u64;
-            vector_edit(doc, "paste-objects", page, clip.len(), |session| {
+            vector_edit_on_page(doc, "paste-objects", page, clip.len(), |session| {
                 let clip = pdfce_core::vector::ObjectClip::from_bytes(&clip)?;
                 session.paste_objects(page, &clip, at).map(|outcome| {
                     added = outcome.resources_added;
@@ -573,7 +590,7 @@ pub(super) fn apply(doc: &mut crate::app::state::OpenDoc, action: VectorAction) 
             matrix,
         } => {
             let mut transformed = 0_u64;
-            vector_edit(doc, "transform-objects", page, objects.len(), |session| {
+            vector_edit_on_page(doc, "transform-objects", page, objects.len(), |session| {
                 session
                     .transform_objects(
                         page,

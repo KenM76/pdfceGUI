@@ -459,6 +459,27 @@ pub fn apply(doc: &mut OpenDoc, edit: &FormEdit) {
             // 3. The document changed: every paint-order index and every
             //    cached decomposition describing it is now stale.
             doc.edit_epoch = doc.edit_epoch.wrapping_add(1);
+            // ★★★ **…and the per-page answer beside it** —
+            // `OPERATOR_REQUESTS.md` O74, and this is the operator's literal
+            // case: *"even just fill out a form … it seems to really slow down
+            // clicking a checkbox."*
+            //
+            // Measured, before it was built: on his own 36-sheet SolidWorks
+            // set, twelve visible thumbnails cost **666 ms of UI-thread work
+            // after every fill**, because the rail's cache is keyed on the
+            // document-wide `edit_epoch` and threw all of them away.
+            //
+            // `scope_of` is deliberately conservative and returns `None` for
+            // every verb it has not established — see its own docs. A field
+            // whose widgets straddle sheets is `None`; a `/P`-less widget is
+            // `None`; `Reset`, `Flatten`, `RegenerateAppearances` and
+            // `Recompute` are all `None`. Getting this wrong shows the operator
+            // a picture of content he has already changed, which under rule 4
+            // outranks the slowness it fixes.
+            match scope_of(doc, edit) {
+                Some(page) => doc.page_epochs.bump(page),
+                None => doc.page_epochs.bump_all(),
+            }
             // 4. Nothing else notices an edit — the render key compares page
             //    index and raster scale, and a fill changes neither. The epoch
             //    bump above is what `render::settle` reads, through
@@ -495,6 +516,80 @@ pub fn apply(doc: &mut OpenDoc, edit: &FormEdit) {
             format!("{label}-refused detail={error}")
         }),
     }
+}
+
+/// **Which single page this form edit could have changed, if exactly one.**
+///
+/// `OPERATOR_REQUESTS.md` O74. `None` means *"not established"* and is the
+/// answer for everything this function has not proved, which is most of it.
+///
+/// # ★★★ Why every branch below defaults to `None`
+///
+/// A `Some(page)` is a promise that no rasteriser drawing any **other** sheet
+/// would produce a different picture. If that promise is ever false the page
+/// rail shows the operator content he has already changed — rule 4's *sneaky*,
+/// which outranks the slowness this exists to fix. So the shape of every arm
+/// is "prove it or say `None`", and the four whole-form verbs never even ask.
+///
+/// | verb | answer | why |
+/// |---|---|---|
+/// | `FillText`, `ConvertRichTextToPlain`, `SetButtonState`, `SetChoice` | the field's page, if its widgets share one | one `/T`, and §12.7.3.1 lets one field have widgets on several sheets — so this is checked, not assumed |
+/// | `Recompute` | `None` | N fields, N undo entries, no reason to think they share a page |
+/// | `Reset` | `None` | every eligible field in the document |
+/// | `RegenerateAppearances` | `None` | every field's `/AP`, and `/NeedAppearances` on the catalog |
+/// | `Flatten` | `None` | burns every widget into page content and removes the form |
+///
+/// # Why it reads the form AFTER the edit rather than before
+///
+/// Because the pages that need invalidating are the ones the widgets are on
+/// **now**. None of these verbs moves a widget between sheets, so the two
+/// readings agree today — but "they agree today" is the kind of premise that
+/// stops being true silently, and reading after costs the same.
+///
+/// # What it costs
+///
+/// One `parse_acroform` walk per fill. On the operator's own set that is a
+/// small fraction of the single thumbnail it saves, and it replaces twelve.
+fn scope_of(doc: &OpenDoc, edit: &FormEdit) -> Option<usize> {
+    let field_name = match edit {
+        FormEdit::FillText { field, .. }
+        | FormEdit::ConvertRichTextToPlain { field, .. }
+        | FormEdit::SetButtonState { field, .. }
+        | FormEdit::SetChoice { field, .. } => field.as_str(),
+        // The four whole-form verbs. Listed rather than wildcarded so a fifth
+        // variant added later fails to compile here and has to be ruled on,
+        // instead of silently inheriting whichever answer a `_` arm gave.
+        FormEdit::Recompute { .. }
+        | FormEdit::Reset
+        | FormEdit::RegenerateAppearances
+        | FormEdit::Flatten => return None,
+    };
+
+    // Page object id -> page index, so a widget's `/P` can be resolved to the
+    // position the caches are keyed on.
+    let index_of = |id: pdfce_core::object::ObjId| doc.pages.iter().position(|p| p.id == id);
+
+    let view = doc.session.view();
+    let form = pdfce_core::forms::parse_acroform(&view)?;
+    let field = form
+        .fields
+        .iter()
+        .find(|f| f.fully_qualified_name == field_name)?;
+
+    // Every widget must name a page, and they must all name the SAME one.
+    // A widget with no `/P` is not an error — §12.5.6.19 makes the key
+    // optional — it is simply a widget whose page this cannot establish, and
+    // an unestablished page is `None`.
+    let mut page: Option<usize> = None;
+    for widget in &field.widgets {
+        let here = index_of(widget.page?)?;
+        match page {
+            None => page = Some(here),
+            Some(seen) if seen == here => {}
+            Some(_) => return None,
+        }
+    }
+    page
 }
 
 /// What one [`FormEdit`] did: how many undo commands it pushed, and whatever

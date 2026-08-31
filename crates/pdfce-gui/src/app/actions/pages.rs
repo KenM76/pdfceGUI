@@ -446,6 +446,14 @@ pub(super) fn resync(doc: &mut OpenDoc) {
     // saved one `Vec` assignment and bought a class of stale-view defect.
     doc.pages = after;
 
+    // ★ Keep the per-page revision vector the same length as the document
+    // (O74). Growth fills with the document-wide floor, so a page that has
+    // just arrived reports the most conservative number available and no cache
+    // mistakes it for one it has a picture of. This is deliberately NOT a
+    // bump: a document gaining a page at the end has not changed page 0, and a
+    // rail that redrew page 0 for it would be `pageepoch`'s own defect.
+    doc.page_epochs.resize(doc.pages.len());
+
     if !structure_changed {
         // No page was added, removed, reordered or turned. The vector above is
         // now current, every cached raster is still a picture of the right
@@ -484,6 +492,17 @@ pub(super) fn resync(doc: &mut OpenDoc) {
     doc.page_texture = None;
 
     if renumbered {
+        // ★★★ **Every per-page revision is now meaningless** (O74). Page *n*
+        // is a different sheet, so a thumbnail whose stored epoch matches page
+        // n's counter is a picture of the WRONG DRAWING — the one failure mode
+        // that outranks the slowness the counter exists to fix, because it is
+        // rule 4's "sneaky" rather than merely late.
+        //
+        // Raised HERE, after `vector_edit_scoped` has already applied whatever
+        // the verb asked for, which is what makes narrowing a verb a bounded
+        // mistake: a caller can be wrong about which page's CONTENT changed
+        // and still cannot be wrong about which sheet an index names.
+        doc.page_epochs.bump_all();
         // The canvas selection names objects by paint-order index **on a page
         // index**, and that index now resolves to a different sheet. Cleared
         // rather than remapped: `SelectionState` exposes no way to rewrite an

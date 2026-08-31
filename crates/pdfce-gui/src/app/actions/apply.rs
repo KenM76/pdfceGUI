@@ -1385,7 +1385,7 @@ fn text_lines(req: &pdfce_core::text_edit::AddTextRequest) -> usize {
 /// Kept as a re-export rather than updating forty call sites: the move is about
 /// where the code *lives*, and rewriting every caller would have made a
 /// mechanical relocation look like a change to what they do.
-pub(super) use super::funnel::vector_edit;
+pub(super) use super::funnel::{vector_edit, vector_edit_on_page};
 
 #[cfg(test)]
 mod tests;

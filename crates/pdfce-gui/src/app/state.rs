@@ -180,6 +180,7 @@ struct LayerOverride {
 }
 
 mod identity;
+pub mod pageepoch;
 
 pub use identity::{Origin, SelectedField};
 
@@ -510,6 +511,16 @@ pub struct OpenDoc {
     /// line, which is why the bump belongs in the funnel every mutation is
     /// already required to pass through rather than at each verb.
     pub edit_epoch: u64,
+    /// ★ **The same question, asked per page** — `OPERATOR_REQUESTS.md` O74.
+    ///
+    /// [`edit_epoch`](Self::edit_epoch) above says *something changed*; this
+    /// says *what changed*, for the caches that hold one entry per page and
+    /// were throwing all of them away on every edit. It is laid **beside**
+    /// `edit_epoch`, not in place of it — every existing reader of that field
+    /// is unaffected. `crate::app::state::pageepoch` carries the measurements,
+    /// the three caches involved, and the argument for why `bump_all` is the
+    /// default and precision is opted into per verb.
+    pub page_epochs: pageepoch::PageEpochs,
     /// The `(page index, edit epoch)` the last `objects` line was traced for,
     /// or `None` before the first one.
     ///
@@ -900,6 +911,12 @@ impl OpenDoc {
             // `OpenDoc` had to state a configuration it does not care about.
             settings: pdfce_core::settings::Settings::default(),
             prefs: crate::app::prefs::Prefs::default(),
+            // ★ Default rather than sized to `pages.len()` here: an empty set
+            // answers the same floor for every index (see `PageEpochs::get`),
+            // so a document is uniform before `resync` first sizes it — which
+            // is the correct starting state and needs no argument at the two
+            // dozen call sites that build an `OpenDoc`.
+            page_epochs: crate::app::state::pageepoch::PageEpochs::default(),
             path,
             origin,
             session: Arc::new(session),

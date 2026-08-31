@@ -97,7 +97,11 @@ pub(super) fn paint(ui: &Ui, doc: &OpenDoc, page: usize, current: usize, rect: e
         .base_texture
         .as_ref()
         .filter(|t| t.key.page() == page)
-        .filter(|_| doc.base_texture_epoch == doc.edit_epoch)
+        // ★ Per-page (O74). The rule this enforces is unchanged and is rule
+        // 4's — "a backdrop from before an edit would show content the document
+        // no longer has" — but the question is now asked of the page the
+        // backdrop is a picture of, rather than of the whole document.
+        .filter(|_| doc.base_texture_epoch == doc.page_epochs.get(doc.view.page_index))
     else {
         return false;
     };

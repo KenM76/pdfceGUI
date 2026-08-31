@@ -226,7 +226,10 @@ impl OpenDoc {
                     // zooms past it.
                     if key.region().is_none() && raster::within_base_budget(&pixels) {
                         self.base_texture = Some(texture.clone());
-                        self.base_texture_epoch = self.edit_epoch;
+                        // ★ Per-page (O74), like the live texture below it.
+                        // The backdrop is a picture of ONE page, so an edit on
+                        // another sheet has nothing to say about it.
+                        self.base_texture_epoch = self.page_epochs.get(page);
                         // ★ Published, because the backdrop is invisible when
                         // it is working: it only shows in the gaps a sharp
                         // raster leaves, and at a fit zoom there are none. A
@@ -245,13 +248,20 @@ impl OpenDoc {
                     // Stamped with the epoch it is a picture of, exactly as the
                     // strip's own `insert` two lines below has always been. See
                     // `OpenDoc::page_texture_epoch`.
-                    self.page_texture_epoch = self.edit_epoch;
+                    // ★ Per-page (O74): an edit on sheet 3 must not
+                    // re-rasterise the canvas while it is showing sheet 7.
+                    self.page_texture_epoch = self.page_epochs.get(page);
                     self.render_error = None;
                 } else {
                     self.strip_rasters.insert(
                         page,
                         key,
-                        self.edit_epoch,
+                        // ★★★ Per-page (O74) — see this module's note on the
+                        // stamp above. `strip_rasters` already took the epoch
+                        // as a parameter of every one of `get`/`has`/`take`/
+                        // `insert`, so the whole change here is which number is
+                        // passed.
+                        self.page_epochs.get(page),
                         PageRaster::Ready(Box::new(texture)),
                     );
                 }
@@ -269,7 +279,10 @@ impl OpenDoc {
                         self.strip_rasters.insert(
                             key.page(),
                             key,
-                            self.edit_epoch,
+                            // ★ A refusal is filed at the same per-page number
+                            // as a picture, so an edit to that page gets it a
+                            // second attempt and an edit elsewhere does not.
+                            self.page_epochs.get(key.page()),
                             PageRaster::Failed(message),
                         );
                     }
@@ -337,10 +350,12 @@ impl OpenDoc {
         // A page-scoped refusal follows the page it is about, so scrolling on
         // to a page that would not draw states the reason immediately rather
         // than re-attempting the render that already failed.
-        match self
-            .strip_rasters
-            .take(self.view.page_index, wanted, self.edit_epoch)
-        {
+        match self.strip_rasters.take(
+            self.view.page_index,
+            wanted,
+            // ★ Per-page (O74).
+            self.page_epochs.get(self.view.page_index),
+        ) {
             Some(PageRaster::Ready(texture)) => {
                 self.page_texture = Some(*texture);
                 self.render_error = None;
@@ -363,7 +378,12 @@ impl OpenDoc {
     /// the requested page come to disagree.
     #[must_use]
     pub fn strip_page_state(&self, page: usize, key: RenderKey) -> Option<PageState> {
-        match self.strip_rasters.get(page, key, self.edit_epoch) {
+        // ★ Per-page (O74): a page whose own revision has not moved keeps its
+        // raster through an edit made on another sheet.
+        match self
+            .strip_rasters
+            .get(page, key, self.page_epochs.get(page))
+        {
             Some(PageRaster::Ready(_)) => None,
             Some(PageRaster::Failed(detail)) => Some(PageState::Refused(detail.clone())),
             None if self.render_worker.rendering_key().map(|k| k.page()) == Some(page) => {
@@ -376,7 +396,11 @@ impl OpenDoc {
     /// The texture for a **strip** page, if there is a current one.
     #[must_use]
     pub fn strip_page_texture(&self, page: usize, key: RenderKey) -> Option<&PageTexture> {
-        match self.strip_rasters.get(page, key, self.edit_epoch) {
+        // ★ Per-page (O74).
+        match self
+            .strip_rasters
+            .get(page, key, self.page_epochs.get(page))
+        {
             Some(PageRaster::Ready(texture)) => Some(texture),
             _ => None,
         }
@@ -459,7 +483,11 @@ impl PdfceApp {
         // those. That third term is `page_texture_epoch`, and adding it here is
         // what lets `vector_edit` stop nulling the texture — which is what put
         // a blank page on screen after every edit.
-        let stale_edit = doc.page_texture_epoch != doc.edit_epoch;
+        // ★★★ Per-page since 2026-08-31 (O74). The third term still answers
+        // "is it a picture of the right REVISION" — it is now the revision of
+        // *this page* rather than of the document, so an edit on sheet 3 no
+        // longer re-rasterises the canvas while it is showing sheet 7.
+        let stale_edit = doc.page_texture_epoch != doc.page_epochs.get(doc.view.page_index);
         let stale_discrete =
             stale_edit || current.is_none_or(|k| k.discrete_inputs() != wanted.discrete_inputs());
         let stale_scale = current.is_some_and(|k| k.scale_bits() != wanted.scale_bits());
@@ -599,8 +627,14 @@ impl PdfceApp {
             .copied()
             .filter(|&page| page != current)
             .find(|&page| {
-                !doc.strip_rasters
-                    .has(page, doc.render_key_for(page, raster_scale), doc.edit_epoch)
+                !doc.strip_rasters.has(
+                    page,
+                    doc.render_key_for(page, raster_scale),
+                    // ★ Per-page (O74): this is the scan that decides which
+                    // page the worker fills next, so a document-wide key here
+                    // put every page back in the queue after every edit.
+                    doc.page_epochs.get(page),
+                )
             });
 
         if let Some(page) = next {

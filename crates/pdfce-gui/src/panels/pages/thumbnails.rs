@@ -311,20 +311,49 @@ pub struct ThumbnailCache {
     ready: HashMap<usize, PageTexture>,
     /// The pages that have no picture and are not waiting for one.
     unavailable: HashMap<usize, Unavailable>,
-    /// The `(edit epoch, pixels-per-point bits)` everything above describes,
-    /// or `None` before the first frame.
+    /// The **pixels-per-point bits** everything above describes, or `None`
+    /// before the first frame.
     ///
-    /// **The edit epoch, and not the page index.** A page change moves the
-    /// highlight ring; it changes no picture, and dropping the cache on it
-    /// would re-rasterize the whole visible grid every time the operator
-    /// pressed Page Down — which on a dense drawing is a second of work per
-    /// keystroke to redraw pictures that were already correct.
+    /// ★★★ **The edit epoch LEFT this key on 2026-08-31** —
+    /// `OPERATOR_REQUESTS.md` O74, the operator: *"all of the page previews
+    /// get re-rendered instead of just the one that is being changed."* It was
+    /// a **document-wide** counter used as the invalidation key for a cache
+    /// holding one entry **per page**, so an edit to sheet 12 threw away the
+    /// pictures of the other thirty-five. Measured on his own 36-sheet
+    /// SolidWorks set: twelve visible tiles, **666 ms of UI-thread work per
+    /// edit**, worst frame 282 ms — all of it between his click and its result.
+    /// The per-page answer now lives in [`Self::built_at`], compared against
+    /// [`crate::app::state::pageepoch::PageEpochs`].
     ///
-    /// `pixels_per_point` is in the key because it is a factor of the raster
-    /// scale: dragging the window to a monitor with a different density
-    /// leaves every texture at the wrong resolution, and the symptom is a
-    /// grid that is soft or aliased with nothing to say why.
-    key: Option<(u64, u32)>,
+    /// **The page index was never in it, and still is not.** A page change
+    /// moves the highlight ring; it changes no picture, and dropping the cache
+    /// on it would re-rasterize the whole visible grid every time the operator
+    /// pressed Page Down.
+    ///
+    /// `pixels_per_point` **stays**, alone, and stays document-wide — because
+    /// it genuinely is. It is a factor of the raster scale, so dragging the
+    /// window to a monitor with a different density leaves **every** texture at
+    /// the wrong resolution, and the symptom is a grid that is soft or aliased
+    /// with nothing to say why. A per-page density does not exist.
+    key: Option<u32>,
+    /// ★ **The page epoch each held entry was built at**, keyed the same way
+    /// [`Self::ready`] and [`Self::unavailable`] are.
+    ///
+    /// One entry per held picture *and* per held refusal — a page that failed
+    /// to render is as much a claim about a revision as one that succeeded, and
+    /// leaving the refusals unkeyed would mean an edit never got a second
+    /// attempt at a page that had failed.
+    built_at: HashMap<usize, u64>,
+    /// The revisions [`Self::sync`] was last given, so [`Self::insert`] can
+    /// stamp a new entry without the render path having to be handed the
+    /// document.
+    ///
+    /// ★ Correct precisely because `sync` runs **once per frame before any
+    /// tile is drawn**, which is a contract `sync`'s own docs already state
+    /// and which several other things here already depend on. A picture
+    /// rendered later in the same frame is a picture of the revision this
+    /// snapshot names.
+    synced: crate::app::state::pageepoch::PageEpochs,
     /// The page that tripped [`SLOW_PAGE`], if one has.
     slow: Option<SlowPage>,
     /// The operator's own instruction about previews, if they have given
@@ -367,8 +396,8 @@ impl std::fmt::Debug for ThumbnailCache {
 }
 
 impl ThumbnailCache {
-    /// Drop everything that no longer describes this document revision or
-    /// this display.
+    /// Drop every entry that no longer describes **its own page's** revision,
+    /// or this display.
     ///
     /// Called once per frame before any tile is drawn, so no two tiles can
     /// disagree about which revision they are pictures of.
@@ -380,15 +409,50 @@ impl ThumbnailCache {
     /// the answer already on screen. The override survives for the stronger
     /// reason: it is the operator's instruction, and an instruction that
     /// evaporates on the next edit was not honoured.
-    pub fn sync(&mut self, edit_epoch: u64, pixels_per_point: f32) {
-        let key = (edit_epoch, pixels_per_point.to_bits());
-        if self.key == Some(key) {
-            return;
+    pub fn sync(
+        &mut self,
+        epochs: &crate::app::state::pageepoch::PageEpochs,
+        pixels_per_point: f32,
+    ) {
+        // 1. The density, which really is document-wide. A change here leaves
+        //    every texture at the wrong resolution, so everything goes.
+        let density = pixels_per_point.to_bits();
+        if self.key != Some(density) {
+            self.key = Some(density);
+            self.ready.clear();
+            self.unavailable.clear();
+            self.order.clear();
+            self.built_at.clear();
         }
-        self.key = Some(key);
-        self.ready.clear();
-        self.unavailable.clear();
-        self.order.clear();
+
+        // 2. The per-page revisions, which are the O74 fix. An entry is kept
+        //    only while the page it describes has not moved — so an edit on
+        //    sheet 12 drops sheet 12's tile and leaves the rest alone.
+        //
+        //    ★ An entry with no `built_at` is dropped rather than kept. That is
+        //    unreachable today (every insertion stamps one) and it is written
+        //    this way round deliberately: the failure mode of "keep what you
+        //    cannot date" is showing the operator a picture of content he has
+        //    already changed, which rule 4 forbids, and the failure mode of
+        //    "drop what you cannot date" is one extra render.
+        let stale: Vec<usize> = self
+            .built_at
+            .keys()
+            .copied()
+            .chain(self.ready.keys().copied())
+            .chain(self.unavailable.keys().copied())
+            .filter(|p| self.built_at.get(p) != Some(&epochs.get(*p)))
+            .collect();
+        for page in stale {
+            self.ready.remove(&page);
+            self.unavailable.remove(&page);
+            self.built_at.remove(&page);
+            self.order.retain(|p| *p != page);
+        }
+
+        // 3. Remember the revisions this frame is drawing, so an insertion
+        //    later in the same frame stamps the right number.
+        self.synced = epochs.clone();
     }
 
     /// Whether a page would be drawn if one were asked for.
@@ -590,12 +654,21 @@ impl ThumbnailCache {
                     viewport_centre,
                 );
             }
+            // ★ A refusal is stamped too (O74). It is as much a claim about a
+            // revision as a picture is, and an unstamped refusal would be
+            // dropped by `sync` on every frame — or, worse if the polarity were
+            // reversed, would survive the edit that fixed it and the page would
+            // never get a second attempt.
             Err(_) if cancel.is_cancelled() => {
                 self.unavailable.insert(page_index, Unavailable::Abandoned);
+                self.built_at
+                    .insert(page_index, self.synced.get(page_index));
             }
             Err(error) => {
                 self.unavailable
                     .insert(page_index, Unavailable::Failed(error.to_string()));
+                self.built_at
+                    .insert(page_index, self.synced.get(page_index));
             }
         }
 
@@ -620,6 +693,12 @@ impl ThumbnailCache {
             self.order.retain(|p| *p != victim);
         }
         self.ready.insert(page_index, texture);
+        // ★ Stamped with the revision `sync` recorded at the top of this frame
+        // (O74). Not `epochs.get()` re-read here: this function has no document
+        // and giving it one would put a document borrow inside the eviction
+        // path for a number that cannot have changed since the frame began.
+        self.built_at
+            .insert(page_index, self.synced.get(page_index));
         self.order.retain(|p| *p != page_index);
         self.order.push(page_index);
     }
@@ -913,14 +992,20 @@ mod tests {
     /// already right.
     #[test]
     fn navigating_keeps_the_cache_and_editing_drops_it() {
-        let mut cache = ThumbnailCache::default();
-        cache.sync(0, 2.0);
-        cache.unavailable.insert(7, Unavailable::Abandoned);
+        use crate::app::state::pageepoch::PageEpochs;
 
-        cache.sync(0, 2.0);
+        let mut epochs = PageEpochs::default();
+        epochs.resize(8);
+        let mut cache = ThumbnailCache::default();
+        cache.sync(&epochs, 2.0);
+        cache.unavailable.insert(7, Unavailable::Abandoned);
+        cache.built_at.insert(7, epochs.get(7));
+
+        cache.sync(&epochs, 2.0);
         assert_eq!(cache.state(7), TileState::Abandoned, "nothing changed");
 
-        cache.sync(1, 2.0);
+        epochs.bump_all();
+        cache.sync(&epochs, 2.0);
         assert_eq!(
             cache.state(7),
             TileState::NotDrawnYet,
@@ -930,8 +1015,96 @@ mod tests {
         // A density change invalidates for a different reason: every texture
         // is now the wrong resolution.
         cache.unavailable.insert(7, Unavailable::Abandoned);
-        cache.sync(1, 1.5);
+        cache.built_at.insert(7, epochs.get(7));
+        cache.sync(&epochs, 1.5);
         assert_eq!(cache.state(7), TileState::NotDrawnYet);
+    }
+
+    /// ★★★ **The O74 assertion, and the one that would have caught the
+    /// original defect**: an edit on one page leaves every other page's
+    /// picture alone.
+    ///
+    /// `OPERATOR_REQUESTS.md` O74 — *"all of the page previews get re-rendered
+    /// instead of just the one that is being changed"*. The old `sync` keyed
+    /// the whole cache on a document-wide epoch and cleared it wholesale, so
+    /// this test could not have been written against it: there was no per-page
+    /// input to vary.
+    #[test]
+    fn an_edit_on_one_page_leaves_the_other_pages_pictures_alone() {
+        use crate::app::state::pageepoch::PageEpochs;
+
+        let mut epochs = PageEpochs::default();
+        epochs.resize(4);
+        let mut cache = ThumbnailCache::default();
+        cache.sync(&epochs, 2.0);
+        for page in 0..4 {
+            cache.unavailable.insert(page, Unavailable::Abandoned);
+            cache.built_at.insert(page, epochs.get(page));
+        }
+
+        epochs.bump(2);
+        cache.sync(&epochs, 2.0);
+
+        assert_eq!(cache.state(2), TileState::NotDrawnYet, "the edited page");
+        for page in [0, 1, 3] {
+            assert_eq!(
+                cache.state(page),
+                TileState::Abandoned,
+                "page {page} was not edited and must keep its entry"
+            );
+        }
+    }
+
+    /// ★★ …and the safety half, which matters more: a **document-wide** bump
+    /// still drops everything.
+    ///
+    /// Without this, the test above passes on a build that never invalidates
+    /// anything — which would show the operator pictures of content he had
+    /// already changed. That is rule 4's "sneaky" and it outranks the slowness
+    /// the per-page key exists to fix, so both directions are asserted.
+    #[test]
+    fn a_document_wide_edit_still_drops_every_picture() {
+        use crate::app::state::pageepoch::PageEpochs;
+
+        let mut epochs = PageEpochs::default();
+        epochs.resize(4);
+        let mut cache = ThumbnailCache::default();
+        cache.sync(&epochs, 2.0);
+        for page in 0..4 {
+            cache.unavailable.insert(page, Unavailable::Abandoned);
+            cache.built_at.insert(page, epochs.get(page));
+        }
+
+        epochs.bump_all();
+        cache.sync(&epochs, 2.0);
+
+        for page in 0..4 {
+            assert_eq!(
+                cache.state(page),
+                TileState::NotDrawnYet,
+                "page {page} must be dropped by a document-wide edit"
+            );
+        }
+    }
+
+    /// An entry nothing dated is dropped rather than kept.
+    ///
+    /// Unreachable today — every insertion stamps `built_at` — and asserted
+    /// because the polarity is the whole safety argument. "Keep what you
+    /// cannot date" shows the operator stale content; "drop what you cannot
+    /// date" costs one render.
+    #[test]
+    fn an_undated_entry_is_dropped() {
+        use crate::app::state::pageepoch::PageEpochs;
+
+        let mut epochs = PageEpochs::default();
+        epochs.resize(2);
+        let mut cache = ThumbnailCache::default();
+        cache.sync(&epochs, 2.0);
+        cache.unavailable.insert(1, Unavailable::Abandoned);
+        // …and deliberately no `built_at` entry.
+        cache.sync(&epochs, 2.0);
+        assert_eq!(cache.state(1), TileState::NotDrawnYet);
     }
 
     /// The slow-page verdict and the operator's override survive an edit.
@@ -941,15 +1114,20 @@ mod tests {
     /// an answer already on screen.
     #[test]
     fn the_stopping_verdict_survives_an_edit() {
+        use crate::app::state::pageepoch::PageEpochs;
+
+        let mut epochs = PageEpochs::default();
+        epochs.resize(2);
         let mut cache = ThumbnailCache::default();
-        cache.sync(0, 2.0);
+        cache.sync(&epochs, 2.0);
         cache.slow = Some(SlowPage {
             page_index: 1,
             millis: 800,
         });
         assert_eq!(cache.slow().map(|s| s.page_index), Some(1));
         cache.force_on(true);
-        cache.sync(1, 2.0);
+        epochs.bump_all();
+        cache.sync(&epochs, 2.0);
         assert!(
             cache.previews_on(),
             "the operator's instruction did not survive an edit"

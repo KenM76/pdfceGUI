@@ -228,7 +228,7 @@ pub fn body(
     // Everything that must be true before a tile is drawn, in one place:
     // the cache describes this revision at this density, and no picked page
     // names a sheet that has stopped existing.
-    pages.cache.sync(doc.edit_epoch, pixels_per_point);
+    pages.cache.sync(&doc.page_epochs, pixels_per_point);
     pages.selection.retain_below(page_count);
 
     ui.label(t::pages_count(page_count));
@@ -385,7 +385,67 @@ pub fn body(
     // AFTER the grid rather than during it: the scheduling rule wants the
     // whole visible set, and rendering mid-layout would hold the frame in the
     // middle of a scroll area with half its rows placed.
-    if let Some(page_index) = pages.cache.next_to_render(&visible, current)
+    // ★★★ **AND NOT WHILE THE OPERATOR IS DOING SOMETHING** —
+    // `OPERATOR_REQUESTS.md` O74, in his words:
+    //
+    // > *"The last thing that should matter is updating the preview."*
+    //
+    // That is a priority rule, not a bug report, and it is worth more than the
+    // per-page invalidation it arrived with. A thumbnail render runs **inline
+    // on the UI thread** (see `thumbnails`' header for why it is not on the
+    // worker, and why moving it there would break `Arc::get_mut` in the edit
+    // funnel), so a single expensive page can put 282 ms between a click and
+    // what it does — measured, on his own 36-sheet set.
+    //
+    // Per-page invalidation shrinks how OFTEN that happens; it cannot stop a
+    // page that genuinely needs redrawing from landing on the frame after the
+    // click that dirtied it. This does: **the rail waits for a quiet moment.**
+    //
+    // Two conditions, and each answers a different way of being busy:
+    //
+    // 1. **No pointer or keyboard event this frame.** A drag, a chord, a scroll
+    //    — anything the operator is in the middle of. Asked of `egui::Context`
+    //    rather than of any one widget, because the question really is "is the
+    //    operator doing something *anywhere*", which is the one case where the
+    //    global read is the correct one.
+    // 2. **`SETTLE_AFTER_EDIT` has passed since the last edit landed.**
+    //    `OpenDoc::last_edit_at` is stamped in the edit funnel, in the same
+    //    statement group as the epoch bump, precisely so a consumer can ask
+    //    this. An edit is usually followed by another — a form is filled field
+    //    after field — and re-rendering between two keystrokes is work thrown
+    //    away before it is looked at.
+    //
+    // ★ It cannot stall the rail. `request_repaint_after` below wakes the
+    // window when the quiet period expires, so a document left alone fills
+    // itself; and an operator who keeps working keeps the deferral, which is
+    // exactly the trade he asked for.
+    let busy = ui.ctx().input(|i| {
+        i.pointer.any_down()
+            || i.pointer.is_moving()
+            || !i.events.is_empty()
+            || i.smooth_scroll_delta != egui::Vec2::ZERO
+    });
+    let settling = doc
+        .last_edit_at
+        .is_some_and(|at| at.elapsed() < SETTLE_AFTER_EDIT);
+    if busy || settling {
+        // Say why nothing was rendered, so a driven check can tell "deferred"
+        // from "nothing to do" — two states with the same screenshot, which is
+        // this project's recorded reason for tracing a decision rather than
+        // only its outcome.
+        crate::diag::trace_changed(DEFER_SLOT, || {
+            format!(
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                "pages-thumbnail-deferred busy={} settling={}",
+                u8::from(busy),
+                u8::from(settling)
+            )
+        });
+        // Come back when the quiet period is over. Without this the window can
+        // go idle mid-deferral and the rail stops filling until the operator
+        // moves the mouse.
+        ui.ctx().request_repaint_after(SETTLE_AFTER_EDIT);
+    } else if let Some(page_index) = pages.cache.next_to_render(&visible, current)
         && let Some(page) = doc.pages.get(page_index)
     {
         let centre = viewport_centre(&visible, current);
@@ -427,6 +487,37 @@ pub fn body(
 
 /// Trace slot for the panel's once-per-change summary.
 const PANEL_SLOT: &str = "pages-panel"; // ui-text-exempt: trace slot name, never displayed
+
+/// Trace slot for the deferral line — `OPERATOR_REQUESTS.md` O74.
+///
+/// Its own slot rather than `PANEL_SLOT`'s, because the two answer different
+/// questions and would overwrite each other every frame: one says what the
+/// panel is showing, this says why it is not rendering.
+const DEFER_SLOT: &str = "pages-thumbnail-deferred"; // ui-text-exempt: trace slot name, never displayed
+
+/// ★★★ **How long after an edit the page rail stays out of the way** — O74.
+///
+/// The operator: *"The last thing that should matter is updating the
+/// preview."*
+///
+/// # Why 250 ms, and what the number is answerable to
+///
+/// It has to be longer than the gap between two deliberate acts in one
+/// sequence — ticking two check boxes, tabbing between two fields — because
+/// rendering between them is work thrown away before anybody looks at it. And
+/// it has to be short enough that a single edit followed by a pause feels like
+/// the rail simply kept up.
+///
+/// 250 ms sits above the ~100-150 ms of a comfortable double act and well
+/// below the ~500 ms at which a delay stops reading as "just happened". It is
+/// deliberately **not** derived from a render cost: a slow document should
+/// defer for the same period as a fast one, because the quantity being waited
+/// for is the OPERATOR settling, not the renderer finishing.
+///
+/// ★ It is a constant rather than a literal so the next person to tune it does
+/// so once, with a paper trail — the same argument `render::settle`'s
+/// `ZOOM_SETTLE` makes, and this is its sibling on the other end of the frame.
+const SETTLE_AFTER_EDIT: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// The prefix of the per-tile region names; the 0-based page index is appended.
 ///
