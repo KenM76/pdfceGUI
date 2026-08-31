@@ -352,6 +352,75 @@ pub fn has_a_file(doc: &OpenDoc) -> bool {
     doc.path.is_file()
 }
 
+/// ★★★ **Does this document have edits that are not on disk?** — the one
+/// question, in the one place.
+///
+/// `OPERATOR_REQUESTS.md` row **O65**, the operator:
+///
+/// > *"I can't edit it unless I save the document first, at which point it
+/// > closes the document after saving."*
+///
+/// # What actually happened, because Save does NOT close the document
+///
+/// A successful in-place save records `doc.saved_epoch = doc.edit_epoch`, and
+/// until today **nothing in production read that number**. It was written
+/// once, traced once, and asserted in a single test. Every surface that asked
+/// *"does this document have unsaved edits?"* asked a different question that
+/// a save cannot answer:
+///
+/// | surface | asked | why a save could not clear it |
+/// |---|---|---|
+/// | `dialogs::unsaved::ask_for` | `edit_epoch == 0` | *"has anything EVER been edited"* — permanently true after the first edit |
+/// | the document tab strip | `session.is_modified()` | the engine's *"differs from the BASE revision"*, and an incremental save takes `&self` so the base never moves |
+/// | the close arm | `session.is_modified()` | same |
+///
+/// So after a perfectly good `Ctrl+S` the shell still believed the file was
+/// dirty. The tab kept its unsaved marker, and the very next Close raised the
+/// unsaved-edits question — whose only save button is *"Save a copy…"*, which
+/// opens a picker and, on success, proceeds with the pending intent. From the
+/// operator's chair: press a Save button, get asked for a filename, and watch
+/// the document close. Exactly what he reported, arrived at without Save ever
+/// closing anything.
+///
+/// ★ Driven, not inferred: with `PDFCE_DIAG_INVOKE="mode.edit,pages.rotate_right,file.save,file.close"`
+/// the shipped build traces `save-in-place outcome=ok` → `save-epoch-recorded
+/// epoch=1` → `diag-invoke id=file.close` → `unsaved-asked`, and no `close
+/// slot=` line anywhere.
+///
+/// # Both halves are load-bearing
+///
+/// - **`session.is_modified()`** is the engine's precise *"differs from the
+///   base revision"*, and it is what makes edit-then-undo come out **clean**.
+///   A pure epoch comparison would call an undone edit dirty, because an undo
+///   bumps the epoch like everything else.
+/// - **`edit_epoch != saved_epoch`** is the only term that can see an
+///   in-place save, for the reason above: `to_incremental_bytes` takes
+///   `&self`, so the session's own answer cannot change when bytes are
+///   written.
+///
+/// | state | `is_modified` | epochs differ | answer |
+/// |---|---|---|---|
+/// | opened, untouched | no | no | clean |
+/// | edited | yes | yes | **dirty** |
+/// | edited, then saved | yes | no | clean |
+/// | edited, saved, edited again | yes | yes | **dirty** |
+/// | edited, then undone | no | yes | clean |
+///
+/// # ★★ What this must NOT be confused with
+///
+/// [`save_pending`](crate::app::PdfceApp::save_pending) asks *"is a save in
+/// flight"*, which is a different question with a different consumer, and
+/// `dialogs::unsaved`'s own header explicitly forbids gating Open / New /
+/// Close on dirtiness through it.
+///
+/// And `saved_epoch` must never be reset to make an answer come out right:
+/// `edit_epoch` is the cache key for the decomposition, the page text, the
+/// texture and every live rule-4 disclosure. Two numbers, one question each.
+#[must_use]
+pub fn has_unsaved_edits(doc: &OpenDoc) -> bool {
+    doc.session.is_modified() && doc.edit_epoch != doc.saved_epoch
+}
+
 /// ★★★ **Save. In place. The one every other program has.**
 ///
 /// The operator, 2026-08-20:
@@ -1094,6 +1163,76 @@ mod tests {
             .expect("the copy's page tree must walk");
         assert_eq!(reopened_pages.len(), 1, "New makes a one-page document");
         let _ = std::fs::remove_file(&target);
+    }
+
+    /// ★★★ **The truth table for [`has_unsaved_edits`]** —
+    /// `OPERATOR_REQUESTS.md` O65.
+    ///
+    /// Five states, and each of the two terms is load-bearing in a different
+    /// one of them, which is why the test walks the whole table rather than
+    /// asserting the headline case:
+    ///
+    /// - **edited, then saved → clean** is what a build with only
+    ///   `session.is_modified()` gets wrong. That is the one the operator hit:
+    ///   the tab kept its unsaved dot, and the next Close asked a question
+    ///   whose only save button opened a picker and then closed the document.
+    /// - **edited, then undone → clean** is what a build with only the epoch
+    ///   comparison gets wrong, because an undo bumps `edit_epoch` like every
+    ///   other edit.
+    ///
+    /// So a build that drops either term passes half of this and fails the
+    /// other half, which is exactly what a truth-table test is for.
+    #[test]
+    fn a_saved_document_is_not_dirty_and_an_undone_edit_is_not_either() {
+        use pdfce_core::document::Document;
+        use pdfce_core::edit::EditSession;
+
+        let path = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures/four-pages.pdf"
+        ));
+        let doc = Document::load(path).expect("the fixture loads");
+        let session = EditSession::new(doc);
+        let pages = session.pages().expect("the page tree walks");
+        let mut open = crate::app::state::OpenDoc::new(path.to_path_buf(), session, pages);
+
+        assert!(
+            !has_unsaved_edits(&open),
+            "a document nobody has touched is clean"
+        );
+
+        // An edit: the engine's own answer flips, and the epochs diverge.
+        std::sync::Arc::get_mut(&mut open.session)
+            .expect("the session is not shared in a test")
+            .rotate_pages(&[0], 90)
+            .expect("a rotate must succeed on the fixture");
+        open.edit_epoch += 1;
+        assert!(has_unsaved_edits(&open), "an edited document is dirty");
+
+        // ★ The save. `saved_epoch` catches up; `is_modified()` does NOT and
+        // never can, because `to_incremental_bytes` takes `&self`. This is the
+        // line the whole row exists for.
+        open.saved_epoch = open.edit_epoch;
+        assert!(
+            open.session.is_modified(),
+            "the engine still says the session differs from its BASE revision — \
+             that is correct and is exactly why it cannot be the shell's answer"
+        );
+        assert!(
+            !has_unsaved_edits(&open),
+            "a document that has just been saved must be CLEAN. This is O65: \
+             a build asking `is_modified()` alone keeps the tab marker, asks \
+             about unsaved edits on the next Close, and the operator reads \
+             that as Save having closed the document."
+        );
+
+        // …and editing again makes it dirty a second time, which is what stops
+        // the fix from being "always answer clean after any save".
+        open.edit_epoch += 1;
+        assert!(
+            has_unsaved_edits(&open),
+            "an edit after a save is unsaved work again"
+        );
     }
 
     /// ★ **A write that cannot happen is reported rather than swallowed.**

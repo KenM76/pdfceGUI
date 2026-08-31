@@ -84,6 +84,37 @@ pub fn edits_at_stake(edits: u64) -> String {
     }
 }
 
+/// ★★★ **The button that writes the file the operator opened** —
+/// `OPERATOR_REQUESTS.md` O65.
+///
+/// Drawn only when the document HAS a file to be written over
+/// (`app::save::has_a_file`). A never-saved document renders no Save button at
+/// all and keeps [`save_copy_button`] alone — R9: an unavailable capability
+/// renders nothing, and "this document has never been written anywhere" is not
+/// a temporary condition a hover could explain away.
+///
+/// # Why this did not exist until today
+///
+/// Because this module was written when it was TRUE that pdfce had no Save,
+/// and it said so in as many words: *"pdfce cannot yet save over the file it
+/// opened."* `file.save` landed on 2026-08-20 and this window was never
+/// revisited, so the one prompt an operator meets when they are about to lose
+/// work went on offering a file picker as its only way of not losing it. He
+/// pressed the save button here, got asked for a filename, and the document
+/// closed — which is what he reported as *"it closes the document after
+/// saving."*
+///
+/// # No ellipsis, and that is the point of the pair
+///
+/// [`save_copy_button`]'s ellipsis promises a picker. This one promises the
+/// opposite — a write to a destination already decided — and the two labels
+/// have to be told apart at a glance by an operator who is one click from
+/// discarding their work.
+#[must_use]
+pub const fn save_button() -> &'static str {
+    "Save"
+}
+
 /// The non-destructive button.
 ///
 /// The ellipsis is doing real work: it promises a file picker, which is exactly
@@ -103,7 +134,18 @@ pub const fn save_copy_button() -> &'static str {
 #[must_use]
 pub const fn save_copy_note() -> &'static str {
     "A copy is written to a new file that you name. The document you are working \
-     on is not changed on disk — pdfce cannot yet save over the file it opened."
+     on is not changed on disk."
+}
+
+/// ★★ The note under the pair, when both buttons are offered.
+///
+/// Says which of the two touches the file they opened, because that is the
+/// whole difference between them and it is not deducible from four words of
+/// button text.
+#[must_use]
+pub const fn save_choice_note() -> &'static str {
+    "Save writes over the file you opened. Save a copy writes a new file that \
+     you name and leaves the original alone."
 }
 
 /// The destructive button, when the operator pressed Close.
@@ -168,33 +210,66 @@ mod tests {
         //
         // What it actually refuses is a bare `Save`, `Save…`, `Save changes`,
         // `Save document` — every label that claims the OPEN file is written.
+        // ★★★ **THE PREMISE OF THIS TEST WAS RETIRED ON 2026-08-31** and
+        // that is the finding, not the edit.
+        //
+        // It used to refuse any label reading as a Save over the open file,
+        // *"which this build cannot do"* — true when it was written, false
+        // since `file.save` landed on 2026-08-20, and never revisited. So a
+        // green test was actively holding the stale answer in place: the one
+        // window an operator meets when they are about to lose work offered a
+        // file picker as its only alternative to losing it. `OPERATOR_REQUESTS.md`
+        // O65.
+        //
+        // ⇒ The property under test changes from *"nothing claims a save"* to
+        // **"every label states its destination"**, which is the durable
+        // version and would have been the right one all along: it passes on
+        // today's build, would have passed on the 2026-08-20 build, and still
+        // refuses a bare "Save changes" that says nothing about which file.
         for label in [
+            save_button(),
             save_copy_button(),
             discard_close(),
             discard_open(),
             discard_new(),
             cancel_button(),
         ] {
-            let claims_a_save = label.eq_ignore_ascii_case("save")
+            let writes = label.eq_ignore_ascii_case("save")
                 || label.starts_with("Save")
                 || label.contains(" save the ");
+            let states_a_destination = label.contains("copy") || label.eq_ignore_ascii_case("save");
             assert!(
-                !claims_a_save || label.contains("copy"),
-                "{label:?} reads as a Save over the open file, which this build cannot do. \
-                 If it writes, it must say that it writes a COPY."
+                !writes || states_a_destination,
+                "{label:?} writes and does not say where. The two buttons in this \
+                 window differ ONLY in destination, so a label that omits it is the \
+                 one thing an operator cannot recover from."
             );
         }
         assert!(
             save_copy_button().contains("copy"),
-            "the writing button must say what it writes"
+            "the copy button must say what it writes"
         );
-        // And the note under it has to carry the surprising half — that the
-        // file they opened is unchanged. Asserted on the claim rather than on
-        // the sentence, because the sentence will be reworded.
+        assert!(
+            save_copy_button().ends_with('\u{2026}'),
+            "the copy button promises a picker and must carry the ellipsis that says so"
+        );
+        assert!(
+            !save_button().contains('\u{2026}'),
+            "Save writes to a destination already decided, so it must NOT promise a picker"
+        );
+        // The note under the copy button carries the half that is surprising —
+        // that the file they opened is unchanged. Asserted on the claim rather
+        // than on the sentence, because the sentence will be reworded.
         assert!(
             save_copy_note().contains("not changed on disk"),
             "the note must say the open file is left alone, which is the part \
              nobody expects"
+        );
+        // ★ And the pair's note has to say which one touches the original,
+        // because four words of button text cannot.
+        assert!(
+            save_choice_note().contains("over the file you opened"),
+            "when both buttons are drawn, something must say which one overwrites"
         );
     }
 

@@ -271,7 +271,13 @@ impl PdfceApp {
                 // would be a second answer to a question with one owner. See
                 // `app::conditions`' undo/redo note, which makes the same
                 // argument at greater length.
-                let unsaved = doc.session.is_modified();
+                // ★★★ O65: `is_modified()` is the engine's "differs from the
+                // BASE revision", and an incremental save takes `&self`, so
+                // the base never moves and the marker never cleared. A tab
+                // that keeps its dot after a successful save is the visible
+                // half of the same defect that made Close ask about a saved
+                // document.
+                let unsaved = crate::app::save::has_unsaved_edits(doc);
                 egui_shell::tabstrip::TabItem::new(
                     t::tab_label(&doc.path, unsaved),
                     if doc.origin == Origin::Created {

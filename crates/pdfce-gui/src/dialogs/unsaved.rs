@@ -91,6 +91,20 @@ use crate::text::unsaved as t;
 pub const REGION_BODY: &str = "dialog:unsaved"; // ui-text-exempt: trace region name, never displayed
 /// The region the *Save a copy…* button publishes.
 pub const REGION_SAVE: &str = "unsaved.save_copy"; // ui-text-exempt: trace region name, never displayed
+
+/// The **Save-over-the-open-file** button's region — `OPERATOR_REQUESTS.md` O65.
+///
+/// Its own name rather than sharing [`REGION_SAVE`], because the two buttons
+/// mean different things to the file on disk and a check that could not tell
+/// them apart would pass on a build that had silently swapped one for the
+/// other.
+///
+/// ★ Published only on the frames the button is DRAWN, which is what lets a
+/// driven check tell "this document has never been saved, so there is no Save
+/// button" from "the Save button is off screen" — two states with the same
+/// screenshot, and a distinction this project has twice had to make the hard
+/// way.
+pub const REGION_SAVE_IN_PLACE: &str = "unsaved.save_in_place"; // ui-text-exempt: trace region name, never displayed
 /// The region the discard button publishes.
 pub const REGION_DISCARD: &str = "unsaved.discard"; // ui-text-exempt: trace region name, never displayed
 /// The region the Cancel button publishes.
@@ -207,6 +221,14 @@ impl PendingIntent {
 /// What the operator chose.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
+    /// ★★★ **Write the file the operator opened, then resume** —
+    /// `OPERATOR_REQUESTS.md` O65.
+    ///
+    /// Offered only when the document has a file to be written over. Resumes
+    /// on a successful write and on nothing else, exactly as [`Self::SaveCopy`]
+    /// does and for the identical reason: a save that did not happen must
+    /// never be a route to discarding the work it was supposed to preserve.
+    SaveInPlace,
     /// Write a copy first; resume only if a file was actually written.
     SaveCopy,
     /// Go ahead and lose the edits.
@@ -230,6 +252,16 @@ pub struct UnsavedDialog {
     /// about the moment the operator was asked, which is what a confirmation
     /// dialog's text is *for*.
     edits: u64,
+    /// ★ **Whether this document has a file to save over**, captured at open
+    /// time from `app::save::has_a_file`.
+    ///
+    /// Decides whether the Save button is drawn at all. R9: a never-saved
+    /// document renders **nothing** rather than a greyed Save, because "this
+    /// has never been written anywhere" is a standing property of the
+    /// document, not a temporary condition a hover sentence could resolve —
+    /// and the operator already has the control that fixes it, one button to
+    /// the right.
+    has_file: bool,
     /// Set by a button, drained by the owner.
     outcome: Option<Outcome>,
     /// Set by Cancel and by the window's ✕.
@@ -239,10 +271,11 @@ pub struct UnsavedDialog {
 impl UnsavedDialog {
     /// Ask about `intent`, with `edits` unsaved changes at stake.
     #[must_use]
-    pub fn new(intent: PendingIntent, edits: u64) -> Self {
+    pub fn new(intent: PendingIntent, edits: u64, has_file: bool) -> Self {
         Self {
             intent,
             edits,
+            has_file,
             outcome: None,
             cancelled: false,
         }
@@ -329,6 +362,26 @@ impl UnsavedDialog {
         // loses everything, which is the order every application the operator
         // uses puts them in.
         ui.horizontal(|ui| {
+            // ★★★ **Save, when there is a file to save over** — O65.
+            //
+            // First, because it is the answer that loses nothing AND changes
+            // nothing about where the operator's work lives. The order of this
+            // row runs from least to most destructive and this is the new
+            // least.
+            //
+            // Absent, not greyed, on a never-saved document (R9). Its own
+            // region is published either way a reader might expect — no: the
+            // region is published only when the control is drawn, so a driven
+            // check can tell "the build has no Save button" from "the Save
+            // button is off screen", which two adjacent recorded findings say
+            // is otherwise the same screenshot.
+            if self.has_file {
+                let save_now = ui.button(t::save_button());
+                crate::diag::ui_rect(REGION_SAVE_IN_PLACE, save_now.rect);
+                if save_now.clicked() {
+                    self.outcome = Some(Outcome::SaveInPlace);
+                }
+            }
             let save = ui.button(t::save_copy_button());
             crate::diag::ui_rect(REGION_SAVE, save.rect);
             if save.clicked() {
@@ -352,7 +405,23 @@ impl UnsavedDialog {
         // operator needs after they have noticed the button says "a copy" and
         // wondered why, and putting it above would make three sentences stand
         // between the question and the answer.
-        ui.label(egui::RichText::new(t::save_copy_note()).small().weak());
+        // ★★★ **Which sentence, and it is decided by which BUTTONS are on
+        // screen** — `OPERATOR_REQUESTS.md` O65.
+        //
+        // With one writing button the note explains what "a copy" means for
+        // the file they came from, which is the surprising half.
+        //
+        // With two, the surprising half changes: the buttons now differ only
+        // in DESTINATION, four words apiece, and nothing on the surface says
+        // which one touches the original. `save_choice_note` says it. Drawing
+        // the copy note instead would be worse than saying nothing — it would
+        // describe one of the two buttons as though it were the whole choice.
+        let note = if self.has_file {
+            t::save_choice_note()
+        } else {
+            t::save_copy_note()
+        };
+        ui.label(egui::RichText::new(note).small().weak());
     }
 }
 
@@ -368,15 +437,36 @@ pub fn ask_for(status: &Status, intent: PendingIntent) -> Option<UnsavedDialog> 
     let Status::Open(doc) = status else {
         return None;
     };
-    // ★ `edit_epoch`, and it is the SAME predicate `dialogs::ocr`'s
-    // `UnsavedEdits` refusal already uses. Two independent notions of "this
-    // document has been edited" would eventually disagree, and the way they
-    // would disagree is that one surface refuses to run OCR on a document
-    // another surface is happy to throw away.
-    if doc.edit_epoch == 0 {
+    // ★★★ **`save::has_unsaved_edits`, since 2026-08-31 — `OPERATOR_REQUESTS.md`
+    // O65.**
+    //
+    // This line used to read `if doc.edit_epoch == 0`, which asks *"has
+    // anything EVER been edited"* and is therefore permanently true after the
+    // first edit. A document the operator had just saved was still asked
+    // about, the prompt's only save button is "Save a copy…" — a picker — and
+    // succeeding at that picker proceeds with the pending intent. So pressing
+    // Save and then Close produced: a filename prompt, and then the document
+    // closing. That is his report, and Save never closed anything.
+    //
+    // The old comment's argument was sound and is kept: two independent
+    // notions of "edited" would eventually disagree. The correction is that
+    // there were THREE, and the answer is one predicate rather than one
+    // *expression* copied to three places.
+    if !crate::app::save::has_unsaved_edits(doc) {
         return None;
     }
-    Some(UnsavedDialog::new(intent, doc.edit_epoch))
+    // ★ The count is measured from the last SAVE, not from zero. "You have 12
+    // unsaved changes" after saving eleven of them was a true count of the
+    // wrong thing.
+    Some(UnsavedDialog::new(
+        intent,
+        doc.edit_epoch.saturating_sub(doc.saved_epoch),
+        // ★ Whether a Save button is drawn at all — O65. `has_a_file` is the
+        // same predicate `file.save` itself consults before deciding between
+        // an overwrite and a picker, so the button offered here and the verb
+        // behind it cannot disagree about whether there is a file.
+        crate::app::save::has_a_file(doc),
+    ))
 }
 
 #[cfg(test)]
@@ -439,7 +529,7 @@ mod tests {
     /// the operator opened next.
     #[test]
     fn the_answer_fires_once_and_carries_its_intent() {
-        let mut d = UnsavedDialog::new(PendingIntent::Close, 3);
+        let mut d = UnsavedDialog::new(PendingIntent::Close, 3, true);
         assert_eq!(d.take_outcome(), None);
         d.outcome = Some(Outcome::Discard);
         assert_eq!(
@@ -466,7 +556,7 @@ mod tests {
     /// early loses the operator's decision.
     #[test]
     fn an_answer_is_visible_until_it_is_taken_and_not_after() {
-        let mut d = UnsavedDialog::new(PendingIntent::Open("a.pdf".into()), 7);
+        let mut d = UnsavedDialog::new(PendingIntent::Open("a.pdf".into()), 7, true);
         assert!(!d.answered(), "nobody has answered it yet");
         d.outcome = Some(Outcome::SaveCopy);
         assert!(d.answered(), "a button parked an answer");
@@ -488,7 +578,7 @@ mod tests {
     /// open waiting for an answer that is never coming.
     #[test]
     fn cancelling_answers_nothing() {
-        let mut d = UnsavedDialog::new(PendingIntent::Close, 1);
+        let mut d = UnsavedDialog::new(PendingIntent::Close, 1, true);
         d.cancelled = true;
         assert_eq!(d.take_outcome(), None);
         assert!(

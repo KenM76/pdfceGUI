@@ -214,9 +214,15 @@ impl PdfceApp {
             });
             return;
         }
+        // ★★★ O65: `save::has_unsaved_edits`, not `session.is_modified()`.
+        // The engine's answer is "differs from the BASE revision", which an
+        // incremental save cannot clear — so a **saved** background tab was
+        // treated as modified, which yanked the canvas to it (`activate_slot`
+        // below) before asking a question that should not have been asked.
         let modified = matches!(
             self.slot(slot),
-            Some(crate::app::state::Status::Open(doc)) if doc.session.is_modified()
+            Some(crate::app::state::Status::Open(doc))
+                if crate::app::save::has_unsaved_edits(doc)
         );
         if !modified {
             self.close_slot(slot);

@@ -631,22 +631,42 @@ impl PdfceApp {
         };
         use crate::dialogs::unsaved::{Outcome, PendingIntent};
 
-        if outcome == Outcome::SaveCopy {
-            let saved = match &self.status {
+        // ★★★ **Two writing outcomes now, and BOTH gate the intent on a real
+        // write** — `OPERATOR_REQUESTS.md` O65.
+        //
+        // The argument is the one this function's header already makes about
+        // the copy and it transfers unchanged: a save that did not happen — a
+        // cancelled picker, an unavailable picker, a failed write, a read-only
+        // file — must never be a route to discarding the work it was supposed
+        // to preserve. `pressing Cancel in a file dialog must never be a way to
+        // destroy a document`, and now also: *a failed overwrite must never be
+        // one either*.
+        //
+        // ★ `write_in_place` grew its `bool` for exactly this caller, which is
+        // the same shape `save_copy` already had and for the same reason. It
+        // had the value in hand and was discarding it.
+        let written = match outcome {
+            Outcome::SaveInPlace => Some(self.write_in_place()),
+            Outcome::SaveCopy => Some(match &self.status {
                 crate::app::state::Status::Open(doc) => crate::app::save::save_copy(doc),
                 // Unreachable: the question is only asked over an open
                 // document. Spelled rather than `unwrap`ped, because the
                 // consequence of being wrong here is destroying a document to
                 // satisfy a `match`.
                 _ => false,
-            };
-            if !saved {
-                crate::diag::trace(|| {
-                    // ui-text-exempt: diagnostic trace, never displayed.
-                    "unsaved-resume-abandoned reason=copy-not-written".to_owned()
-                });
-                return;
-            }
+            }),
+            Outcome::Discard => None,
+        };
+        if written == Some(false) {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                //
+                // Names the outcome, so a reader can tell a cancelled picker
+                // from a refused overwrite — two failures with the same
+                // consequence and very different remedies.
+                format!("unsaved-resume-abandoned outcome={outcome:?} reason=not-written")
+            });
+            return;
         }
 
         crate::diag::trace(|| {
@@ -764,7 +784,7 @@ impl PdfceApp {
     /// indistinguishable, in the trace, from one whose keystroke never
     /// arrived. That is the same argument the arm this came from makes for
     /// sitting above the document guard in the first place.
-    pub(super) fn write_in_place(&mut self) {
+    pub(super) fn write_in_place(&mut self) -> bool {
         match &mut self.status {
             crate::app::state::Status::Open(doc) => {
                 if crate::app::save::save_in_place(doc) {
@@ -773,12 +793,18 @@ impl PdfceApp {
                         // ui-text-exempt: diagnostic trace, never displayed
                         format!("save-epoch-recorded epoch={}", doc.saved_epoch)
                     });
+                    true
+                } else {
+                    false
                 }
             }
-            _ => crate::diag::trace(|| {
-                // ui-text-exempt: diagnostic trace, never displayed
-                "save-declined reason=no-document".to_owned()
-            }),
+            _ => {
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed
+                    "save-declined reason=no-document".to_owned()
+                });
+                false
+            }
         }
     }
 
@@ -851,7 +877,15 @@ impl PdfceApp {
             format!("signature-confirmed pending={pending:?}")
         });
         match pending {
-            crate::dialogs::signature::PendingSave::InPlace => self.write_in_place(),
+            // ★ The `bool` is discarded here, and the asymmetry with
+            // `resume_after_unsaved` is the point rather than an omission:
+            // nothing is waiting on this answer. A signature save that failed
+            // has reported its own failure and the next thing that happens is
+            // the operator's choice — where a failed save in the unsaved-edits
+            // prompt would otherwise be followed by the document closing.
+            crate::dialogs::signature::PendingSave::InPlace => {
+                let _ = self.write_in_place();
+            }
             crate::dialogs::signature::PendingSave::Copy => self.write_copy_somewhere(),
         }
     }
