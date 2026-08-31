@@ -25,3 +25,6 @@
 Thumbs.db
 .DS_Store
 .tmpwork/
+
+# Cygwin/MSYS crash dumps, produced by the shell rather than by this project.
+*.stackdump
