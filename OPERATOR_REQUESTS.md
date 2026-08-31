@@ -245,8 +245,49 @@ coincidence rather than by memory.
 > group is above the fold. There is no check asserting the scope group is
 > **visible** rather than merely declared, which is its own defect.
 >
-> **What would settle it in one line from you:** when you open Recognise text,
-> is there a "Pages" heading with radio buttons above the Recognise button?
+### ★★★ 2026-08-31, his answer: *"there is only the option to do the page, no
+### radio buttons or anything else."* — and I still cannot reproduce it
+
+Everything checkable from this machine was checked, and every one of them says
+the radios should be on his screen.
+
+| checked | result |
+|---|---|
+| does the **published** build contain the radios? | **yes** — all three OneDrive slots (`pdfceGUI1`, `pdfceGUI2`, `pdfce`), built 2026-08-30, contain `All pages`, `This page only` and the range hint |
+| are the OCR **models** beside it? | **yes** — `models/ocrs/` with both `.rten` files in every slot |
+| is he running one of those? | **yes** — `pdfceGUI2/userdata/recent.txt` was written at 06:55 this morning |
+| does the dialog draw them here? | **yes** — driven on this machine against his own `SW41177.pdf`: `ocr-scope pages=36 first=Some(0) last=Some(35)` |
+| are the radios **clipped**? | **no** — `ocr-scope` occupies y 83–163 inside a 560×420 window; skip at 175, Recognise at 213 |
+| is the window size remembered small? | **no** — `dialogs::host` remembers **position only**, and only for the session |
+
+★★ **And a false lead worth recording, because it nearly became the answer.**
+There are **two different programs named `pdfce-gui.exe`** on this machine:
+`D:\Builds\pdfce-*` is the **old** GUI from `D:\Dev\pdfce`, and
+`D:\Builds\pdfcegui-*` plus the OneDrive slots are this one. Same executable
+name, one character apart in the folder. That is a real hazard and it would
+have explained the symptom perfectly — except that the old GUI has **no OCR at
+all** (its only OCR string is a sentence saying a scanned page *"needs OCR"*),
+so a window titled *Recognise text* cannot have come from it.
+
+★ The lesson taken anyway: `ocr-scope` being **published** does not prove it is
+**visible**. This project has been caught by that twice, and I reached for it as
+proof before measuring the rectangle. The rectangle is what settled it.
+
+### ⇒ The one thing left that only you can see
+
+There is exactly one code path that draws the window **without** the radios:
+`OcrDialog::preflight` refusing, which happens when the recogniser is not
+compiled in or **the model files cannot be read**. It replaces the whole body
+with a single sentence — no radios *and no Recognise button*.
+
+**So: does the window say anything about model files, or about pdfce not being
+able to read them?** If it does, the models are not reachable from where you
+launch it (a OneDrive "files on demand" placeholder would do exactly this), and
+that is a deployment fact rather than a missing feature.
+
+If it does **not** — if you genuinely see a working Recognise button with no
+radios above it — then something is happening that nothing on this machine can
+reproduce, and the next step is a screenshot rather than more of my guessing.
 
 
 **Asked:** 2026-08-31.
