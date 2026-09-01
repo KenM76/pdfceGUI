@@ -129,14 +129,63 @@ pub const fn tab_reason_needs_password() -> &'static str {
 #[must_use]
 pub fn window_title(active: Option<&Path>, count: usize) -> String {
     let base = crate::text::window_title();
+    let stamp = build_day();
     let Some(active) = active else {
-        return base.to_owned();
+        return format!("{base} — {stamp}");
     };
     let name = tab_label(active, false);
     if count > 1 {
-        format!("{name} — {count} documents open — {base}")
+        format!("{name} — {count} documents open — {base} — {stamp}")
     } else {
-        format!("{name} — {base}")
+        format!("{name} — {base} — {stamp}")
+    }
+}
+
+/// **The day this build was made**, for the window title.
+///
+/// # ★★★ Why the title, of all places — 2026-09-01
+///
+/// The operator spent part of a morning reporting a defect that had been fixed,
+/// against a build he did not know was old:
+///
+/// > *"Just realized windows wasn't opening the latest version. … I had linked
+/// > the default pdf opener to a different location. I thought I had relinked
+/// > it to the new one but it didn't take."*
+///
+/// The cause was a file association he believed he had repointed and which had
+/// not taken — his, not the packager's, and it does not matter. **Nothing on
+/// screen could have told either of us which build was running**, and that is
+/// the part that is fixable here.
+///
+/// ⇒ The failure mode is *a report about the wrong build*, and it costs the
+/// same however the wrong build got launched: an operator describes a defect
+/// that was fixed, and the engineer investigates a version nobody is running.
+/// The stamp existed the whole time — `build.rs` sets it, `dialogs::about`
+/// shows it — two clicks behind a menu nobody opens while they are working.
+///
+/// ⇒ The title is the one surface that is legible **without doing anything**:
+/// it is in the taskbar, in Alt-Tab, in a screenshot, and in the accessibility
+/// window list. If a report can be about the wrong build, the build has to be
+/// on the outside of the window.
+///
+/// ★★ The DAY, not the full timestamp. A title bar is read at a glance and
+/// competes with the document's name for width; the question it has to answer
+/// is *"is this today's?"*, and a date answers that. The exact minute and the
+/// commit are in About, which is where somebody comparing two builds precisely
+/// would go.
+///
+/// ★ Derived by truncation rather than by a second source. `PDFCE_BUILD_TIME`
+/// is one value with one producer; taking its first ten characters cannot
+/// disagree with what About shows, and a second stamp computed elsewhere
+/// eventually would.
+fn build_day() -> &'static str {
+    let stamp = env!("PDFCE_BUILD_TIME");
+    // `YYYY-MM-DD…`. Falls back to the whole string rather than to a
+    // placeholder: an unexpected format should still show SOMETHING datelike,
+    // because the failure this guards against is a title with no build in it.
+    match stamp.char_indices().nth(10) {
+        Some((at, _)) => &stamp[..at],
+        None => stamp,
     }
 }
 

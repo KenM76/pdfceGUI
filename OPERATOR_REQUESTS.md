@@ -140,7 +140,38 @@ Recorded so nobody reads that failure as evidence.
 
 ---
 
-## O87 — ⬜ **Paste still lands near the copy, not at the cursor** — the trace could not say why, and now it can
+## O87 — ✅ **NOT A DEFECT — an old build.** Paste lands at the cursor
+
+> **Ken, 2026-09-01, an hour later:** *"Just realized windows wasn't opening the
+> latest version. paste puts things where the cursor is."* And: *"it wasn't you.
+> It was me. I had linked the default pdf opener to a different location. I
+> thought I had relinked it to the new one but it didn't take."*
+>
+> ### ★★★ The part that IS ours, and it is now fixed
+>
+> **Nothing on screen could have told either of us which build was running.**
+> That is the whole cost of this row, and it does not depend on how the wrong
+> build got launched — an operator describes a defect that was fixed, and an
+> engineer investigates a version nobody is running.
+>
+> The build stamp existed the entire time. `build.rs` sets it and the About
+> window shows it — two clicks behind a menu nobody opens while they are
+> working.
+>
+> ⇒ **The build date is now in the window title.** Taskbar, Alt-Tab, a
+> screenshot, the accessibility window list: all read it, and none of them can
+> see a menu. The day rather than the minute, because the question a title has
+> to answer at a glance is *"is this today's?"* — the exact time and the commit
+> stay in About for anyone comparing two builds precisely.
+>
+> ★ The diagnostic added while chasing this stays, and it earns its place: the
+> paste's fallback now says WHICH half was missing (`offset-no-cursor`,
+> `offset-no-anchor`, `offset-neither`) rather than only that it fell back. Two
+> causes, opposite investigations, and the trace used to be silent about which.
+
+<details><summary>The original report and the analysis it prompted</summary>
+
+## O87 (original) — Paste lands near the copy, not at the cursor
 
 **Ken, 2026-09-01:**
 
@@ -180,6 +211,8 @@ is at the moment the command fires.
 
 ★ If you can say which one you use — the keyboard, the right-click menu, or the
 ribbon button — that alone may settle it without any driving.
+
+</details>
 
 ---
 
