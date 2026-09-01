@@ -80,6 +80,59 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O89 — ◑ **"I don't see where I am able to edit the color of text, vectors, etc."** — one half is hidden, the other does not exist
+
+**Ken, 2026-09-01.** Two different answers in one sentence.
+
+### ✅ Text colour EXISTS — and you have to sweep the text first, which is why you could not find it
+
+There are two colour swatches and both are real:
+
+- **Format tab ▸ Font ▸ the colour button**, beside Bold and Italic.
+- **Properties panel ▸ Text**, the same control.
+
+★★★ **Both are gated on a TEXT selection, not an object selection.** Clicking a
+piece of text selects the *object*; the Format tab's Font group stays greyed.
+You have to arm the **Text tool** and **sweep across the words** — then the
+colour button lights up and applies to exactly what you swept.
+
+⇒ That is a real route and a bad one to have to guess. It is also the same shape
+as the last two of these: the capability shipped, the way in did not.
+
+**Not yet decided how to fix the route**, and it should not be improvised. The
+candidates:
+
+| | |
+|---|---|
+| a colour control on a *selected text object* that sweeps it for you | closest to what you tried |
+| the Properties panel naming the missing step where the swatch would be | cheapest, and honest |
+| the greyed button saying *"sweep the text first"* on hover | R9's own rule, and it is not doing it today |
+
+### ⬜ Vector colour does not exist AT ALL — filed with the engine
+
+Measured rather than assumed. Every colour verb `pdfce-core` has works on an
+**annotation** or on **text**: markup style, ce-dimension style, redaction-mark
+style, text fill. **There is no verb that changes the fill or stroke colour of a
+path in page content.**
+
+So a line, a rectangle, a CAD drawing's every stroke: selectable, movable,
+deletable — and not recolourable. No shell control could exist yet because there
+is nothing for it to call.
+
+**Filed:** `open/request_a_paths_colour_cannot_be_changed_at_all.md`, asking for
+the verb **and its reader** — a swatch that cannot show the object's current
+colour is one that silently discards it on first touch — plus a named refusal
+for spot inks, because writing `DeviceRGB` over a named separation would look
+right on screen and destroy the plate on your drawings.
+
+★ This is the half you will notice more. A drawing office recolours lines far
+more often than it recolours type.
+
+**Status:** ◑ **Text works and is unfindable; vectors are an engine gap, filed.**
+
+---
+
+
 ## O88 — ⬜ **A box can only select what it completely surrounds** — which is why the corner tables cannot be caught
 
 **Ken, 2026-09-01, on `TR-0461-1500-copy.pdf`:**
