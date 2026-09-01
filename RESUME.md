@@ -38,18 +38,40 @@ crates first and test on that. Either works; doing neither does not.
 
 ---
 
-## ★★★ THE ENGINE SHIPPED BUTTON ACTIONS — `Pass 183.0`, unconsumed
+## ★★★ BUTTON ACTIONS ARE CONSUMED — 2026-09-01, and the delay is the lesson
 
-`cff102a`, pulled in by the release build on 2026-08-30 and **not yet used**:
+`set_button_action` (`Pass 182.0`/`183.0`/`183.1`) is wired. Placing a push
+button asks what pressing it does, seven ways, with the submit's disclosure.
+O60 and O61 are closed. Driven by
+`a_placed_button_can_be_given_something_to_do`.
 
-> *"submit, and every other button action that needs no JavaScript — with the
-> safeguards the plan actually named"*
+### ★★ Read this before you trust any "next session, do X" note anywhere
 
-That is the answer to
-`request_a_push_button_that_does_nothing_is_the_only_kind_we_can_make.md`.
-Until this, the only push button pdfce could author was an inert one, which is
-why the button work stopped where it did. **Read that Pass's note before
-anything else next session** — it is the largest closed gap on the list.
+**The paragraph this replaces said, in bold: *"read that Pass's note before
+anything else next session — it is the largest closed gap on the list."***
+
+It sat there for two days. Two sessions read it. The engine's own reply had
+said *"please check your own copy — your surface is now saying something
+untrue."* The Button tool stayed greyed and the dialog kept telling the
+operator a falsehood, while 2,181 tests passed.
+
+⇒ **A note is not a mechanism.** What fixed it is
+`tools/gates/check-verb-coverage.sh`, which fails the build when `pdfce-core`
+has a verb this shell neither calls nor has written a sentence about in
+`EDITABLE_SURFACES.md`. It found five more the moment it worked. Filed to
+`D:/dev/rag/rust/` as *deletion is loud, addition is silent*.
+
+**So: after every `cargo update`, the gates ARE the changelog reader.** Run
+`bash tools/gates/run-all.sh` before believing any statement in this file about
+what the engine cannot do.
+
+### The one gap left on this subject
+
+`pdfce-core` can WRITE a button's action and cannot READ one — `forms::Widget`
+models no `/A`. So the Forms panel has no row for a button **already in the
+document**; only the placement dialog. Filed as
+`request_a_buttons_action_can_be_written_and_not_read.md`, with a tripwire test
+in `canvas::formfield::action` that names its own deletion.
 
 ★★ And `note_widgets_rotate_now_and_three_verbs_you_could_not_reach.md` was
 audited on 2026-08-30 against the shell. Most of it is already built. The
