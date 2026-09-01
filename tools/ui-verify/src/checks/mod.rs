@@ -177,6 +177,10 @@ pub mod form_field;
 /// where nothing calls the query. That is the state the audit found, under
 /// 2,538 passing tests. Its header carries both fixtures' arguments.
 pub mod form_groups;
+/// ★ **The second half of the descent** — something inside a wrapped drawing
+/// can be DRAGGED, not merely selected (`OPERATOR_REQUESTS.md` O70). Reads the
+/// funnel's own applied line, which the engine's `Ok` is what produces.
+pub mod form_leaf_move;
 /// ★★★ **Where to click so that a form-field selection CHANGES**, shared by the
 /// three checks that author a field and then try to select it.
 ///
@@ -923,6 +927,12 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // question that line was extended for: WHICH index space did the click
         // land in? Both answers are `sel=1 level=Object`.
         Box::new(smart_select::AClickSelectsTheWholeDrawing),
+        // Immediately after the descent, because it depends on everything that
+        // check establishes and adds exactly one thing: that what you reached
+        // can be edited. Reaching something and being unable to move it is a
+        // worse state than not reaching it — the outline is a promise the
+        // gesture then breaks.
+        Box::new(form_leaf_move::AThingInsideAWrappedDrawingCanBeDragged),
         // `OPERATOR_REQUESTS.md` O71, 2026-08-31. Beside the Smart-Selector
         // check because both are about what a plain click MEANS — that one in
         // Edit, this one in Read, which is the stance where the answer had

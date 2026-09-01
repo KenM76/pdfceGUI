@@ -391,6 +391,24 @@ pub fn for_move_subject(
         MoveSubject::Nodes { object, nodes, .. } => {
             with_nodes_moved(provider, *object, &nodes.iter().copied().collect(), dx, dy)
         }
+        // ★★ **NO live shape preview for a form-interior move, and that is a
+        // stated gap rather than an omission** — O70's second slice,
+        // 2026-09-01.
+        //
+        // Every arm above reads `PageObjects::objects` by paint-order index;
+        // a leaf is a position in `PageObjects::leaves` and would need a
+        // second lookup here and in `transformed`. Rather than add a
+        // half-correct one under a deadline, the drag falls back to what every
+        // gesture had before the live preview existed: the outline ghost, which
+        // `canvas::overlay` draws from the same bounds the selection box uses.
+        //
+        // ⇒ So the operator sees the BOX follow the pointer rather than the
+        // geometry, which is the O63 behaviour for one case rather than a
+        // regression to it for all of them. The fix is one accessor —
+        // `provider::leaf_subpaths` — and it belongs with the Part/Node rungs
+        // for leaves, which are the same missing accessor seen from the other
+        // side.
+        MoveSubject::LeavesInForm { .. } => None,
     }
 }
 

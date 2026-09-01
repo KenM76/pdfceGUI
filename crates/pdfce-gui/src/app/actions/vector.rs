@@ -141,6 +141,42 @@ pub enum VectorAction {
         /// Vertical displacement, PDF user-space points (Y is up).
         dy: f64,
     },
+    /// ★★★ Delete every selected object **inside a form XObject** —
+    /// `EditSession::delete_objects_in_form`, `OPERATOR_REQUESTS.md` O70.
+    ///
+    /// Beside [`Self::MoveLeavesInForm`] and for its reason: the indices are a
+    /// different address space from `DeleteSelection`'s, and the variant is
+    /// what says which. One command however many leaves, exactly as its
+    /// page-level twin.
+    DeleteLeavesInForm {
+        /// The 0-based page.
+        page: usize,
+        /// Leaf indices, ascending and unique.
+        leaves: Vec<usize>,
+    },
+    /// ★★★ Displace every selected object **inside a form XObject** by a
+    /// page-space delta — `EditSession::move_objects_in_form`.
+    ///
+    /// `OPERATOR_REQUESTS.md` O70's second slice, 2026-09-01. Its own variant
+    /// beside [`Self::MoveSelection`] because the indices are a different
+    /// address space; `canvas::moving::MoveSubject::LeavesInForm` carries the
+    /// argument.
+    ///
+    /// ★★ The coordinates are **page space**, exactly as the page-level verbs
+    /// take, and that is the engine's contract rather than this shell's choice:
+    /// `FormLeaf` reports geometry already mapped out of the form's own space,
+    /// so a caller never has to know the placement matrix. The one thing that
+    /// differs is which list the index is a position in.
+    MoveLeavesInForm {
+        /// The 0-based page.
+        page: usize,
+        /// Leaf indices, ascending and unique.
+        leaves: Vec<usize>,
+        /// Horizontal displacement, PDF user-space points.
+        dx: f64,
+        /// Vertical displacement, PDF user-space points (Y is up).
+        dy: f64,
+    },
     /// Displace **one subpath** of one path object by a page-space delta, as
     /// one undoable command — the Part rung's move verb.
     ///
@@ -448,6 +484,58 @@ pub(super) fn apply(doc: &mut crate::app::state::OpenDoc, action: VectorAction) 
             if !objects.is_empty() {
                 vector_edit_on_page(doc, "move-objects", page, objects.len(), |session| {
                     session.move_objects(page, &objects, dx, dy)
+                });
+            }
+        }
+        VectorAction::DeleteLeavesInForm { page, leaves } => {
+            if !leaves.is_empty() {
+                // Bumped for `MoveLeavesInForm`'s reason, which its arm states
+                // in full: the engine's content digest does not move for a
+                // form-stream rewrite, so the shell's decomposition cache
+                // needs telling.
+                doc.form_edits = doc.form_edits.wrapping_add(1);
+                vector_edit_on_page(
+                    doc,
+                    "delete-leaves-in-form",
+                    page,
+                    leaves.len(),
+                    |session| {
+                        session
+                            .delete_objects_in_form(page, &leaves)
+                            .map(|outcome| outcome.disclosures)
+                    },
+                );
+            }
+        }
+        VectorAction::MoveLeavesInForm {
+            page,
+            leaves,
+            dx,
+            dy,
+        } => {
+            if !leaves.is_empty() {
+                // ★★ **The form-edit counter is bumped with the edit**, and it
+                // has to be here rather than at the gesture: this is the one
+                // place that knows the edit actually reached the engine.
+                //
+                // `crate::app::cache::OpenDoc::page_objects_revision` keys the
+                // decomposition on the engine's content digest, and that digest
+                // does NOT move for a form-stream rewrite — measured in
+                // `tests/page_generation_covers.rs`, filed to the engine as
+                // `request_the_generation_cannot_see_a_form_rewrite.md`. So
+                // without this line the model the next click hit-tests would be
+                // the pre-move one, and `PageObjects` addresses content by
+                // index: the following drag would move whatever that index
+                // names in the stale model.
+                //
+                // ⇒ It is a workaround with a filed request and a test that
+                // names its own deletion. Bump first, so a panic in the verb
+                // cannot leave the counter behind the document.
+                doc.form_edits = doc.form_edits.wrapping_add(1);
+                vector_edit_on_page(doc, "move-leaves-in-form", page, leaves.len(), |session| {
+                    session
+                        .move_objects_in_form(page, &leaves, dx, dy)
+                        .map(|outcome| outcome.disclosures)
                 });
             }
         }

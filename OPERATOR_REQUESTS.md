@@ -801,16 +801,25 @@ Four separate defects in one paragraph, all of which are in scope:
 > at a fitted page. That is a fact about the document, not the feature, and the
 > answer was a small purpose-made file.
 >
+> ### ✅ …and what you go inside can now be MOVED and DELETED — 2026-09-01
+>
+> Drag a line inside a title block and it moves. Press Delete and it goes. Both
+> reach the engine as one undoable command, driven and asserted.
+>
+> ★ For the day between the two halves this shell could *reach* something
+> inside a wrapped drawing and not move it, which is worse than not reaching
+> it: the selection outline is a promise the gesture then breaks.
+>
 > ### ⬜ Still owed on this row, and named rather than implied
 >
 > 1. **Going deeper than one level.** Inside a container, a further
->    double-click does not yet reach a piece's points. The engine shipped the
->    six verbs for it this afternoon (`pdfce-core` Pass 188.0); the shell side
->    is a leaf-indexed hit test that does not exist yet. Today that double-click
->    deliberately does **nothing** rather than half-descending into a state with
->    no visible box — the guard is written where it can be deleted.
-> 2. **Editing what you selected inside a container** — moving it, deleting it.
->    Same Pass, same shell-side gap.
+>    double-click does not yet reach a piece's individual points. The engine
+>    has the verbs; the shell needs one accessor that can ask a leaf for its
+>    subpaths. Today that double-click deliberately does **nothing** rather
+>    than half-descending into a state with no visible box.
+> 2. **The live shape preview while dragging inside a container.** The
+>    selection box follows your pointer; the geometry does not, yet. Same
+>    missing accessor as (1) seen from the other side.
 > 3. **Double-clicking a text box to edit the text.** Today it descends to the
 >    text run rather than opening the caret.
 >

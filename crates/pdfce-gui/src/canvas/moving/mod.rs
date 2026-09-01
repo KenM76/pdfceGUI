@@ -191,6 +191,35 @@ pub enum MoveSubject {
         /// `move_objects` needs in order to succeed rather than refuse.
         objects: Vec<usize>,
     },
+    /// ★★★ **The Object rung for things painted INSIDE a form XObject**:
+    /// `move_objects_in_form`.
+    ///
+    /// `OPERATOR_REQUESTS.md` O70's second slice, and until `pdfce-core`
+    /// Pass 188.0 (2026-08-31) there was no verb to route it to — this was a
+    /// worded refusal, [`Refusal::InsideForm`], because a leaf has no
+    /// paint-order index and every geometry verb addressed one.
+    ///
+    /// ## ★★ A separate variant, not `Objects` with leaf indices in it
+    ///
+    /// Because the indices are in **different address spaces** and the whole
+    /// safety property of `TargetId` is that they cannot be confused. `objects`
+    /// are positions in `PageObjects::objects`; `leaves` are positions in
+    /// `PageObjects::leaves`, which on the operator's benchmark drawing holds
+    /// 10,256 entries against 129,758 — the same integer means two things and
+    /// only the variant says which.
+    ///
+    /// ⇒ `TargetId`'s own header names the failure this avoids: *"in range and
+    /// wrong is the dangerous combination"*. A merged variant would put the
+    /// shell back in the business of remembering which numbering it is holding.
+    LeavesInForm {
+        /// The page the leaves are on.
+        page: usize,
+        /// Leaf indices, ascending and unique — the same clean operand shape
+        /// every other verb here needs, and for the engine's own reason: it
+        /// resolves every index before planning anything, so one stale entry
+        /// refuses the whole batch.
+        leaves: Vec<usize>,
+    },
     /// The Part rung of a **path** object: `move_subpath`.
     Subpath {
         /// The page.
@@ -413,11 +442,24 @@ pub fn eligible(
                 // entirely of those, and this arm reported it as *"nothing
                 // selected"* while the operator was looking at an outline round
                 // the thing they were dragging.
-                return Err(if selection.leaf_indices_on(page).is_empty() {
-                    Refusal::NothingSelected
+                // ★★★ **A pure form-interior selection MOVES, as of
+                // 2026-09-01** — O70's second slice.
+                //
+                // This arm returned `Refusal::InsideForm` for the life of the
+                // shell, and the refusal was honest: no geometry verb could
+                // address a leaf. `pdfce-core` Pass 188.0 shipped six that can,
+                // and this is the first of them to be wired.
+                //
+                // ★ The refusal is KEPT for the case it is still true of — an
+                // empty selection is still nothing selected, and a leaf list
+                // the engine later declines still produces a worded decline
+                // from the apply arm rather than silence.
+                let leaves = selection.leaf_indices_on(page);
+                return if leaves.is_empty() {
+                    Err(Refusal::NothingSelected)
                 } else {
-                    Refusal::InsideForm
-                });
+                    Ok(MoveSubject::LeavesInForm { page, leaves })
+                };
             }
             // ★★★ THE REFUSAL BECAME A FORK — 2026-08-20, and it is the
             // operator's *"can I please please please have the capability to
@@ -569,6 +611,13 @@ pub fn action(
         MoveSubject::Objects { page, objects } => Ok(VectorAction::MoveSelection {
             page,
             objects,
+            dx: delta.dx,
+            dy: delta.dy,
+        }
+        .into()),
+        MoveSubject::LeavesInForm { page, leaves } => Ok(VectorAction::MoveLeavesInForm {
+            page,
+            leaves,
             dx: delta.dx,
             dy: delta.dy,
         }

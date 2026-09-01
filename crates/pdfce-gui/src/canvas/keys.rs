@@ -926,6 +926,31 @@ pub(super) fn canvas_keys(
     // reading `canvas-delete-declined` is entitled to know which happened.
     let objects = selection.deletable_objects_on(page_index);
     if objects.is_empty() {
+        // ★★★ **…unless what is selected lives INSIDE a form**, 2026-09-01 —
+        // `OPERATOR_REQUESTS.md` O70, the same slice that made such a thing
+        // draggable.
+        //
+        // `deletable_objects_on` answers about the page's own paint order and
+        // drops every form-interior target, correctly: no paint-order verb can
+        // address one. `pdfce-core` Pass 188.0 shipped one that can, and Delete
+        // is the second of the six to be wired.
+        //
+        // ★ At the Object rung only, exactly as the page-level rule above —
+        // the deeper rungs have no delete verb in either address space, and a
+        // rung with no verb is reported as its own event two lines down.
+        if selection.level() == SelectionLevel::Object {
+            let leaves = selection.leaf_indices_on(page_index);
+            if !leaves.is_empty() {
+                actions.push(
+                    VectorAction::DeleteLeavesInForm {
+                        page: page_index,
+                        leaves,
+                    }
+                    .into(),
+                );
+                return;
+            }
+        }
         if selection.level() != SelectionLevel::Object {
             crate::diag::trace(|| {
                 format!(
