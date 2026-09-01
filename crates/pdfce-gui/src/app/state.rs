@@ -180,6 +180,10 @@ struct LayerOverride {
 }
 
 mod identity;
+/// **What the render tier needs to know about a page's colour** — one method,
+/// split out 2026-09-01 under R2. Its header carries why the ink question is a
+/// different subject from the document model around it.
+mod ink;
 pub mod pageepoch;
 
 pub use identity::{Origin, SelectedField};
@@ -511,6 +515,31 @@ pub struct OpenDoc {
     /// line, which is why the bump belongs in the funnel every mutation is
     /// already required to pass through rather than at each verb.
     pub edit_epoch: u64,
+    /// **How many edits this session has made INSIDE a form XObject** — a
+    /// workaround with a filed request behind it and a test that will name its
+    /// deletion.
+    ///
+    /// # Why it exists
+    ///
+    /// `crate::app::cache::OpenDoc::page_objects_revision` keys the page's
+    /// decomposition on `EditSession::page_content_generation`, which is what
+    /// stops a 469 ms rebuild after every annotation edit. Measured
+    /// 2026-08-31 (`crates/pdfce-gui/tests/page_generation_covers.rs`), that
+    /// digest does **not** move when an edit rewrites a form's stream — the
+    /// engine keeps the descended-form set beside its memo key rather than in
+    /// it, and the accessor digests the key alone.
+    ///
+    /// So this counter carries the one class the digest cannot see. It is
+    /// bumped at the shell's call sites for the six `*_in_form` verbs, and is
+    /// `0` until those are wired (`OPERATOR_REQUESTS.md` O70's next slice).
+    ///
+    /// ★ Filed rather than absorbed: `pdfce`'s decision 058 says anything a
+    /// shell has to work around is a finding about the crate boundary, and the
+    /// request is `request_the_generation_cannot_see_a_form_rewrite.md`.
+    /// `an_edit_inside_a_form_does_not_move_the_generation` asserts the
+    /// limitation, so the day it is closed that test goes red and names this
+    /// field.
+    pub form_edits: u64,
     /// ★ **The same question, asked per page** — `OPERATOR_REQUESTS.md` O74.
     ///
     /// [`edit_epoch`](Self::edit_epoch) above says *something changed*; this
@@ -956,6 +985,7 @@ impl OpenDoc {
             // by a reset somebody has to call.
             find_reveal: None,
             edit_epoch: 0,
+            form_edits: 0,
             objects_traced_for: None,
             last_scroll_offset: egui::Vec2::ZERO,
             // Whole page until the canvas says otherwise.
@@ -1433,64 +1463,30 @@ impl OpenDoc {
     }
 }
 
-impl OpenDoc {
-    /// ★ **What the render tier needs to know about `page`'s colour** — the one
-    /// reader of [`Self::ink_pages`].
-    ///
-    /// Two facts in one value, because they are only ever wanted together and
-    /// separating them would let a call site pair the observation with the
-    /// wrong ceiling: *has this page been seen compositing in ink*, and *what
-    /// ceiling has the operator set*. See [`crate::render::strategy::Ink`].
-    ///
-    /// The ceiling is `Settings::max_cmyk_buffer_bytes` read **through the
-    /// document's own settings**, which is where the settings window's Apply
-    /// lands — so raising it in the window moves the tier on the next frame,
-    /// with no reopen and no second copy of the value anywhere.
-    ///
-    /// It is NOT taken from `SettingsExt::render_options`, which would be the
-    /// tempting spelling: that builder produces the options a *render* is run
-    /// with, and this question is asked before there is a render to run.
-    #[must_use]
-    pub fn ink_at(&self, page: usize) -> crate::render::strategy::Ink {
-        if self.ink_pages.contains(&page) {
-            crate::render::strategy::Ink::Subtractive(self.settings.max_cmyk_buffer_bytes)
-        } else {
-            crate::render::strategy::Ink::Additive
-        }
-    }
-}
-
+/// How a test opens a document, and why there are **two** fixture roots.
+/// `#[cfg(test)]` only; split out under R2 when this file hit its ceiling.
 #[cfg(test)]
-pub(crate) const FOUR_PAGES: &str = "pageops/four-pages.pdf";
-
-/// One page carrying the same words at 0°, 90°, 180°, 270° and 30° — the page
-/// `canvas::textsel`'s §8 rules are asserted on. See
-/// [`crate::canvas::textsel::fixture`] for what each string is for and why it
-/// is set in capitals.
+mod fixtures;
 #[cfg(test)]
-pub(crate) const ROTATED_TEXT: &str = "rotated-text.pdf";
-/// Four optional-content groups: 4 and 7 on by default, 5 and 6 off.
-#[cfg(test)]
-pub(super) const PAINTED_LAYERS: &str = "layers/painted-layers.pdf";
-/// **Two pages, one approval signature.** Built by
-/// `tools/gen-signed-fixture.py`, whose header carries why the engine's own
-/// signature fixtures (all one page, none to spare) could not be used; its
-/// three load-bearing properties are asserted in `crate::dialogs::signature`.
-#[cfg(test)]
-pub(crate) const SIGNED_TWO_PAGES: &str = "signed-two-pages.pdf";
+pub(crate) use fixtures::{
+    // ★ The fixture NAMES are re-exported from here rather than moved in the
+    // callers' `use` lines, and that is deliberate: forty test modules write
+    // `use crate::app::state::{FOUR_PAGES, open_fixture}`, and an R2 split is
+    // a change to where code LIVES, not to what the crate offers. A split that
+    // rewrote forty imports would be a diff nobody could read.
+    FOUR_PAGES,
+    PAINTED_LAYERS,
+    ROTATED_TEXT,
+    SIGNED_TWO_PAGES,
+    open_fixture,
+    open_local_fixture,
+};
 
 /// ★★★ **The preview that outlives the gesture** — `OPERATOR_REQUESTS.md` O63.
 ///
 /// Split out under R2 on 2026-08-30. Its header carries the subject: for how
 /// long is a picture of this document still true? Three clauses, two of them
 /// bounded by wall-clock time, and the reason each of the two is.
-/// How a test opens a document, and why there are **two** fixture roots.
-/// `#[cfg(test)]` only; split out under R2 when this file hit its ceiling.
-#[cfg(test)]
-mod fixtures;
-#[cfg(test)]
-pub(crate) use fixtures::{open_fixture, open_local_fixture};
-
 mod heldpreview;
 pub(crate) use heldpreview::HeldPreview;
 

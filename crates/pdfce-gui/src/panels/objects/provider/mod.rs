@@ -354,8 +354,34 @@ impl ObjectModelProvider {
         page: &Page,
         page_index: usize,
     ) -> Result<Self, String> {
+        // ★★★ **TIMED, and the line is the instrument this shell owes the
+        // engine** — 2026-08-31.
+        //
+        // `pdfce-core`'s reply to
+        // `request_one_edit_costs_two_decompositions_of_the_same_page` measured
+        // its own side and asked for ours by name: *"we have not measured your
+        // loop; measure it rather than take that sentence."* It also corrected
+        // a causal reading this project got wrong — the decode is roughly three
+        // quarters of the cost and the decomposition the remaining quarter,
+        // where this project had assumed one number was the other.
+        //
+        // ⇒ So the line carries **what was built** as well as how long: a
+        // rebuild that produced no leaves is a different event from a slow one,
+        // and between `a24868e` and `a8586cc` the engine's own memo returned
+        // exactly that — a full object list with the deep-selection model
+        // silently missing.
+        let started = std::time::Instant::now();
         let objects =
             decompose_page(view, page, Matrix::IDENTITY).map_err(|err| err.to_string())?;
+        let elapsed = started.elapsed();
+        let (count, leaves) = (objects.objects.len(), objects.leaves.len());
+        crate::diag::trace(move || {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            format!(
+                "page-objects-built page={page_index} objects={count} leaves={leaves} ms={}",
+                elapsed.as_millis()
+            )
+        });
         let (_, _, to_canvas) = page_device_geometry(page, 1.0);
         Ok(Self {
             page_index,

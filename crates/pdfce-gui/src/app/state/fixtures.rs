@@ -69,3 +69,32 @@ pub(crate) fn open_local_fixture(rel: &str) -> OpenDoc {
     let pages = pdfce_core::page_tree::pages(&doc).expect("a page tree");
     OpenDoc::new(path, EditSession::new(doc), pages)
 }
+
+// ---------------------------------------------------------------------------
+// The fixture NAMES, moved here 2026-09-01 under R2
+// ---------------------------------------------------------------------------
+//
+// ★ They lived at the bottom of `state.rs` and belong beside the opener that
+// resolves them: a constant naming a file is only meaningful with the function
+// that says which of the two fixture roots it is relative to, and that
+// function is in this file. Moving them is what took `state.rs` back under the
+// gate when the decomposition cache's form-edit counter pushed it over.
+
+#[cfg(test)]
+pub(crate) const FOUR_PAGES: &str = "pageops/four-pages.pdf";
+
+/// One page carrying the same words at 0°, 90°, 180°, 270° and 30° — the page
+/// `canvas::textsel`'s §8 rules are asserted on. See
+/// [`crate::canvas::textsel::fixture`] for what each string is for and why it
+/// is set in capitals.
+#[cfg(test)]
+pub(crate) const ROTATED_TEXT: &str = "rotated-text.pdf";
+/// Four optional-content groups: 4 and 7 on by default, 5 and 6 off.
+#[cfg(test)]
+pub(crate) const PAINTED_LAYERS: &str = "layers/painted-layers.pdf";
+/// **Two pages, one approval signature.** Built by
+/// `tools/gen-signed-fixture.py`, whose header carries why the engine's own
+/// signature fixtures (all one page, none to spare) could not be used; its
+/// three load-bearing properties are asserted in `crate::dialogs::signature`.
+#[cfg(test)]
+pub(crate) const SIGNED_TWO_PAGES: &str = "signed-two-pages.pdf";

@@ -380,6 +380,75 @@ impl OpenDoc {
         .ok()
     }
 
+    /// **What this page's decomposition is keyed on**, and it is not the edit
+    /// epoch.
+    ///
+    /// # ★★★ The 469 ms this removes, measured on the operator's own drawing
+    ///
+    /// ```text
+    /// page-objects-built page=0 objects=129758 leaves=10256 ms=469
+    /// ```
+    ///
+    /// That is one decomposition of the benchmark CAD sheet. Keyed on
+    /// `edit_epoch` — which every mutating action bumps — it was paid again
+    /// after **every** edit, including edits that cannot have touched page
+    /// content at all. Authoring a form field is an `/Annots` change; so is
+    /// placing a stamp, a note, or a ce dimension. Each of those froze the
+    /// window for about half a second to rebuild a model that had not changed,
+    /// which is `OPERATOR_REQUESTS.md` O74 at its most expensive point:
+    /// *"the last thing that should matter is updating the preview."*
+    ///
+    /// `EditSession::page_content_generation` is the engine's own digest of
+    /// that page's content dependencies — page id, every `/Contents` entry with
+    /// its staged span, the effective `/Resources`. It moves when content moves
+    /// and holds still for an annotation, which is exactly the distinction the
+    /// epoch cannot make.
+    ///
+    /// # ★★ …and a counter of our own, because the digest has one blind spot
+    ///
+    /// **Measured, not assumed** —
+    /// `crates/pdfce-gui/tests/page_generation_covers.rs`, three tests, one per
+    /// dependency class:
+    ///
+    /// | class | generation |
+    /// |---|---|
+    /// | a content edit (`move_objects`) | moves |
+    /// | an annotation edit (`add_markup`) | holds still ✓ the win |
+    /// | **an edit inside a form XObject** (`move_node_in_form`) | ★ **holds still** |
+    ///
+    /// The third is a real hazard rather than a curiosity: `PageObjects`
+    /// addresses content **by index**, so a stale model makes the next drag
+    /// edit whatever that index names in the *wrong* model — the engine's own
+    /// phrase is *"silent corruption of the operator's drawing, reported as
+    /// success"*. It is consistent with its account of the memo: the descended
+    /// form set is kept beside the key because it is an **output** of the
+    /// decomposition, and this accessor digests the key alone.
+    ///
+    /// ⇒ So [`Self::form_edits`] is added to the key. It is bumped by this
+    /// shell at every call site of the six `*_in_form` verbs, filed to the
+    /// engine as a workaround per decision 058
+    /// (`request_the_generation_cannot_see_a_form_rewrite.md`), and it has a
+    /// deletion tripwire: the test above asserts the limitation, so the day the
+    /// engine closes it the test goes red and names this counter.
+    ///
+    /// ★ **The fallback is the epoch**, not a constant. If the generation
+    /// cannot be read — a page index the session does not have, a document
+    /// mid-close — this returns the epoch, which rebuilds on every edit exactly
+    /// as before. Slow is the safe direction; a constant would freeze the model.
+    fn page_objects_revision(&self) -> u64 {
+        self.session
+            .page_content_generation(self.view.page_index)
+            .map_or(self.edit_epoch, |generation| {
+                // ★ Mixed rather than tupled so the key stays two words wide
+                // and `Cell<Option<(usize, u64)>>` is unchanged. XOR with a
+                // multiplied counter: `form_edits` is small and monotonic, so
+                // multiplying by an odd constant before mixing keeps successive
+                // bumps from cancelling against a generation that differs in
+                // the same low bits.
+                generation ^ self.form_edits.wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            })
+    }
+
     /// Decompose the current page if the cache does not already describe it.
     ///
     /// The key is recorded **before** the work, so a page whose content will
@@ -387,7 +456,7 @@ impl OpenDoc {
     /// deterministic, and retrying it sixty times a second would peg a core
     /// producing the same error.
     fn ensure_page_objects(&self) {
-        let key = (self.view.page_index, self.edit_epoch);
+        let key = (self.view.page_index, self.page_objects_revision());
         if self.page_objects.built_for.get() == Some(key) {
             return;
         }
@@ -805,26 +874,49 @@ mod tests {
     fn a_documents_decomposition_cannot_outlive_the_document() {
         let mut doc = open_fixture(FOUR_PAGES);
         assert_eq!(doc.page_objects().expect("page 0").page_index(), 0);
-        assert_eq!(doc.page_objects.built_for.get(), Some((0, 0)));
+        // ★ The page, not the whole key: the second half is a content digest
+        // as of 2026-08-31 and is a different number per fixture, which is
+        // exactly what this test is about — that the key does not carry over
+        // to another document.
+        let first = doc.page_objects.built_for.get();
+        assert_eq!(first.map(|(page, _)| page), Some(0));
 
         doc = open_fixture(PAINTED_LAYERS);
         assert_eq!(
             doc.page_objects().expect("the layer fixture").page_index(),
             0
         );
+        let second = doc.page_objects.built_for.get();
         assert_eq!(
-            doc.page_objects.built_for.get(),
-            Some((0, 0)),
+            second.map(|(page, _)| page),
+            Some(0),
             "a fresh document starts un-built, whatever address it landed on"
+        );
+        // ★★ And the two documents' keys DIFFER, which is the property that
+        // makes the previous line safe. Two documents whose page 0 happened to
+        // share a key would serve one's decomposition for the other — the
+        // failure this test is named for — and a page index alone cannot rule
+        // it out.
+        assert_ne!(
+            first, second,
+            "a second document must not inherit the first's cache entry"
         );
         assert_eq!(doc.pages.len(), 1, "and it is this document's page tree");
     }
 
     /// **A page step rebuilds the decomposition; so does an edit.**
     ///
-    /// Both halves of the `(page, epoch)` key, one at a time. Serving page
-    /// 0's objects while the operator is on page 1 would make every index in
-    /// the Objects panel address the wrong object.
+    /// Both halves of the key, one at a time. Serving page 0's objects while
+    /// the operator is on page 1 would make every index in the Objects panel
+    /// address the wrong object.
+    ///
+    /// ★ It asserts that the key **CHANGED**, not what it changed to. The
+    /// second half stopped being `edit_epoch` on 2026-08-31 — it is now the
+    /// engine's content digest, mixed with this shell's form-edit counter (see
+    /// [`super::OpenDoc::page_objects_revision`]) — and a test pinning the
+    /// literal would have had to be rewritten for a change it exists to be
+    /// indifferent to. What matters is that a rebuild happened, which is what
+    /// a changed key means and all it means.
     #[test]
     fn the_decomposition_is_rebuilt_when_the_page_or_the_revision_moves() {
         let mut doc = open_fixture(FOUR_PAGES);
@@ -837,14 +929,40 @@ mod tests {
             "a page step must rebuild, or the panel lists another page's objects"
         );
 
-        // An edit renumbers objects without moving page, so the epoch is the
-        // other half. `edit_epoch` is the seam every mutating action bumps.
-        doc.edit_epoch = 1;
+        // An edit renumbers objects without moving page, so the revision is
+        // the other half.
+        //
+        // ★★ Driven through a REAL content edit rather than by setting
+        // `edit_epoch` by hand, and that change is the point of the swap: the
+        // key no longer reads the epoch, so a test that bumped it would now
+        // assert nothing at all — it would pass on a build whose cache never
+        // invalidated. `move_objects` is the cheapest content edit there is.
+        let before = doc.page_objects.built_for.get();
+        let objects = doc
+            .page_objects()
+            .expect("page 2 decomposes")
+            .page_objects()
+            .objects
+            .len();
+        assert!(objects > 0, "the fixture's page 3 must carry an object");
+        // ★ `Arc::get_mut`, the shape this crate uses everywhere a test needs
+        // the session mutably: the session is shared with the render worker
+        // through an `Arc`, and a test that cloned it would be editing a copy.
+        std::sync::Arc::get_mut(&mut doc.session)
+            .expect("the test holds the only handle")
+            .move_objects(2, &[0], 1.0, 0.0)
+            .expect("moving one object by a point must succeed");
+        doc.edit_epoch += 1;
         let _ = doc.page_objects();
-        assert_eq!(
-            doc.page_objects.built_for.get(),
-            Some((2, 1)),
+        let after = doc.page_objects.built_for.get();
+        assert_ne!(
+            before, after,
             "an edit must rebuild, or the panel lists the pre-edit object set"
+        );
+        assert_eq!(
+            after.map(|(page, _)| page),
+            Some(2),
+            "…and it must still be THIS page's objects"
         );
     }
 
