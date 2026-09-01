@@ -1,5 +1,6 @@
 # Memory index
 
+- [HOLD publishing until the next engine commit](project_hold_publishing_until_the_next_engine_commit.md) — 2026-09-01, one-shot; suspends the publish-on-finish rule until a new pdfce commit lands.
 - [ui-verify competes for the machine](feedback_ui_verify_competes_for_the_machine.md) — ask in one line with the cost; "the PC is yours" means sweep the whole suite, reversibly.
 - [Update the engine before every build](feedback_update_engine_before_every_build.md) — `cargo update` core/render/print first; the engine repo moves fast and a stale pin has already cost 18 missing images.
 - [The pdfce specialist agents are not on this roster](project_pdfce_agent_roster_absent_here.md) — dispatching them fails here; do it inline or use general-purpose.

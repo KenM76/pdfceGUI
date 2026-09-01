@@ -1,5 +1,22 @@
 # RESUME — read this, then say "continue"
 
+> ## ★★★ HOLD ON PUBLISHING — 2026-09-01, one-shot
+>
+> **Ken: *"wait until the next commit of the pdfce engine before publishing."***
+> Engine HEAD when he said it: `1a13640`. Last published build (`pdfceGUI2`):
+> `042e20e`.
+>
+> This **suspends** the standing rule that finishing work is itself the trigger
+> to publish. Keep finishing work; do not package. When a new engine commit
+> lands: `cargo update` the three engine crates, build, re-measure
+> `FEATURES.md`, then `tools/package-portable.py`.
+>
+> ★ It is a hold on ONE publish, not a new cadence. Once it goes out, the
+> standing rule resumes and this block should be deleted. If a whole session
+> passes with no engine commit, say so rather than publishing anyway or sitting
+> on it silently.
+
+
 > ★★ **If the operator typed "continue" and nothing else, read**
 > **[`CONTINUE.md`](CONTINUE.md) first.** It is the short path: what is next,
 > in order, and the two facts that are true and surprising. This file is the
