@@ -167,6 +167,14 @@ pub fn attach(click: Click<'_>) -> Vec<HandlerToken> {
     // make the value's meaning depend on which of two booleans was false.
     let field_delete_permitted =
         !crate::panels::properties::formfield::document_refuses_delete(click.doc);
+    // ★★ **Whether this is a READER's right-click** — O71.
+    //
+    // Read from the same `Capabilities` every other gate in this frame reads,
+    // rather than from a mode id: `edit_content` is derived from the mode's tab
+    // list, so a mode added later that happens to include the Edit tab gets the
+    // editing menu without anybody editing this line, and one that does not
+    // gets the reader's.
+    let reading = !click.caps.edit_content;
     menus::attach(
         click.response,
         click.selection,
@@ -174,6 +182,7 @@ pub fn attach(click: Click<'_>) -> Vec<HandlerToken> {
         object,
         field_menu,
         field_delete_permitted,
+        reading,
         click.host,
     )
 }

@@ -160,6 +160,14 @@ pub const CANVAS_OBJECT: &str = "canvas.object";
 /// act *on*, so the menu is about how the page is shown.
 pub const CANVAS_EMPTY: &str = "canvas.empty";
 
+/// **Reading, over a picture** — `OPERATOR_REQUESTS.md` O71.
+///
+/// Two rows: take a copy, and look closer. Its own context rather than a
+/// filtered [`CANVAS_OBJECT`], because every other row of that menu edits and
+/// R9 says a mode that cannot edit renders nothing rather than a greyed list.
+/// `canvas::menus::CanvasMenu::ReadObject` carries the argument.
+pub const CANVAS_READ_OBJECT: &str = "canvas.read-object";
+
 /// ★★★ Right-click on the page **with a caret placed in existing text**.
 ///
 /// The third canvas menu, added 2026-08-28 with paragraph reflow. It is keyed
@@ -222,6 +230,7 @@ pub const DOCUMENT_TAB: &str = "document.tab";
 /// halving a test sweep.
 pub const CONTEXTS: &[&str] = &[
     CANVAS_OBJECT,
+    CANVAS_READ_OBJECT,
     CANVAS_EMPTY,
     CANVAS_TEXT,
     CANVAS_FIELD,
@@ -384,6 +393,33 @@ pub fn built_in() -> Menus {
             // nothing. `panels::properties::annotdelete` carries the finding and
             // the sentence that replaces the control.
             Item::command("format.delete").shown_when(super::manifest::DELETE_PERMITTED),
+        ]))
+        // -------------------------------------------------------------------
+        // canvas.read-object — a picture, while reading.
+        //
+        // ★★★ `OPERATOR_REQUESTS.md` O71: *"In read mode the regular pointer
+        // should also allow us to select images so we can copy and paste them
+        // … outside of the pdfcegui."*
+        //
+        // Copy became reachable there by chord on 2026-08-31 and by nothing
+        // else, which is a feature only somebody who was told about it can
+        // use. Acrobat Reader puts *Copy Image* on the right-click and that is
+        // where a hand goes.
+        //
+        // TWO rows, and the shortness is the design. Every other row of
+        // `canvas.object` edits — Delete, unshare, re-aim, the Properties
+        // panel's editable fields — and R9's answer to *"this mode cannot"* is
+        // to render nothing rather than to grey a list. So this menu offers the
+        // two things a reader can genuinely do with a picture: take a copy, and
+        // look closer.
+        //
+        // ORDER: copy first. It is why the menu exists and it is what the
+        // operator came for; zoom-to-selection is the useful neighbour, not the
+        // headline. Neither is destructive, so the least-destructive-first rule
+        // that orders the other menus has nothing to say here.
+        .with(Menu::new(CANVAS_READ_OBJECT).with_items([
+            Item::command("edit.copy"),
+            Item::command("view.zoom_selection"),
         ]))
         // -------------------------------------------------------------------
         // canvas.empty — the view menu.
@@ -1047,17 +1083,26 @@ mod tests {
                 );
             }
         }
-        // The four §6 asks for by name, checked explicitly, because this is
-        // the deviation from the specification that most wants to be visible
-        // in a failure message rather than inferred from a list.
-        let menus = built_in();
-        let offered: BTreeSet<&str> = menus.iter().flat_map(|m| m.command_ids()).collect();
-        for id in ["edit.cut", "edit.copy", "edit.paste", "edit.paste_in_place"] {
-            assert!(
-                !offered.contains(id),
-                "`{id}` is on a context menu and there is no object clipboard in this build"
-            );
-        }
+        // ★★★ **A HAND-WRITTEN LIST OF FOUR IDS STOOD HERE UNTIL 2026-09-01,
+        // AND THIS TEST'S OWN DOC COMMENT SAID IT DID NOT.**
+        //
+        // The paragraph above reads *"asserted against `PLANNED` rather than
+        // against a hand-written list of four ids, so a clipboard command that
+        // lands … stops being forbidden here automatically instead of failing
+        // a test that had gone stale."* The sweep above does exactly that. And
+        // underneath it sat the list anyway, forbidding `edit.cut`,
+        // `edit.copy`, `edit.paste` and `edit.paste_in_place` by name.
+        //
+        // The object clipboard landed on 2026-08-20. `edit.copy` has a
+        // registration, a dispatch arm, a driven check and — as of
+        // `OPERATOR_REQUESTS.md` O71 — a right-click row on the reader's
+        // picture menu, which is what made this fail. **The test was not
+        // protecting an invariant; it was pinning a fact that had stopped
+        // being true, in a file whose prose already said it should not.**
+        //
+        // ⇒ Deleted rather than updated, because updating it would restore the
+        // exact mechanism the doc comment argues against. `PLANNED` is the one
+        // list, and a command that lands leaves it.
     }
 
     /// **★ Every menu opens when the application is at its liveliest.**

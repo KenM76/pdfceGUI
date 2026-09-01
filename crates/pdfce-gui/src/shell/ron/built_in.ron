@@ -506,6 +506,13 @@
             ],
         ),
         (
+            context: "canvas.read-object",
+            items: [
+                Command(id: "edit.copy"),
+                Command(id: "view.zoom_selection"),
+            ],
+        ),
+        (
             context: "canvas.empty",
             items: [
                 Command(id: "view.zoom_fit_page"),

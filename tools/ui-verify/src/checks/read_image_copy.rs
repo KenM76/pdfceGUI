@@ -46,9 +46,18 @@
 //!
 //! | # | step | oracle |
 //! |---|---|---|
-//! | A | Read mode, click the picture | `canvas-selection … via=read-image` |
+//! | A | Read mode, click the picture | `selection-set … via=read-image` |
 //! | B | `Ctrl+C` | `clipboard-copy kind=content objects=1` |
 //! | C | …and a picture went with it | `clipboard-image w=… h=…`, at least 1:1 |
+//! | D | **right-click it** | `canvas-menu context=canvas.read-object` |
+//!
+//! ★★ Step D is the route somebody finds without being told, and it was added
+//! after the first three shipped. A chord is a feature for an operator who has
+//! read a release note; Acrobat Reader puts *Copy Image* on the right-click,
+//! and until 2026-09-01 a right-click anywhere in Read produced **no menu at
+//! all** — the gate asked `caps.edit_content` before asking which menu, so
+//! even the view menu that file's own comment calls *"the correct menu for a
+//! reader"* was unreachable.
 
 use crate::checks::driving::{SHELL_DIAG_ENV, click_mode_segment, declared, declared_names, list};
 use crate::checks::text_selection::aim;
@@ -85,6 +94,10 @@ const PICTURE: &str = "clipboard-image"; // ui-text-exempt: a trace event name, 
 const DECLINED: &str = "clipboard-image-declined"; // ui-text-exempt: a trace event name, never displayed
 /// The page region, so a failure can say whether a sheet was drawn at all.
 const PAGE_REGION: &str = "page"; // ui-text-exempt: a trace region name, never displayed
+/// The line that says which context menu a right-click resolved.
+const MENU: &str = "canvas-menu"; // ui-text-exempt: a trace event name, never displayed
+/// The context a reader's right-click on a picture must resolve to.
+const READ_MENU: &str = "canvas.read-object"; // ui-text-exempt: a menu context id, never displayed
 /// `C`, for the copy chord.
 const VK_C: u16 = 0x43;
 
@@ -273,5 +286,39 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     report.note(format!(
         "★★★ …and a {w}×{h} px picture went on the Windows clipboard with it"
     ));
+
+    // --- D: ★★ the route somebody finds without being told ------------------
+    driver.right_click_at(aim(
+        ctx,
+        &session,
+        page,
+        DocPoint::new(0, POINT.0, POINT.1),
+    )?)?;
+    session.settle(30);
+
+    let trace = session.trace()?;
+    let Some(menu) = trace.last(MENU) else {
+        return Ok(Some(format!(
+            "★★ A RIGHT-CLICK IN READ OPENED NOTHING: no `{MENU}` line at all. Until \
+             2026-09-01 `canvas::interact` asked `caps.edit_content` before asking WHICH \
+             menu, so a right-click anywhere in Read was discarded — including on paper, \
+             where the view menu is the correct answer and that file's own comment says \
+             so. Trace: {}.",
+            session.trace_path().display()
+        )));
+    };
+    if menu.get("context") != Some(READ_MENU) {
+        return Ok(Some(format!(
+            "★★ THE READER GOT THE WRONG MENU: `{}`, where `{READ_MENU}` was expected. \
+             `canvas.object` is the editing menu — Delete, unshare, re-aim to the container \
+             — every row of which this mode refuses, and R9 renders nothing rather than \
+             greying a list a mode could not honour. `canvas.empty` would mean the \
+             right-click resolved no object at all, so the hit test missed the picture the \
+             click in step A found. Trace: {}.",
+            menu.raw,
+            session.trace_path().display()
+        )));
+    }
+    report.note("★★ …and a right-click offers it, which is the route nobody has to be told about");
     Ok(None)
 }

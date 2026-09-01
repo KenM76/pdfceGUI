@@ -159,6 +159,27 @@ pub enum CanvasMenu {
     /// is documentation of that, and the field beats the object because a
     /// widget sits on top of whatever page content is underneath it.
     Field,
+    /// ★★★ **Reading, and the pointer is over a picture**: offer to copy it.
+    ///
+    /// `OPERATOR_REQUESTS.md` **O71**. A picture became selectable in Read so
+    /// it could be pasted into Word, and `Ctrl+C` was the only way to reach
+    /// that — which is a route nobody discovers. Acrobat Reader offers *Copy
+    /// Image* on the right-click and that is where somebody looks.
+    ///
+    /// ## ★★ Why a context of its own rather than [`Self::Object`]
+    ///
+    /// Because every other row of the object menu **edits**: Delete, unshare,
+    /// re-aim to the container, the Properties panel's editable fields. Reusing
+    /// that context in a mode which forbids all of them would draw a menu of
+    /// controls the mode refuses, and R9's answer to *"this mode cannot"* is
+    /// nothing rather than greying — greying is for the temporarily
+    /// unavailable, and a mode is not temporary, it is a choice the operator
+    /// has made and can unmake two inches away.
+    ///
+    /// ⇒ So this is a two-row menu with its own id, and the rows are the two
+    /// things a reader can genuinely do with a picture: take a copy of it, and
+    /// look at it more closely.
+    ReadObject,
     /// The pointer was over blank page: act on the view.
     ///
     /// The default, so a frame before any right-click has happened attaches
@@ -177,6 +198,7 @@ impl CanvasMenu {
             Self::Object => menus::CANVAS_OBJECT,
             Self::Text => menus::CANVAS_TEXT,
             Self::Field => menus::CANVAS_FIELD,
+            Self::ReadObject => menus::CANVAS_READ_OBJECT,
             Self::Empty => menus::CANVAS_EMPTY,
         }
     }
@@ -321,6 +343,10 @@ pub fn right_clicked_object(
 /// Returns the handler tokens the operator chose, for the caller to hand to
 /// the application's one dispatch point. **Nothing here executes anything.**
 #[must_use]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "eight independent facts about one right-click — the response, the selection it may move, the page, what is under the pointer, whether a field is selected, whether the document permits deleting one, whether this mode reads rather than edits, and the menu host. Grouping any subset would be grouping by arity rather than by meaning, and the resulting type would have no name that was true." // ui-text-exempt: a lint justification, never displayed
+)]
 pub fn attach(
     response: &egui::Response,
     selection: &mut SelectionState,
@@ -328,6 +354,7 @@ pub fn attach(
     object: Option<TargetId>,
     field_selected: bool,
     field_delete_permitted: bool,
+    reading: bool,
     host: Option<&MenuHost<'_>>,
 ) -> Vec<HandlerToken> {
     // 1.
@@ -359,6 +386,35 @@ pub fn attach(
             // right-click a field"* are one question by the time this runs, and
             // asking it twice with two hit tests is how the two answers drift.
             CanvasMenu::Field
+        } else if reading {
+            // ★★★ **Reading**: the object menu's rows all edit, so this mode
+            // gets its own two-row menu — O71. See [`CanvasMenu::ReadObject`].
+            //
+            // # Why the gate is HERE and was not before
+            //
+            // `canvas::interact` computed `secondary_clicked &&
+            // caps.edit_content`, so a right-click anywhere in Read or Review
+            // was discarded before this function ever ran — no menu at all,
+            // not even the view menu that `CANVAS_EMPTY`'s own registration
+            // calls *"the correct menu for a reader"*. That sentence was true
+            // and unreachable for the life of the shell.
+            //
+            // ⇒ The question a mode answers is **which menu**, not *whether a
+            // right-click is heard*. Moving it here is what let Read gain the
+            // two rows it should always have had, and what stops a future mode
+            // needing an edit in two files to get a menu at all.
+            //
+            // The selection still moves, through the same function and the
+            // same three rules, because a menu about *this picture* has to be
+            // about the one under the pointer. What differs is only which menu
+            // is named at the end, and a miss still resolves to the view menu —
+            // which is the right answer for a reader who right-clicked paper,
+            // and is the answer this mode has been giving since the day it
+            // could open a menu at all.
+            match select_under_right_click(selection, page, object) {
+                CanvasMenu::Object => CanvasMenu::ReadObject,
+                other => other,
+            }
         } else {
             select_under_right_click(selection, page, object)
         };

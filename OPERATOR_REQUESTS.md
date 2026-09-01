@@ -877,13 +877,18 @@ three angles. They should be designed together and shipped together.
 > transparent in a way every Windows program agrees about, so it comes out on
 > white paper — the same white you were looking at.
 >
-> ### ⬜ Owed: the right-click route
+> ### ✅ …and the right-click route, added 2026-09-01
 >
-> Ctrl+C is the only way to reach this today. Acrobat Reader offers *Copy
-> Image* on the right-click, and that is the route somebody discovers without
-> being told. The canvas menu is currently withheld outside Edit — reasonably,
-> since almost every item on it edits — so a Read-mode menu means a menu of its
-> own rather than relaxing a gate. Named rather than left as a silence.
+> Right-click the picture and *Copy* is there, which is where Acrobat Reader
+> puts it and where a hand goes without being told. It is a **two-row menu of
+> its own** — copy, and zoom to it — rather than the editing menu with
+> everything greyed out, because a mode that cannot delete should not draw a
+> Delete.
+>
+> ★★ Fixing it turned up something bigger: **a right-click while reading used
+> to do nothing at all.** Not the wrong menu — no menu. The check happened one
+> step too early, before anything asked *which* menu, so even the zoom menu on
+> blank paper was unreachable in Read and Review. Both modes now have it.
 >
 > **Verified:** driven —
 > `read_mode_copies_a_picture_other_programs_can_paste`.

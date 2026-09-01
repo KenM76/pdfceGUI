@@ -545,7 +545,10 @@ pub(super) fn interact(
     // is the correct menu for a reader — it is about the view, because there is
     // nothing here that is theirs to act on — and it is reached by the menu
     // system's own rule rather than by a second mode branch inside it.
-    let secondary_clicked = response.secondary_clicked() && caps.edit_content;
+    // ★★★ **Every mode hears a right-click**; which menu opens is
+    // `canvas::menus::attach`'s decision — O71, 2026-09-01. Its `reading` arm
+    // carries why the gate moved off this line.
+    let secondary_clicked = response.secondary_clicked();
     // ★ An armed measure tool needs the decomposition **on every frame**, not
     // only on the frame of a click.
     //
