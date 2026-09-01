@@ -80,6 +80,110 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O88 — ⬜ **A box can only select what it completely surrounds** — which is why the corner tables cannot be caught
+
+**Ken, 2026-09-01, on `TR-0461-1500-copy.pdf`:**
+
+> *"I can't box select the tables in the left or right top corners using the
+> mouse — it only picks up the lines of each table, so I can't drag the entire
+> thing and move it somewhere else, or cut/copy and paste it elsewhere."*
+
+### What was measured, read-only, without touching your mouse
+
+- That page has **no form XObjects at all** (`forms=0` from a render). So this
+  is not the wrapped-drawing case, and the tables are ordinary page objects —
+  paths and text side by side.
+- The engine's marquee **does** include text: it selects any object whose
+  bounding box satisfies the mode, with no filtering by kind.
+- This shell asks for exactly one mode, everywhere: **`MarqueeMode::Enclosed`**
+  — an object counts only if the band **completely surrounds** it.
+- The engine also has **`MarqueeMode::Touched`** — *"selected if its page bbox
+  touches the marquee (any overlap)"* — and **nothing in this shell has ever
+  asked for it.**
+
+### ★★★ Why "enclosed only" makes your corner tables uncatchable
+
+Both tables sit hard against the sheet edge. To surround one you would have to
+start the band **outside the page**, and at fit zoom there is barely a pixel of
+margin to start in. So the only band you can actually draw is one *inside* the
+table — which surrounds a few short rules and nothing else.
+
+⇒ **"It only picks up the lines" is what an enclosing band returns when it
+cannot be drawn big enough.** Not a hit test that excludes text.
+
+### The remedy, and it is a convention rather than an invention
+
+**AutoCAD's direction-sensitive marquee**, which SolidWorks drawings use too:
+
+| drag | selects |
+|---|---|
+| **left → right** | only what is completely surrounded (what pdfce does today) |
+| **right → left** | anything the band **touches** |
+
+No modifier key, nothing new to learn, and it is the behaviour a CAD user's hand
+already has. Illustrator selects on touch always; Inkscape encloses and puts
+touch on `Alt`. The direction rule is the drawing-office one, and this is a
+drawing program.
+
+★ It also fixes the corner case exactly: drag right-to-left across a table and
+everything it touches comes with it, edge of the sheet or not.
+
+**Status:** ⬜ **OPEN — diagnosed, not built.** The engine half already exists;
+this is a shell change to `canvas::interact`'s marquee and its gesture. Not
+built yet because it wants driving to verify and the machine was yours.
+
+★★ A driven check exists and is **not passing yet**:
+`a_marquee_over_a_table_takes_its_text_as_well_as_its_lines`. Its first two runs
+failed on the harness rather than the feature — a ten-page continuous document
+had scrolled the table off screen, and the band was driven above the canvas.
+Recorded so nobody reads that failure as evidence.
+
+---
+
+## O87 — ⬜ **Paste still lands near the copy, not at the cursor** — the trace could not say why, and now it can
+
+**Ken, 2026-09-01:**
+
+> *"copy and paste still doesn't paste where the cursor is, it just pastes near
+> the copied object."*
+
+### The rule needs TWO things, and either one missing degrades silently
+
+Pasting at the cursor is computed as *"move the clip so its centre lands under
+the pointer"*. That needs:
+
+1. **where the pointer is** — resolved at paste time, and only honoured when the
+   pointer is over the canvas;
+2. **where the clip's centre was** — computed at **copy** time, from the bounds
+   of what was selected.
+
+If either is missing the paste falls back to the old rule: a small offset from
+the original. Which is exactly what you are seeing.
+
+### ★★ What was wrong is that nobody could tell which
+
+The diagnostic said `at=offset` — the outcome, not the cause — and the two
+causes want opposite investigations:
+
+| missing | means | where to look |
+|---|---|---|
+| the cursor | no canvas frame, or the pointer was not over the page | the ROUTE you pasted by — a ribbon or menu press has the pointer somewhere else entirely |
+| the centre | the clip carries none | the COPY, and whether the object model could answer for the page the selection was on |
+
+⇒ Now it says `offset-no-cursor`, `offset-no-anchor` or `offset-neither`. One
+word, and the next report is diagnosable from a log instead of from guesswork.
+
+**Status:** ⬜ **OPEN — instrumented, not fixed.** The next step needs one run
+with the diagnostic on, doing the paste **the way you do it** — the route
+matters, and a ribbon press and `Ctrl+V` differ precisely in where the pointer
+is at the moment the command fires.
+
+★ If you can say which one you use — the keyboard, the right-click menu, or the
+ribbon button — that alone may settle it without any driving.
+
+---
+
+
 ## O86 — ⬜ **Filled fields come out the wrong SIZE** — diagnosed, measured, filed with the engine
 
 **Ken, 2026-09-01:**

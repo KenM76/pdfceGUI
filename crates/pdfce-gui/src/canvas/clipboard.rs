@@ -1085,6 +1085,30 @@ fn paste_content(
     // CENTRE, which is shared: one delta for the whole clip, so relative
     // geometry inside a multi-object paste is preserved by construction rather
     // than by care.
+    // ★★★ WHY it fell back, not just THAT it did — 2026-09-01.
+    //
+    // The operator reported *"copy and paste still doesn't paste where the
+    // cursor is, it just pastes near the copied object"*, and this rule needs
+    // **both** halves: where the pointer is, and where the clip's own centre
+    // was. Either one missing silently degrades to the offset, and the trace
+    // said only `at=offset` — which is the outcome, not the cause.
+    //
+    // The two causes want opposite investigations:
+    //
+    // | missing | means | look at |
+    // |---|---|---|
+    // | the **cursor** | no canvas frame, or the pointer is not over the canvas | the paste's ROUTE — a ribbon or menu press has the pointer somewhere else |
+    // | the **anchor** | the clip carries no centre, computed at COPY time | `copy_content`, and whether the provider could answer `bounds` for the page the selection is on |
+    //
+    // ⇒ A trace that cannot tell them apart makes the operator's report
+    // unfalsifiable from a log, which is exactly the position this project
+    // spent a morning in over a save that closed. One word ends it.
+    let why = match (target, anchor) {
+        (Some(_), Some(_)) => "cursor",
+        (None, Some(_)) => "offset-no-cursor",
+        (Some(_), None) => "offset-no-anchor",
+        (None, None) => "offset-neither",
+    };
     let (dx, dy) = match (target, anchor) {
         (Some(t), Some((cx, cy))) => (f64::from(t.x) - cx, f64::from(t.y) - cy),
         _ => {
@@ -1097,7 +1121,7 @@ fn paste_content(
         format!(
             "clipboard-paste kind=content page={page} from={from} objects={count} \
              at={} dx={dx:.1} dy={dy:.1}",
-            if target.is_some() { "cursor" } else { "offset" }
+            why
         )
     });
     actions.push(
