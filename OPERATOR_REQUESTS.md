@@ -217,7 +217,49 @@ ribbon button — that alone may settle it without any driving.
 ---
 
 
-## O86 — ⬜ **Filled fields come out the wrong SIZE** — diagnosed, measured, filed with the engine
+## O86 — ✅ **FIXED 2026-09-01** — filled fields size themselves to the box
+
+> **Your text now fits the field it is in.** On your Weber form:
+>
+> | | box | was | now |
+> |---|---|---|---|
+> | a description row | 27.8 pt | 12 pt | **22.4 pt** |
+> | a header field | 13.1 pt | 12 pt | **9.6 pt** |
+>
+> The second row is the half that was about to bite you: 12 pt in a 13 pt box
+> overflows, and every header field on that form is that size.
+>
+> **And pdfce now tells you which way it decided**, in the words it uses:
+> *"fitted to the field's HEIGHT; make the box taller to change it"*, or
+> *"shrunk to fit the field's WIDTH"*, or — the honest third case — *"held at
+> pdfce's legibility floor; the box is too small for this text, which will
+> overflow"*.
+>
+> ### ★★ It lands about 16% larger than Acrobat, deliberately
+>
+> Acrobat applies one more step: it shrinks by a constant 1.165 that nobody has
+> been able to explain. Eleven of its own appearances in your file agree on that
+> number to within 0.4%, and it is **not** a fit to the text width — the strings
+> are nowhere near the edges. The engine declined to divide by an unexplained
+> constant, and that is the right call: your complaint was 12 against 18, not 21
+> against 18.
+>
+> ★ The measurement that would settle it needs an Acrobat-filled field in a font
+> other than Helvetica. **Every form you have uses Helvetica** — all four Weber
+> forms and every conformance test page in that folder — so it stays unexplained unless a
+> different file turns up.
+>
+> ### ★ One thing in my own report was wrong
+>
+> I told the engine the second step was a width fit, from two numbers that
+> looked like one. They measured it and it is not — the text fits comfortably at
+> the larger size. The first half of my report was measured; the second was a
+> plausible story about a gap, and it read the same because it sat in the same
+> table. Recorded because it is the kind of mistake a reader cannot catch.
+
+<details><summary>The original report and the derivation</summary>
+
+## O86 (original) — Filled fields come out the wrong SIZE
 
 **Ken, 2026-09-01:**
 
@@ -262,9 +304,9 @@ than a coincidence. Then it shrinks to fit the width.
 **Filed:** `open/request_auto_sized_field_text_is_a_flat_12pt_and_acrobat_fits_the_box.md`,
 with both measurements and the derivation.
 
-**Status:** ⬜ **OPEN — the fix is the engine's.** Appearance generation is
-`pdfce-core`; this shell calls `fill_text_field` and the size is chosen inside.
-Nothing to build here until it lands, at which point the fill check gets re-driven.
+**Status:** ✅ **FIXED** in `pdfce-core` `Pass 215.0`, `d5d012e`.
+
+</details>
 
 ★ Not blocking you — you can fill in Acrobat — and you did not ask for a
 workaround.
