@@ -303,7 +303,13 @@ mod tests {
         // `OPERATOR_REQUESTS.md` O70. Ken: *"we should have a checkbox in
         // navigate for a Smart-Selector option."* The count moves WITH the
         // list, in the same commit, which is this file's standing rule.
-        assert_eq!(registry().len(), 127);
+        // ★★ 127 → 128 on 2026-09-01: `edit.select_all`. Ken: *"we should be
+        // able to select things off the side of the page, especially since I
+        // sometimes drop objects there, and when I do I can't get them back."*
+        // The canvas senses input over the page rect only, so an object dragged
+        // past the edge is unclickable, unbandable and unpainted — this is the
+        // way back to it.
+        assert_eq!(registry().len(), 128);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -422,8 +428,15 @@ mod tests {
         // work, so the alternative is not "draw one" but "ask him for one", and
         // a home-made paperclip beside hand-drawn art is the mismatch a
         // borrowed icon set exists to avoid. The label is the word Acrobat uses.
+        // ★ 20 → 21 on 2026-09-01: `edit.select_all` refuses a glyph, and the
+        // reason is the same one the three before it reached. There is no
+        // conventional icon for Select All — Word, Acrobat and Illustrator all
+        // present it as words, in a menu or a list, because what it selects is
+        // the thing a picture cannot show. A marquee glyph would say "rubber
+        // band", which is the gesture this command exists to replace when the
+        // rubber band cannot reach.
         assert_eq!(
-            refused, 20,
+            refused, 21,
             "commands with no icon, each argued at its registration"
         );
         // Each refusal is argued at its own registration and listed in the

@@ -703,6 +703,24 @@ pub const fn edit_form_choice() -> CommandText {
     )
 }
 
+/// ★★★ **Select everything on this page, including what has slid off it.**
+///
+/// The tooltip names the RECOVERY rather than the mechanism, because that is
+/// what sends an operator looking for it. 2026-09-01: *"I sometimes drop
+/// objects there, and when I do I can't get them back."*
+///
+/// ★ "Select all" is the label because it is the phrase every hand already
+/// knows and a ribbon group competes for width. The off-the-sheet half — the
+/// thing that makes this a rescue rather than a convenience — is in the
+/// tooltip, where there is room to say it properly.
+#[must_use]
+pub const fn edit_select_all() -> CommandText {
+    CommandText::new(
+        "Select all",
+        "Selects everything drawn on this page, including anything moved off the edge of the sheet and out of reach of the mouse.",
+    )
+}
+
 /// **Push button** — authorable, inert, and greyed until pdfce can run actions.
 #[must_use]
 pub const fn edit_form_push_button() -> CommandText {

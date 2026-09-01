@@ -249,6 +249,7 @@
                     id: "content",
                     caption: "Content",
                     items: [
+                        Command(id: "edit.select_all"),
                         Command(id: "edit.text"),
                         Command(id: "edit.add_text"),
                         Command(id: "edit.reflow_block"),
@@ -466,6 +467,7 @@
         "Ctrl+1": "mode.read",
         "Ctrl+2": "mode.review",
         "Ctrl+3": "mode.edit",
+        "Ctrl+A": "edit.select_all",
         "Ctrl+Alt+N": "file.new_from_template",
         "Ctrl+C": "edit.copy",
         "Ctrl+E": "edit.text",

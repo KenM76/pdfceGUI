@@ -156,6 +156,12 @@ pub(super) fn band() -> Vec<Command> {
         // with no document, which is the thing the condition was always also
         // doing. The catalog test that pins this string is what keeps the
         // ribbon and `app::dispatch::forms` asking the same question.
+        // ★★★ **Select all**, and the reason it is on the EDIT tab rather than
+        // being a bare chord: an operator who has lost an object off the side of
+        // the sheet needs to FIND the command, and a keyboard shortcut nobody
+        // can see is not findable. `Ctrl+A` is bound to it as well, because that
+        // is the chord every program in the world uses.
+        command("edit.select_all", t::edit_select_all(), 402).enabled_when("doc.pages"),
         command("edit.form_push_button", t::edit_form_push_button(), 438)
             .with_icon("form-field")
             .enabled_when("forms.push_button_runnable"),

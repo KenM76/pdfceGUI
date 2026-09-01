@@ -81,6 +81,14 @@ pub(super) fn tab() -> Tab {
                 "content",
                 ribbon::group_edit_content(),
                 [
+                    // ★★★ FIRST in the group, and the position is the argument.
+                    //
+                    // An operator reaches for this when something has gone
+                    // wrong — an object dragged off the sheet, invisible and
+                    // unclickable — and a rescue that is findable only by
+                    // knowing `Ctrl+A` is not findable. It sits where the eye
+                    // lands first on the tab they are already working in.
+                    command("edit.select_all"),
                     command("edit.text"),
                     command("edit.add_text"),
                     // ★ Beside the text verbs it belongs with, and after them:

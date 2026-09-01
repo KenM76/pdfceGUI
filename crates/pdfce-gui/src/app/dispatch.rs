@@ -391,6 +391,12 @@ impl PdfceApp {
             // asked (`crate::app::conditions` is the first), and the two would
             // eventually disagree — which shows up as a control that is greyed
             // while the status bar says something else.
+            // ★ No enable predicate is consulted here, like every other arm —
+            // greying is the ribbon's hint and the arm is the answer. A Select
+            // All on a document with no page objects selects nothing and says
+            // so through the trace, which is the honest outcome rather than a
+            // refusal.
+            "edit.select_all" => actions.push(Action::SelectAllOnPage),
             "edit.undo" => actions.push(Action::Undo),
             "edit.redo" => actions.push(Action::Redo),
             // ★ Print, and the one command in this match that raises no

@@ -1216,6 +1216,83 @@ impl PdfceApp {
             // ★ **Undo and redo**, through the same [`vector_edit`] funnel every
             // other document change goes through — which is the whole of why
             // these two arms are one line each. See [`history_step`].
+            // ★★★ **Everything on the page, wherever it now sits** — and the
+            // whole argument for the command, which `Action::SelectAllOnPage`
+            // points here for.
+            //
+            // The operator, 2026-09-01: *"we should be able to select things off
+            // the side of the page, especially since I sometimes drop objects
+            // there, and when I do I can't get them back."*
+            //
+            // He is describing a ONE-WAY DOOR. `canvas::present` allocates the
+            // page's own rectangle as the interaction area, and its comment
+            // gives the right reason: a hit area reaching off the sheet would
+            // overlap its neighbours in a continuous strip. So an object dragged
+            // past the edge sits outside every rectangle that can be clicked,
+            // outside any rubber band that can be drawn, and outside the crop
+            // box that decides what is painted. Invisible, unreachable, and
+            // still in the file.
+            //
+            // ★★ This is the way out of the room, and it is deliberately NOT a
+            // fix for off-page input sensing — a band still cannot be started
+            // off the sheet, and `OPERATOR_REQUESTS.md` O88's direction-
+            // sensitive marquee is still owed. What recommends it is that it is
+            // buildable and verifiable in one sitting, where the gesture work is
+            // not, and it turns "I cannot get them back" into one keystroke
+            // today.
+            //
+            // ★ CONTENT only. Annotations, form widgets and ce dimensions have
+            // their own surfaces and are not in `PageObjects`; sweeping all four
+            // kinds into one selection would produce a set most of this shell's
+            // verbs would then refuse.
+            //
+            // Asked for by a rect that cannot fail to contain: `Rect::EVERYTHING`
+            // through the same `hit_test_rect` a rubber band uses, rather than
+            // by walking `PageObjects::objects` and minting ids here. Two
+            // reasons, and the second is the load-bearing one:
+            //
+            // 1. The provider owns the `TargetId` encoding — page objects and
+            //    form leaves are different index spaces and only it mints
+            //    either. A hand-rolled `0..objects.len()` would produce
+            //    `Object(i)` for everything and silently drop every leaf.
+            // 2. **`MarqueeMode::Enclosed` against an infinite rect selects
+            //    everything by construction**, including objects with negative
+            //    or out-of-page coordinates, which is exactly the case this
+            //    command exists for. Nothing has to be special-cased for
+            //    off-page geometry because nothing is bounded.
+            Action::SelectAllOnPage => {
+                let page = doc.view.page_index;
+                // ★★★ A LARGE FINITE RECT, not `Rect::EVERYTHING`.
+                //
+                // The first version used `EVERYTHING` and selected **nothing**,
+                // measured on the operator's own drawing: `select-all page=0
+                // n=0`. The provider maps the query rectfrom canvas space into
+                // PDF space before asking the engine, and an infinite rect put
+                // through an affine transform yields NaN — after which every
+                // containment test is false and the answer is silently empty.
+                //
+                // ⇒ Infinity is not a safe "everything" when a coordinate
+                // system change stands between the caller and the comparison.
+                // A million points is about 350 metres of paper; no page
+                // approaches it, and every arithmetic step stays finite.
+                const EVERYWHERE: f32 = 1.0e6;
+                let all = egui::Rect::from_min_max(
+                    egui::pos2(-EVERYWHERE, -EVERYWHERE),
+                    egui::pos2(EVERYWHERE, EVERYWHERE),
+                );
+                let hits = doc
+                    .page_objects()
+                    .map(|p| p.hit_test_rect(page, all))
+                    .unwrap_or_default();
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    format!("select-all page={page} n={}", hits.len())
+                });
+                // `false` — a Select All REPLACES. Extending would make a
+                // second press a no-op and a first press after a click keep the
+                // click, neither of which is what the command says.
+                doc.selection.marquee(page, &hits, false);
+            }
             Action::Undo => super::history::history_step(doc, super::history::Direction::Undo),
             Action::Redo => super::history::history_step(doc, super::history::Direction::Redo),
             // ★ Reaching here means the frame's drain was removed or moved.

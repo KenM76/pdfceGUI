@@ -1416,43 +1416,22 @@ pub enum Action {
         /// The `/Redact` annotation to delete.
         annot_id: pdfce_core::object::ObjId,
     },
-    /// **Take back the most recent change** — the other end of the command log
-    /// every mutating action in this enum writes to.
+    /// **Select everything on the current page**, including anything that
+    /// has been moved OFF it.
     ///
-    /// Raised by `edit.undo`, which is on the quick-access toolbar in every
-    /// mode and bound to `Ctrl+Z`. Applied by `apply::history_step`.
+    /// ★★★ The recovery route for a one-way door. 2026-09-01: *"I sometimes
+    /// drop objects there, and when I do I can't get them back."* The canvas
+    /// senses input over the page rect only — correctly, or a hit area would
+    /// overlap its neighbours in a continuous strip — so an object dragged
+    /// past the edge is unclickable, unbandable and unpainted, while still
+    /// being in the file.
     ///
-    /// # ★ Why this is an action at all, when it is "just" a method call
-    ///
-    /// Because `EditSession::undo` takes `&mut self` and
-    /// [`crate::app::state::OpenDoc::session`] is an `Arc` — held by the render
-    /// worker while it rasterizes — so `Arc::get_mut` fails unless the worker is
-    /// stopped first. Stopping a render **in the middle of laying out a frame**
-    /// is exactly what this funnel exists to prevent, and it is the same
-    /// argument [`Self::Find`] makes for a search that mutates no document.
-    ///
-    /// It is also the ordinary one: an undo changes the document, so it changes
-    /// the decomposition, the page-text cache, the font inventory and the
-    /// canvas selection, and every one of those is invalidated by the epoch
-    /// bump that only the apply phase may perform.
-    ///
-    /// # Why it carries nothing
-    ///
-    /// Because the operand is the log's own top, and the log is on the session.
-    /// Carrying a depth or a `CommandKind` would be carrying a *copy* of state
-    /// the apply is about to read anyway — and a stale copy at that, since a
-    /// frame's earlier action can push a command between the raise and the
-    /// apply. `crate::app::actions`' rule is that an action is a complete
-    /// statement of **intent**; "take back the last thing" is complete.
-    ///
-    /// # An empty log is not an error
-    ///
-    /// `undo.available` greys the control, so a *click* cannot reach an empty
-    /// log — but `Ctrl+Z` can, from any mode, because
-    /// `crate::app::modes::capability::offers_command` lets a command on no tab
-    /// through everywhere. The apply arm declines it in words rather than in
-    /// silence; see `crate::app::status::decline::Declined::NothingToUndo` for
-    /// why that is worth a sentence when the greyed control is already there.
+    /// ★ **The whole argument, including why an infinite rect is the right
+    /// way to ask and what this deliberately does NOT fix, is on the apply
+    /// arm** in `app::actions::apply` — this file is 1,500 lines of one
+    /// enum and R2 puts the reasoning next to the mechanism when it cannot
+    /// have both.
+    SelectAllOnPage,
     Undo,
     /// **Re-apply the most recently undone change.**
     ///

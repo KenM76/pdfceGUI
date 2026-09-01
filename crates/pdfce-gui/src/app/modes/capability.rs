@@ -769,6 +769,11 @@ mod tests {
                 // tab**, which Read does not show. Nothing special-cases the
                 // new chord — it inherits the gate by being in the group.
                 "edit.paste_duplicate",
+                // ★ Read refuses it because it selects CONTENT, and Read is the
+                // mode that does not edit content. Text selection has its own
+                // Ctrl+A and is unaffected — which is the distinction this list is
+                // for.
+                "edit.select_all",
                 "edit.text",
                 // ★ The object clipboard, added 2026-08-19 — listed after the
                 // two text verbs because this array is SORTED (the assertion

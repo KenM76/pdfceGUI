@@ -358,6 +358,14 @@ pub fn built_in() -> Shell {
         // the most reflexive chord in computing opened a file dialog every
         // time. Save-a-copy takes Ctrl+Shift+S, which is where every other
         // program in this class puts Save-as.
+        // ★★★ `Ctrl+A`, and it must NOT steal from a text edit.
+        //
+        // `canvas::textsel::clipboard` already answers `Ctrl+A` with
+        // `TextKey::SelectAll` while a text selection or caret owns the
+        // keyboard, and that path runs first. This binding is what the chord
+        // means on the CANVAS — which is where an operator who has lost an
+        // object off the sheet is pressing it.
+        .with_binding("Ctrl+A", "edit.select_all")
         .with_binding("Ctrl+S", "file.save")
         .with_binding("Ctrl+Shift+S", "file.save_copy")
         .with_binding("Ctrl+Z", "edit.undo")
@@ -844,8 +852,9 @@ mod tests {
         assert_eq!(shell.modes().len(), 3, "three modes");
         assert_eq!(
             shell.keymap.as_ref().expect("a keymap").len(),
-            34,
-            "thirty-four key bindings — the four pointer tools took V, A, T and H on 
+            35,
+            "thirty-five key bindings — Ctrl+A joined on 2026-09-01 for `edit.select_all`; \
+             the four pointer tools took V, A, T and H on 
              2026-08-19, and the document tabs took Ctrl+Tab, Ctrl+Shift+Tab and 
              Ctrl+W the same day. Both are the layout every program in this class uses. 
              ★ 33 → 34 on 2026-08-29: Ctrl+Shift+V for `edit.paste_duplicate`, the 
@@ -885,6 +894,7 @@ mod tests {
         for (chord, command) in [
             ("Ctrl+N", "file.new"),
             ("Ctrl+O", "file.open"),
+            ("Ctrl+A", "edit.select_all"),
             ("Ctrl+S", "file.save"),
             ("Ctrl+Shift+S", "file.save_copy"),
             ("Ctrl+P", "file.print"),
