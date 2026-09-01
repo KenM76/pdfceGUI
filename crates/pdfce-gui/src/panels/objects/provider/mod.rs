@@ -264,6 +264,19 @@ pub struct ObjectModelProvider {
     /// degenerate (non-invertible) page — then the provider declines every
     /// query rather than fabricate geometry.
     to_pdf: Option<Transform>,
+    /// **The page's own extent in canvas units**, or `None` when this
+    /// provider was built from parts and nobody supplied one.
+    ///
+    /// ★★★ Held for exactly one question:
+    /// [`crate::canvas::target::CanvasTargetProvider::container_is_worth_selecting`],
+    /// which needs to know whether a form covers the whole sheet. It is
+    /// `page_device_geometry(page, 1.0)`'s first two returns, which were
+    /// discarded here until 2026-09-01 — the transform was wanted and the
+    /// size was not.
+    ///
+    /// ★ `None` makes that predicate answer `true`, which is the behaviour
+    /// before it existed. A provider that cannot measure must not guess.
+    page_extent_px: Option<egui::Vec2>,
 }
 
 /// Which KIND of part the "Part" rung is standing on for a given object.
@@ -388,12 +401,20 @@ impl ObjectModelProvider {
                 elapsed.as_millis()
             )
         });
-        let (_, _, to_canvas) = page_device_geometry(page, 1.0);
+        let (w, h, to_canvas) = page_device_geometry(page, 1.0);
         Ok(Self {
             page_index,
             objects,
             to_canvas,
             to_pdf: to_canvas.invert(),
+            // ★ At scale 1.0 these ARE the page's canvas-space extent, which is
+            // the space `bounds` answers in. Taken here rather than re-derived
+            // from the crop box, so the geometry has one source.
+            #[allow(
+                clippy::cast_precision_loss,
+                reason = "a page dimension in pixels is far below f32's exact-integer range" // ui-text-exempt: a lint justification
+            )]
+            page_extent_px: Some(egui::vec2(w as f32, h as f32)),
         })
     }
 
@@ -411,7 +432,22 @@ impl ObjectModelProvider {
             objects,
             to_canvas,
             to_pdf: to_canvas.invert(),
+            // ★ Headless tests construct from parts and have no page. `None`
+            // makes `container_is_worth_selecting` answer `true`, which is what
+            // those tests were written against — a unit test must not start
+            // depending on a geometric judgement it never supplied the geometry
+            // for.
+            page_extent_px: None,
         }
+    }
+
+    /// The page's extent in canvas units, when this provider knows it.
+    ///
+    /// See the field for why it exists and why `None` is a real answer rather
+    /// than a missing one.
+    #[must_use]
+    pub fn page_extent(&self) -> Option<egui::Vec2> {
+        self.page_extent_px
     }
 
     /// Which page this provider answers for.

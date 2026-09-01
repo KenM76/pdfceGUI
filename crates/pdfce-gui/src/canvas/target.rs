@@ -421,27 +421,43 @@ impl CanvasTargetProvider for ObjectModelProvider {
         let Some(bounds) = self.bounds(page_index, container) else {
             return true;
         };
-        let Some(model) = self.page_objects_model(page_index) else {
+        // ★★★ AGAINST THE PAGE — and the first version of this compared against
+        // the union of every page object's bounds instead.
+        //
+        // That was wrong in a way only a SECOND fixture could show: when the
+        // form is the only page object, the union IS the form, the ratio is
+        // 1.0, and every lone container is judged "holds everything" — a stamp
+        // on an otherwise empty sheet included.
+        //
+        // ★★ Caught by two of this project's own driven checks contradicting
+        // each other within the hour, which is the most useful thing a suite
+        // can do. One demanded the leaf on a page-sized wrapper; the other
+        // demanded the container on a 320×220 form on a 400×300 page. Both are
+        // right, and only a page-relative measure satisfies both.
+        let Some(page) = self.page_extent() else {
             return true;
         };
-        let mut union: Option<egui::Rect> = None;
-        for i in 0..model.objects.len() {
-            if let Some(r) = self.bounds(page_index, TargetId::Object(i as u64)) {
-                union = Some(match union {
-                    Some(u) => u.union(r),
-                    None => r,
-                });
-            }
-        }
-        let Some(union) = union else { return true };
-        // A degenerate union cannot be divided into. Say yes rather than
-        // producing an infinity and a surprising answer.
-        if union.width() <= f32::EPSILON || union.height() <= f32::EPSILON {
+        if page.x <= f32::EPSILON || page.y <= f32::EPSILON {
             return true;
         }
-        let covers =
-            (bounds.width() / union.width()).min(1.0) * (bounds.height() / union.height()).min(1.0);
-        covers < COVERS_EVERYTHING
+        let covers = (bounds.width() / page.x).min(1.0) * (bounds.height() / page.y).min(1.0);
+        let worth = covers < COVERS_EVERYTHING;
+        // ★★ Traced, because the alternative is inferring this from a selection
+        // two layers away. When those two checks disagreed, neither could say
+        // what the predicate had actually answered — the numbers had to be
+        // reconstructed by hand from a fixture generator. One line ends that.
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            format!(
+                "container-worth id={} covers={covers:.3} page={:.0}x{:.0} box={:.0}x{:.0} worth={worth}",
+                container.raw(),
+                page.x,
+                page.y,
+                bounds.width(),
+                bounds.height()
+            )
+        });
+        worth
     }
 
     /// The real model. Guarded on the page, because this provider decomposes
