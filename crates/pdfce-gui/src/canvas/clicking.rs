@@ -487,6 +487,25 @@ pub fn click(
             doc.current_page(),
             actions,
         );
+    } else if matches!(active_tool, crate::canvas::tool::CanvasTool::Place(_)) {
+        // ★★ A CLICK places the corner and leaves the size to the window that
+        // asked — `OPERATOR_REQUESTS.md` O66.
+        //
+        // Lower-left rather than centre, which is the Form arm's rule below and
+        // is chosen for its reason: it matches what the DRAG does, so the two
+        // gestures agree about what the pointer meant and an operator who
+        // switches between them is not surprised.
+        //
+        // ★ Unlike every other arm here this commits nothing. The answer goes
+        // to `egui::Memory` and the dialog reads it back — the operator has not
+        // pressed Insert yet and may still change the numbers.
+        //
+        // ★★★ The page is passed because the conversion belongs INSIDE
+        // `placing` — see its `click`. The first version of this line handed
+        // over a canvas point and the placement came out mirrored in y.
+        if let Some(page) = doc.current_page() {
+            crate::canvas::placing::click(ctx, page, point);
+        }
     } else if let crate::canvas::tool::CanvasTool::Form(kind) = active_tool {
         // ★★ A CLICK places a form control at its conventional size.
         //

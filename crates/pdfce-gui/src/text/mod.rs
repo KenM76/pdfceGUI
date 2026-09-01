@@ -168,16 +168,6 @@ pub mod measure;
 /// its rows borrow from [`commands`]. Currently empty by construction; its
 /// header carries the argument and the list of what would land there.
 pub mod menus;
-/// Every word the Markup ▸ Style group shows — three tooltips and a unit.
-///
-/// Small, and load-bearing out of proportion to its size: the controls are a
-/// colour swatch and a number, so the tooltip is the only place they can say
-/// what they are, and the only place an operator learns the setting applies to
-/// the **next** mark rather than to one already drawn.
-/// ★ What pdfce says after combining files — `OPERATOR_REQUESTS.md` O68.
-///
-/// Separate from [`files`], which owns the dialog HEADINGS the operating
-/// system draws. These are what pdfce says afterwards, on its own status row.
 pub mod merge;
 /// The sized-New dialog's copy — the size list, the orientation pair, the
 /// custom fields and the one refusal. Consumed by
@@ -209,6 +199,19 @@ pub mod panels;
 /// inventing one or exposing "form XObject" to somebody who has not read the
 /// specification.
 pub mod pick;
+/// Every word the Markup ▸ Style group shows — three tooltips and a unit.
+///
+/// Small, and load-bearing out of proportion to its size: the controls are a
+/// colour swatch and a number, so the tooltip is the only place they can say
+/// what they are, and the only place an operator learns the setting applies to
+/// the **next** mark rather than to one already drawn.
+/// ★ What pdfce says after combining files — `OPERATOR_REQUESTS.md` O68.
+///
+/// Separate from [`files`], which owns the dialog HEADINGS the operating
+/// system draws. These are what pdfce says afterwards, on its own status row.
+/// What a window says when it steps aside so the operator can point at the page
+/// — `OPERATOR_REQUESTS.md` O66.
+pub mod placing;
 /// Every word the print dialog shows. Consumed by `crate::dialogs::print`.
 pub mod print;
 /// ★★★ The sentence a document that reaches outside itself earns — a submit

@@ -443,6 +443,23 @@ pub enum CanvasTool {
     /// matters more here than for markup, because an unwanted annotation is
     /// obvious and an unwanted invisible form field is not.
     Form(crate::canvas::formfield::FormFieldKind),
+    /// ★★★ **A window is waiting for the operator to point at the page** —
+    /// `OPERATOR_REQUESTS.md` O66.
+    ///
+    /// > *"anything we are inserting like this should have an option in its
+    /// > dialogue box to place it with the mouse instead of by positional
+    /// > co-ordinates."*
+    ///
+    /// It clears this enum's admission bar the same way [`Self::Form`] does: it
+    /// carries exactly one value, it has a `DragKind`, a `GestureOutcome`, a
+    /// press meaning of its own, and a commit path — which is the requesting
+    /// dialog's own Insert rather than anything on this canvas.
+    ///
+    /// ★ The dialog that armed it is **not on screen** while this is active,
+    /// and that is derived rather than stored — see
+    /// [`crate::canvas::placing`]'s header for why a stored flag rebuilds a
+    /// stranding bug the Set-scale round trip already has.
+    Place(crate::canvas::placing::PlaceKind),
 }
 
 impl CanvasTool {
@@ -520,6 +537,10 @@ impl CanvasTool {
             // same gesture: the operator is about to put a rectangle on the
             // page. A different cursor would imply a different act.
             Self::Form(_) => Some(CursorIcon::Crosshair),
+            // ★ Crosshair, joining the Form / Markup / TextAnnot group for
+            // their stated reason: the gesture is *put something here*, and a
+            // crosshair is the one cursor that says so without implying what.
+            Self::Place(_) => Some(CursorIcon::Crosshair),
             Self::Select => None,
             // ★ **The same answer as `Select` — `None` — and that is the whole
             // point.** The Node tool's feedback is the anchors it draws, not a
@@ -583,6 +604,21 @@ impl CanvasTool {
     pub fn measure_kind(self) -> Option<MeasureKind> {
         match self {
             Self::Measure(kind) => Some(kind),
+            _ => None,
+        }
+    }
+
+    /// Which placement is armed, if any — `OPERATOR_REQUESTS.md` O66.
+    ///
+    /// [`Self::markup_kind`]'s and [`Self::measure_kind`]'s sibling, with the
+    /// same contract and one fewer caller: nothing publishes a `selected:`
+    /// condition for it, because a placement is armed from **inside a dialog**
+    /// and has no ribbon control to render pressed. `panels::tool::armed`
+    /// records that absence rather than inheriting it.
+    #[must_use]
+    pub fn place_kind(self) -> Option<crate::canvas::placing::PlaceKind> {
+        match self {
+            Self::Place(kind) => Some(kind),
             _ => None,
         }
     }

@@ -858,6 +858,41 @@ impl eframe::App for PdfceApp {
         // one is a button inside a dialog and the other is the canvas noticing
         // its own state machine finished. Both are frame-level observations,
         // which is what this function is for.
+        // ★★★ **The placement round trip** — `OPERATOR_REQUESTS.md` O66, and
+        // it is THREE edges where the scale round trip below has two. The third
+        // is the difference that matters: a placement can be abandoned, and the
+        // window has to come back when it is.
+        //
+        // ★ Edge 3 is an explicit no-op arm rather than an absent one, because
+        // the sentence it carries is the whole design: **nothing happens on a
+        // cancel, because the dialog un-hides itself.** Being hidden is derived
+        // from the pending record, so clearing that record IS the un-hide.
+        {
+            let page = match &self.status {
+                crate::app::state::Status::Open(doc) => doc.view.page_index,
+                _ => 0,
+            };
+            if let Some((kind, page)) = self.dialogs.take_place_request(page) {
+                crate::canvas::placing::arm(&ctx, kind, page);
+            }
+            if let Some((kind, rect)) = crate::canvas::placing::take_result(&ctx) {
+                self.dialogs.deliver_placement(kind, rect);
+            }
+            if let Some(kind) = crate::canvas::placing::take_cancelled(&ctx) {
+                // Deliberately nothing. See above.
+                let _ = kind;
+            }
+            // ★★ …and the invariant that closes every route nobody enumerated:
+            // a placement pending for a window that has gone. Closing the
+            // document drops the dialog, and without this the canvas would wait
+            // in a placement tool for a window that no longer exists. One
+            // `Option` read per frame.
+            if crate::canvas::placing::pending(&ctx)
+                .is_some_and(|p| !self.dialogs.has_requester(p.kind))
+            {
+                crate::canvas::placing::cancel(&ctx);
+            }
+        }
         if self.dialogs.take_scale_calibrate_request() {
             self.dialogs.close_scale();
             crate::canvas::tool::select(

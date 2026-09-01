@@ -927,6 +927,15 @@ pub(super) fn interact(
         // rect — the same rule the text-annotation arm states — so the band the
         // operator watched and the control that is authored cannot disagree
         // about which corner was the anchor.
+        // O66 — the band, and the answer on release. Both bodies live in
+        // `canvas::placing`, which is where the reasoning is; R2 leaves this
+        // file six lines and they are spent on routing.
+        GestureOutcome::Place {
+            from, to, phase, ..
+        } => {
+            pv.band = Some(crate::canvas::placing::band(from, to));
+            crate::canvas::placing::band_released(&ctx, doc, from, to, phase);
+        }
         GestureOutcome::FormField {
             kind,
             from,

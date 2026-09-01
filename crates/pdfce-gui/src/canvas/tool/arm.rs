@@ -95,10 +95,16 @@ pub fn cursor_for(
             // four above share: it is a rubber band being dragged out, and what
             // says which of the five kinds is armed is the pressed ribbon
             // control, off-canvas.
+            // ★ …and a PLACEMENT band is the sixth (O66), on the same
+            // argument: it is a rubber band being dragged out, and what says
+            // what it will place is the Tool panel's armed instruction —
+            // off-canvas, because the window that would have said so has
+            // stepped aside.
             DragKind::Marquee(_)
             | DragKind::Markup(_)
             | DragKind::TextAnnot(_)
             | DragKind::Form(_)
+            | DragKind::Place(_)
             | DragKind::TextBox => CursorIcon::Crosshair,
             DragKind::Move => CursorIcon::Grabbing,
             DragKind::Resize(grip) => grip.cursor(),
@@ -204,11 +210,16 @@ pub fn toggle_hand(ctx: &egui::Context) -> CanvasTool {
         // one press mean "put the pen down" and a second one mean "pick the
         // hand up". The text tool joins that arm rather than earning its own for
         // the identical reason: pressing Hand while sweeping text means Hand.
+        // ★ `Place` joins this arm: pressing Hand while a placement is armed
+        // means Hand. The pending record is cleared by `retire_forbidden`'s
+        // sibling below and by `canvas::keys`' Escape claimant, so the window
+        // it was hiding comes straight back — see `canvas::placing`.
         CanvasTool::Select
         | CanvasTool::Node
         | CanvasTool::Markup(_)
         | CanvasTool::Measure(_)
         | CanvasTool::TextAnnot(_)
+        | CanvasTool::Place(_)
         | CanvasTool::Text
         | CanvasTool::TextEdit(_)
         | CanvasTool::Form(_) => CanvasTool::Hand,
@@ -258,6 +269,7 @@ pub fn toggle_text(ctx: &egui::Context) -> CanvasTool {
         CanvasTool::Select
         | CanvasTool::Node
         | CanvasTool::Hand
+        | CanvasTool::Place(_)
         | CanvasTool::Markup(_)
         | CanvasTool::Measure(_)
         | CanvasTool::TextAnnot(_)
@@ -575,6 +587,11 @@ pub fn retire_forbidden(ctx: &egui::Context, caps: Capabilities) -> bool {
         // Pairing it with `author_markup` would let Review mode place form
         // controls, which is not a review activity.
         CanvasTool::Form(_) => caps.edit_content,
+        // ★ A placement answers to the capability of the thing being placed,
+        // which each kind states for itself — see `PlaceKind::capability`.
+        // Asking here would put the mapping in a second place and let the two
+        // disagree about whether Review may drop an image on a drawing.
+        CanvasTool::Place(kind) => kind.capability(caps),
         CanvasTool::Markup(_) => caps.author_markup,
         // ★ Gated on `author_markup`, not on a capability of its own.
         //
@@ -607,6 +624,16 @@ pub fn retire_forbidden(ctx: &egui::Context, caps: Capabilities) -> bool {
         return false;
     }
     select(ctx, CanvasTool::Select);
+    // ★★★ …and a PENDING PLACEMENT goes with it, or the mode change leaves a
+    // hidden dialog with nothing coming back for it — `OPERATOR_REQUESTS.md`
+    // O66.
+    //
+    // The same argument the draft below makes, one step further: a placement is
+    // a window that has stepped aside and is waiting. `canvas::placing` makes
+    // the window's absence DERIVED from this record precisely so that clearing
+    // it here is all "bring the window back" means — there is no second flag to
+    // remember. Cheap on every other retirement: one `egui::Memory` read.
+    crate::canvas::placing::cancel(ctx);
     // ★ …and the draft goes with the tool. A retirement that left one in
     // `egui::Memory` would leave a keystroke buffer aimed at a document the mode
     // being entered says is not the operator's to change — and it would still be

@@ -120,6 +120,12 @@ pub const REGION_BODY: &str = "dialog:insert-image"; // ui-text-exempt: trace re
 /// control it can move.
 pub const REGION_WIDTH: &str = "insert-image.width"; // ui-text-exempt: trace region name, never displayed
 /// The region the Insert button publishes.
+/// The **Place it on the page…** button's region — `OPERATOR_REQUESTS.md` O66.
+///
+/// ★ Published on every frame the dialog draws, which is every frame it is NOT
+/// hiding for a placement — so its absence from a trace means the window has
+/// stepped aside, which is exactly the state a driven check needs to observe.
+pub const REGION_PLACE: &str = "insert-image.place"; // ui-text-exempt: trace region name, never displayed
 pub const REGION_INSERT: &str = "insert-image.insert"; // ui-text-exempt: trace region name, never displayed
 
 /// Points per millimetre.
@@ -168,6 +174,10 @@ pub struct InsertImageDialog {
     /// The page's own extent in points, for the on-the-sheet check.
     page_size_pt: (f64, f64),
     /// The box, in millimetres from the page's bottom-left.
+    /// ★★★ The operator's offer to point at the page instead of typing —
+    /// `OPERATOR_REQUESTS.md` O66. See [`crate::dialogs::placing`]; it holds
+    /// one boolean and derives everything else.
+    place: crate::dialogs::placing::PlaceHandoff,
     x_mm: f64,
     /// See [`Self::x_mm`].
     y_mm: f64,
@@ -228,6 +238,7 @@ impl InsertImageDialog {
             name,
             page_index,
             page_size_pt: (pw, ph),
+            place: crate::dialogs::placing::PlaceHandoff::default(),
             x_mm: ((pw - w) / 2.0).max(0.0) / PTS_PER_MM,
             y_mm: ((ph - h) / 2.0).max(0.0) / PTS_PER_MM,
             width_mm: (w / PTS_PER_MM).max(MIN_MM),
@@ -240,6 +251,26 @@ impl InsertImageDialog {
 
     /// Draw it. Returns `false` when it should close.
     pub fn show(&mut self, ctx: &egui::Context, actions: &mut Vec<Action>) -> bool {
+        // ★★★ **Step aside while the operator points** — `OPERATOR_REQUESTS.md`
+        // O66. The FIRST line, before the window is built, so nothing of this
+        // dialog exists on a frame where a placement is pending for it.
+        //
+        // ★ It returns `true` — *still open* — while drawing nothing. The
+        // dialog is not closed: its typed numbers, its chosen fit and its
+        // position are all exactly where they were, and they come back with it.
+        // That is the difference between stepping aside and being dismissed,
+        // and it is why his numbers survive the trip.
+        //
+        // `hidden` is DERIVED from `canvas::placing`'s pending record, so
+        // whatever clears that record brings this window back — Escape, a mode
+        // change, another tool, the document closing. There is no flag here to
+        // forget to clear, which is the bug the Set-scale round trip has.
+        if self
+            .place
+            .hidden(ctx, crate::canvas::placing::PlaceKind::Image)
+        {
+            return true;
+        }
         // ★ ITS OWN OS WINDOW as of 2026-08-21, and the screen anchor is
         // retired rather than moved: an OS window is anchored to the DESKTOP,
         // which is what the standing rule was reaching for. Size is an opening
@@ -298,6 +329,33 @@ impl InsertImageDialog {
     /// action. Three separate conversions is how a window comes to promise one
     /// rectangle and produce another — the same argument
     /// `dialogs::new_document::sheet_pt` makes for its own single derivation.
+    /// Drain the operator's request to point at the page — O66.
+    pub fn take_place_request(&mut self) -> bool {
+        self.place.take_request()
+    }
+
+    /// **Write a placed rectangle back into the four millimetre fields** — O66.
+    ///
+    /// ★★ Through the INVERSE of [`rect_pt`], not through a second conversion.
+    /// That function's own doc comment exists to keep one arithmetic for
+    /// millimetres and points; a placement that converted separately would be
+    /// the second, and the two would drift by a rounding rule nobody chose.
+    ///
+    /// ★ A **degenerate** rect — what a click produces — writes the corner and
+    /// leaves the size alone. The dialog already has a width and a height, typed
+    /// or defaulted from the picture's own aspect, and a click is a statement
+    /// about *where*, not about *how big*. Overwriting the size with zero would
+    /// throw away the one thing the operator did not ask to change.
+    pub fn place(&mut self, rect: Rect) {
+        self.x_mm = rect.llx / PTS_PER_MM;
+        self.y_mm = rect.lly / PTS_PER_MM;
+        let (w, h) = (rect.urx - rect.llx, rect.ury - rect.lly);
+        if w > 0.0 && h > 0.0 {
+            self.width_mm = (w / PTS_PER_MM).max(MIN_MM);
+            self.height_mm = (h / PTS_PER_MM).max(MIN_MM);
+        }
+    }
+
     fn rect_pt(&self) -> Rect {
         rect_pt(self.x_mm, self.y_mm, self.width_mm, self.height_mm)
     }
@@ -392,6 +450,21 @@ impl InsertImageDialog {
             ui.label(t::placement_height());
             ui.add(spinner(&mut self.height_mm, MIN_MM..=max_mm));
         });
+        ui.add_space(6.0);
+        // ★★★ **The second route to the same four numbers** —
+        // `OPERATOR_REQUESTS.md` O66: *"anything we are inserting like this
+        // should have an option in its dialogue box to place it with the mouse
+        // instead of by positional co-ordinates."*
+        //
+        // Beside the spinners rather than beneath the whole form, because it is
+        // an alternative to THEM specifically — not to the fit, not to the
+        // picture, not to Insert. An operator reading the four fields and
+        // wondering how to know what to type finds the answer on the next line.
+        //
+        // ★ Neither route is the real one. This fills the fields in and the
+        // operator can correct them afterwards, which the note under the button
+        // says out loud.
+        self.place.button(ui, REGION_PLACE);
         ui.add_space(8.0);
 
         // --- how it fits ---------------------------------------------------

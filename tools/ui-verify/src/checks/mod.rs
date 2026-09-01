@@ -181,6 +181,12 @@ pub mod formaim;
 /// Insert an image: the picture reaches the page, and the resolution the
 /// window promised is the one the document reports.
 pub mod insert_image;
+/// ★ The OTHER half of the insert window: pressing *Place it on the page…*
+/// makes the window step aside, a click on the page fills its numbers in, and
+/// the window comes back. Beside `insert_image` because the two are one
+/// surface — that one asserts the picture lands, this one asserts the operator
+/// never has to type where.
+pub mod insert_image_place;
 pub mod legibility;
 pub mod markup_move;
 pub mod markup_rectangle;
@@ -877,6 +883,13 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // same number, which is the shell's half of a single-derivation
         // guarantee `pdfce-core` holds up on its side with a test.
         Box::new(insert_image::InsertImagePlacesAPicture),
+        // `OPERATOR_REQUESTS.md` O66, 2026-08-31. Immediately after its
+        // sibling, because it depends on everything that one establishes — the
+        // picker seam, the window opening, the fixture PNG — and adds exactly
+        // one thing: that the window gets out of the way when asked and comes
+        // back afterwards. Its real subject is the JOIN; every part of the
+        // placement arm is unit-tested and each part passes alone.
+        Box::new(insert_image_place::TheInsertWindowStepsAside),
         // The Properties panel's document half, wired 2026-08-19 after a
         // recorded blocker — "`pdfce-core` exposes no /Info accessor" — turned
         // out to have cleared without the prose moving. Beside the page checks

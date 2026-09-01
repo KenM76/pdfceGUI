@@ -99,6 +99,9 @@ pub mod insert_image;
 pub mod insert_pages;
 pub mod new_document;
 pub mod ocr;
+/// ★ How a window offers to step aside so the operator can point at the page —
+/// `OPERATOR_REQUESTS.md` O66. The dialog half of `canvas::placing`.
+pub mod placing;
 pub mod print;
 /// The Apply-redactions transaction — the report, the two acknowledgements, and
 /// the write. The **irreversible** half of the redaction feature; its
@@ -541,6 +544,54 @@ impl DialogsState {
     /// so they could, and they have now finished. A guard that refused would
     /// leave them looking at a stale window with no measurement in it —
     /// the one outcome the whole gesture exists to avoid.
+    /// **Has a window asked to step aside?** — `OPERATOR_REQUESTS.md` O66.
+    ///
+    /// Read-and-clear, and it answers the page the asking dialog is placing
+    /// on so `canvas::placing` can record it. One arm per kind, listed rather
+    /// than wildcarded so a second `PlaceKind` has to be wired rather than
+    /// silently never asked.
+    pub fn take_place_request(
+        &mut self,
+        page: usize,
+    ) -> Option<(crate::canvas::placing::PlaceKind, usize)> {
+        let d = self.insert_image.as_mut()?;
+        d.take_place_request()
+            .then_some((crate::canvas::placing::PlaceKind::Image, page))
+    }
+
+    /// **Hand a placed rectangle back to the window that asked for it.**
+    ///
+    /// ★ The window is not reopened, because it was never closed — see
+    /// `dialogs::placing`. It simply starts drawing again on the next frame,
+    /// with the numbers this writes into it.
+    pub fn deliver_placement(
+        &mut self,
+        kind: crate::canvas::placing::PlaceKind,
+        rect: pdfce_core::page_tree::Rect,
+    ) {
+        match kind {
+            crate::canvas::placing::PlaceKind::Image => {
+                if let Some(d) = self.insert_image.as_mut() {
+                    d.place(rect);
+                }
+            }
+        }
+    }
+
+    /// **Is the window that asked for this placement still here?**
+    ///
+    /// ★★ The one guard that closes every exit route nobody enumerated. If the
+    /// document is closed under a pending placement the dialog is dropped
+    /// (`forget_document`), and without this the canvas would sit in a
+    /// placement tool waiting for a window that no longer exists. `app::frame`
+    /// checks it once a frame and cancels, which costs one `Option` read.
+    #[must_use]
+    pub fn has_requester(&self, kind: crate::canvas::placing::PlaceKind) -> bool {
+        match kind {
+            crate::canvas::placing::PlaceKind::Image => self.insert_image.is_some(),
+        }
+    }
+
     pub fn open_scale_calibrated(
         &mut self,
         status: &Status,

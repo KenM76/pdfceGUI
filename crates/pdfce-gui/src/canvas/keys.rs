@@ -549,6 +549,37 @@ pub(super) fn canvas_keys(
         && crate::canvas::textedit::abandon(ctx);
     let vertex_abandoned = vertex_abandoned || draft_abandoned;
 
+    // ★★★ **…and a PENDING PLACEMENT, fourth on the same rung** —
+    // `OPERATOR_REQUESTS.md` O66.
+    //
+    // A window has stepped aside and is waiting for the operator to point at
+    // the page. Escape is the way back, and it is the ONLY way back: the window
+    // is not on screen, so there is no Cancel button to press.
+    //
+    // ★★ **Decision 025 L1 is not broken by this, and a reader will reach for
+    // the opposite conclusion.** L1 forbids one Escape having two effects.
+    // Abandoning a placement is ONE effect; the window reappearing is not a
+    // second act but the *undo of the hide*, because being hidden was never a
+    // fact of its own — `dialogs::placing` derives it from the record this
+    // clears. Nothing is reopened, because nothing was closed.
+    //
+    // Guarded into the same `!` chain as its three neighbours for their reason:
+    // one tool is armed at a time, so a placement cannot be pending while a
+    // measure pick, a vertex run or a text draft is in progress. The chain is
+    // belt to that braces, and it is what stops one press both cancelling a
+    // placement and putting a pen down.
+    //
+    // ★ ABOVE the disarm claimants below. `disarm_any` would put the placement
+    // tool down and leave the pending record set — a hidden window with its
+    // tool retired, which is the worst of the reachable states. Cancelling
+    // first clears both, because `placing::cancel` does the disarm itself.
+    let placement_cancelled = escape_available
+        && !guide_cancelled
+        && !measure_abandoned
+        && !vertex_abandoned
+        && crate::canvas::placing::cancel(ctx);
+    let vertex_abandoned = vertex_abandoned || placement_cancelled;
+
     // Claimant 3b: an armed markup tool. Above the region zoom deliberately —
     // see the header's own section on why the transience rule does not settle
     // that pair and what does. Note this is `disarm`, not "cancel a markup

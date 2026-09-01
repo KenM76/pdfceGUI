@@ -530,7 +530,29 @@ the same page, at the same zoom, with the same selection.
 
 ---
 
-## O66 — ⬜ Every insert dialog needs "place it with the mouse" as well as coordinates
+## O66 — ✅ BUILT AND DRIVEN 2026-08-31 — and driving it found a mirrored placement
+
+> **The insert window now steps aside so you can point.** Press *Place it on
+> the page…*, the window disappears, you click where the picture goes (or drag
+> a box for its size), and the window comes back with the numbers filled in.
+> Your half-typed size and everything else in it survive the trip. Escape
+> abandons the placement and brings the window back.
+>
+> ★★★ **The driven check found a real bug on its first run, and it was mine.**
+> A click was being recorded in the wrong coordinate space — screen-space y
+> counts down from the top of the sheet, PDF y counts up from the bottom, and
+> the click path skipped the flip. Clicking near the top of a drawing would
+> have placed the picture near the bottom, mirrored. Nothing would have
+> refused it, because a mirrored coordinate is an ordinary number on an
+> ordinary page. The drag path had always been right; the two disagreed with
+> each other and only the running program could say so.
+>
+> ★★ The eight unit tests under this feature were all green while that was
+> true, because they asserted the numbers came out the other end rather than
+> what space they were in. The check now asserts **where** the placement
+> landed, not merely that one happened: 0.4 pt from the point clicked.
+>
+> **Verified:** driven — `the_insert_window_steps_aside_so_you_can_point`.
 
 **Asked:** 2026-08-31.
 
@@ -539,11 +561,25 @@ the same page, at the same zoom, with the same selection.
 > co-ordinates."*
 
 Note *"anything we are inserting"* — this is a rule about the whole class of
-insert dialogs, not a feature for the image dialog. The ce-dimension placement
-preview already proves the mechanism exists in this shell
-(`painting.rs:437-450`); what is missing is the dialog offering it.
+insert dialogs, not a feature for the image dialog. It is built as a **shared
+arm** for that reason: `canvas::placing` owns the pending record and the
+gesture, `dialogs::placing` owns the button and the one derived predicate, and
+a second dialog opts in with three lines and no new state.
 
-**Status:** not investigated.
+**The one design decision:** a dialog is hidden for exactly as long as a
+placement is pending for it, and *hidden* is **derived** from the pending
+record rather than stored. The precedent this generalises — the Set-scale
+calibration — uses a stored flag and is already broken in the way stored flags
+break: press Escape mid-calibration today and nothing reopens the window. With
+it derived, whatever clears the pending record un-hides the window, including
+a route written next year by somebody who has never read the file. Stranding
+is unrepresentable rather than merely handled.
+
+**Today it is offered by the insert-image window**, which is the only dialog in
+the crate that asks for a page position numerically. The mechanism is general;
+the next dialog that needs it costs three lines.
+
+**Status:** built, gates green, driven.
 
 ---
 

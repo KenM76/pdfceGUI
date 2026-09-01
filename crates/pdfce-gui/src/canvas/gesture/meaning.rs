@@ -287,6 +287,21 @@ pub enum DragKind {
     /// has a conventional size — see [`FormFieldKind::default_size_pt`]. A
     /// text box's default size, by contrast, would be a number nobody chose.
     Form(FormFieldKind),
+    /// ★★★ **A window stepped aside and is waiting for a box** —
+    /// `OPERATOR_REQUESTS.md` O66.
+    ///
+    /// Like [`Self::Form`] and unlike the text-annotation family there is no
+    /// click/drag split: a click and a drag are both answers, and they say
+    /// different things. A **click** gives a corner and leaves the size to the
+    /// dialog — which already has one, typed or defaulted. A **drag** gives
+    /// the whole box.
+    ///
+    /// ★ The commit does not live on this canvas. It is the requesting
+    /// dialog's own Insert, which is why `canvas::placing` writes the answer to
+    /// `egui::Memory` for `app::frame` to hand back rather than raising an
+    /// `Action` — the operator has not pressed Insert yet and may still change
+    /// the numbers.
+    Place(crate::canvas::placing::PlaceKind),
 }
 
 /// What a press means, given the tool, what it landed on and what is armed —
@@ -605,6 +620,34 @@ pub fn press_kind(press: Press, caps: Capabilities) -> PressMeaning {
     // which is the same reasoning that put these commands in Edit mode. Pairing
     // it with markup would let a reviewer author form fields, and authoring an
     // interactive control is not a review activity.
+    // ★★★ **A pending placement takes the press before anything else** —
+    // `OPERATOR_REQUESTS.md` O66.
+    //
+    // FIRST, and like the measure rung above it that is a statement rather
+    // than a tie-break: one tool is armed at a time, so it cannot contend.
+    // What the position DOES buy is three specific exclusions, and each of
+    // them would be a real defect:
+    //
+    // * above the caret rung, so a placement press cannot reach
+    //   `textsel::takes_the_press` and start sweeping text;
+    // * above the content/reading split, so Edit mode's content marquee
+    //   cannot claim it and rubber-band across the sheet instead;
+    // * above the grips, so a placement over an existing selection places
+    //   rather than moving what happens to be selected underneath.
+    //
+    // Both halves live, for the form field's stated reason: a click is the
+    // primary gesture here, and answering `click: false` would drop a twitch
+    // into whatever is beneath.
+    //
+    // The capability comes from the KIND rather than being named here, so the
+    // mapping exists once — see `PlaceKind::capability`.
+    if let CanvasTool::Place(kind) = tool {
+        let permitted = kind.capability(caps);
+        return PressMeaning {
+            drag: permitted.then_some(DragKind::Place(kind)),
+            click: permitted,
+        };
+    }
     if let CanvasTool::Form(kind) = tool {
         return PressMeaning {
             drag: caps.edit_content.then_some(DragKind::Form(kind)),

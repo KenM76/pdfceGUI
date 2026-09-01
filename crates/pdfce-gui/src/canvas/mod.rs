@@ -132,6 +132,10 @@
 // deliberately takes no tolerance, and the one editor a focused field gets.
 pub mod formfield;
 pub mod forms;
+/// ★ Pointing at the page instead of typing coordinates — `OPERATOR_REQUESTS.md`
+/// O66. A shared arm, not a feature of one dialog: his sentence was about
+/// *"anything we are inserting"*.
+pub mod placing;
 // pdfce's OWN crosshair bitmap, supplied to the OS as a real cursor. The
 // platform's stock crosshair is monochrome and its colour belongs to the
 // operator's pointer scheme, which is how it came to be white on white paper.

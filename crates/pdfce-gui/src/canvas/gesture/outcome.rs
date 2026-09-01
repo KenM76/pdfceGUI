@@ -294,6 +294,26 @@ pub enum GestureOutcome {
         /// Draw the band, or ask for the details.
         phase: Phase,
     },
+    /// ★★★ **A window is waiting for a box** — `OPERATOR_REQUESTS.md` O66.
+    ///
+    /// Shaped exactly like [`Self::FormField`], and for the same reason: the
+    /// two corners travel raw and in drag order, and whoever turns them into a
+    /// page rect normalises once.
+    ///
+    /// ★ Unlike every other outcome here, **nothing on this canvas commits
+    /// it.** `canvas::placing` writes the answer to `egui::Memory` and the
+    /// requesting dialog reads it back through `app::frame`, because the
+    /// operator has not pressed Insert yet and may still change the numbers.
+    Place {
+        /// Which window is waiting, sampled at the press.
+        kind: crate::canvas::placing::PlaceKind,
+        /// Where the drag began, in canvas space.
+        from: Pos2,
+        /// Where the pointer is now, in canvas space.
+        to: Pos2,
+        /// In flight, or released.
+        phase: Phase,
+    },
 }
 
 /// A primary-button drag in flight.
@@ -389,6 +409,17 @@ impl Drag {
             // rect, so the band the operator watched and the control that is
             // authored cannot come from two different normalisations.
             DragKind::Form(kind) => GestureOutcome::FormField {
+                kind,
+                from: self.origin,
+                to: self.latest,
+                phase,
+            },
+            // Raw and in drag order, like every band above — `canvas::placing`
+            // normalises once, at the point the two corners become a page rect,
+            // so a band dragged up-and-left and one dragged down-and-right
+            // produce the same answer without either of them being rewritten
+            // mid-gesture. O66.
+            DragKind::Place(kind) => GestureOutcome::Place {
                 kind,
                 from: self.origin,
                 to: self.latest,

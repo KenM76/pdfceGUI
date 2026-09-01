@@ -296,6 +296,21 @@ fn stage(ui: &mut Ui, ctx: &egui::Context, doc: &crate::app::state::OpenDoc, too
         // an exact one. Saying so here is what stops an operator clicking once,
         // getting a standard-sized box, and concluding that dragging is not
         // offered.
+        // ★★★ **The instruction has to live HERE while a placement is armed**,
+        // because the window that asked for it is off screen —
+        // `OPERATOR_REQUESTS.md` O66.
+        //
+        // Every other arm in this match is a convenience: the ribbon control is
+        // still pressed, the tooltip is still hoverable, and the panel is
+        // repeating what the operator can find elsewhere. This one is the ONLY
+        // place the gesture and the way out are stated, because
+        // `dialogs::placing` hides the requesting dialog for exactly as long as
+        // the placement is pending. Deleting this line would strand an operator
+        // who has forgotten what they armed.
+        CanvasTool::Place(_) => {
+            ui.label(egui::RichText::new(crate::text::placing::armed_instruction()).small());
+            return;
+        }
         CanvasTool::Form(kind) => {
             ui.label(egui::RichText::new(t::form_instruction()).small());
             ui.label(egui::RichText::new(t::form_kind_hint(kind)).small().weak());
@@ -506,6 +521,12 @@ fn command_for(tool: CanvasTool) -> Option<&'static str> {
         // show the armed field type as pressed on the ribbon. The mapping lives
         // on the kind rather than here so the two cannot drift.
         CanvasTool::Form(kind) => Some(kind.command_id()),
+        // ★ **None, for `MeasureKind::Scale`'s reason spelled out again** — a
+        // placement is armed from inside a dialog and has no ribbon control to
+        // name, so the identity row is absent rather than blank. Written as its
+        // own arm rather than folded into a `_` so that a second `PlaceKind`
+        // has to be ruled on rather than inheriting this silently.
+        CanvasTool::Place(_) => None,
         // ★ The empty string is `MeasureKind::Scale`'s id, and it is not a
         // command — that kind is armed from inside the Set-scale window and
         // deliberately maps to nothing. `MenuHost::label` would answer `None`
@@ -543,7 +564,16 @@ fn tab_for(tool: CanvasTool) -> &'static str {
         }
         CanvasTool::Markup(_) | CanvasTool::TextAnnot(_) => crate::text::ribbon::tab_markup(),
         CanvasTool::Measure(_) => crate::text::ribbon::tab_measure(),
-        CanvasTool::TextEdit(_) | CanvasTool::Form(_) => crate::text::ribbon::tab_edit(),
+        // ★ A placement is armed from inside a dialog, so there is no tab an
+        // operator could go to and press it again. `Edit` is named anyway
+        // because that is where the command that OPENED the window lives
+        // (`edit.insert_image`), which is the honest answer to "where did this
+        // come from" — and `command_for` returns `None` for the same tool, so
+        // the identity row is absent and this string is only reached by the
+        // sentence that names the tab in prose.
+        CanvasTool::TextEdit(_) | CanvasTool::Form(_) | CanvasTool::Place(_) => {
+            crate::text::ribbon::tab_edit()
+        }
     }
 }
 
