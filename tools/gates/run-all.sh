@@ -203,6 +203,21 @@ run "check-trace-names" python "$HERE/check-trace-names.py"
 # and two cut verbs -- none of which had a sentence anywhere.
 run "check-verb-coverage" bash "$HERE/check-verb-coverage.sh"
 
+# `check-third-party-licences` regenerates THIRD_PARTY_LICENSES.md and fails if
+# the committed one differs. It is the SECOND gate written on 2026-09-01 for the
+# same underlying shape as `check-verb-coverage`: an ADDITION on the other side
+# of a boundary is silent, because a removed dependency breaks the build and an
+# added one does not.
+#
+# The release that morning pulled in three MIT crates with a colour-management
+# engine, and the attribution file shipped beside the exe named none of them. It
+# was caught because those three "Adding" lines happened to be in output being
+# read for an unrelated reason.
+#
+# ★ It costs about a minute -- cargo-about resolves the whole graph per target
+# -- which is why it is last in this section rather than first.
+run "check-third-party-licences" bash "$HERE/check-third-party-licences.sh"
+
 # --- 2. cargo fmt / clippy --------------------------------------------------
 #
 # Both are wrapped in a workspace-loadability probe. If a member crate listed
