@@ -649,7 +649,17 @@ mod tests {
         let mut job = out;
         let recognised = loop {
             if let Some(answer) = job.poll() {
-                break answer.expect("recognition must not refuse on this fixture");
+                // ★ The fixture asserts the ORDINARY ending. `Stopped` and
+                // `Cancelled` are reachable only by pressing a button, and
+                // nothing presses one here — so meeting either would mean the
+                // control flag was set by something other than an operator,
+                // which is worth failing loudly rather than unwrapping past.
+                break match *answer {
+                    crate::ocr::progress::Outcome::Complete(result) => {
+                        *result.expect("recognition must not refuse on this fixture")
+                    }
+                    other => panic!("this fixture presses no button; got {other:?}"),
+                };
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
         };

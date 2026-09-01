@@ -169,6 +169,25 @@ enum Phase {
         skipped: usize,
         /// How many words in total.
         words: usize,
+        /// `Some((attempted, of))` when the operator pressed **Stop**.
+        ///
+        /// ★★★ The whole reason this field exists: a stopped run is a success
+        /// with a caveat, and the caveat must be SAID. Without it, somebody who
+        /// ended a 200-page recognition at page 40 is left believing the
+        /// document is done — and finds out months later, searching for a word
+        /// on page 150 that is not in the layer.
+        stopped_at: Option<(usize, usize)>,
+    },
+    /// **The operator pressed Cancel.** Nothing was kept and nothing written.
+    ///
+    /// ★ Its own phase rather than a `Refused`, because it is not a refusal:
+    /// nothing went wrong and there is nothing to diagnose. The sentence it
+    /// draws says what was discarded and offers to start again, where a refusal
+    /// explains why the run could not happen.
+    Cancelled {
+        /// Pages attempted before the press, so the sentence can say what was
+        /// thrown away rather than only that something was.
+        attempted: usize,
     },
     /// Recognition did not happen, for a named reason.
     Refused(Refusal),
@@ -411,6 +430,34 @@ impl OcrDialog {
         let Some(outcome) = job.poll() else {
             return;
         };
+        // ★★★ Three endings, and the shell must keep them apart — 2026-09-01.
+        //
+        // `Complete` is the run finishing on its own. `Stopped` is the operator
+        // asking for what had been done so far, which is a SUCCESS with a
+        // caveat that must be said. `Cancelled` is the operator asking for
+        // none of it, which touches the document not at all.
+        //
+        // Collapsing Stopped into Complete would leave somebody who ended a
+        // 200-page run at page 40 believing the whole document was recognised;
+        // collapsing Cancelled into "nothing was recognised" would tell them
+        // the recogniser could not read their scan, which is a different
+        // sentence with a different remedy.
+        let (outcome, stopped_at) = match *outcome {
+            crate::ocr::progress::Outcome::Complete(result) => (result, None),
+            crate::ocr::progress::Outcome::Stopped {
+                result,
+                attempted,
+                of,
+            } => (result, Some((attempted, of))),
+            crate::ocr::progress::Outcome::Cancelled { attempted } => {
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed.
+                    format!("ocr-cancelled attempted={attempted}")
+                });
+                self.phase = Phase::Cancelled { attempted };
+                return;
+            }
+        };
         self.phase = match outcome {
             Ok(recognised) => {
                 crate::diag::trace(|| {
@@ -436,6 +483,11 @@ impl OcrDialog {
                     written: recognised.pages_written,
                     skipped: recognised.pages_skipped,
                     words: recognised.words_recognised,
+                    // ★ Carried into the outcome so the sentence the operator
+                    // reads afterwards can say the run ended early. A partial
+                    // layer reported as a whole one is the failure this whole
+                    // pair of buttons has to avoid.
+                    stopped_at,
                 };
                 // ★★ **The edit is raised here, in the poll, rather than in the
                 // window body.**
@@ -472,16 +524,57 @@ impl OcrDialog {
 
         match &self.phase {
             Phase::Ready => self.ready(ui, doc),
-            Phase::Working(_) => {
+            Phase::Working(job) => {
                 ui.horizontal(|ui| {
                     ui.spinner();
                     ui.label(t::working());
+                });
+                // ★★★ **WHAT IT IS DOING** — the operator's own ask, 2026-09-01:
+                // *"so that the user can see that it is doing something and
+                // hasn't frozen on large documents."*
+                //
+                // Drawn only once a page has finished. Before that the tally is
+                // all zeros, and "Page 0 of 36 — 0 words" beside a spinner says
+                // less than the spinner alone while looking like a stall on the
+                // very first page, which is the longest wait in the run.
+                let tally = job.tally();
+                if tally.attempted > 0 {
+                    ui.add_space(4.0);
+                    ui.label(t::working_progress(
+                        tally.attempted,
+                        tally.of,
+                        tally.words,
+                        tally.chars,
+                    ));
+                }
+                ui.add_space(8.0);
+                // ★★ STOP FIRST, and the order is the argument. It is the
+                // non-destructive one, and this project's standing rule for a
+                // row of controls is least-destructive-first — the same reading
+                // that orders the Format tab's group. An operator reaching in a
+                // hurry meets the button that keeps their work.
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(t::stop_button())
+                        .on_hover_text(t::stop_tooltip())
+                        .clicked()
+                    {
+                        job.stop();
+                    }
+                    if ui
+                        .button(t::cancel_button())
+                        .on_hover_text(t::cancel_tooltip())
+                        .clicked()
+                    {
+                        job.cancel();
+                    }
                 });
             }
             Phase::Applied {
                 written,
                 skipped,
                 words,
+                stopped_at,
             } => {
                 // ★★★ **What this says now, and what it no longer has to.**
                 //
@@ -496,6 +589,17 @@ impl OcrDialog {
                 // looks — a second, differently-worded copy on this window
                 // would be two accounts of one run that could drift.
                 ui.label(t::pages_outcome(*written, *skipped));
+                // ★★★ THE CAVEAT, before the reassurance — 2026-09-01.
+                //
+                // A stopped run is a success and an incomplete one, and the
+                // order these two sentences appear in decides which the
+                // operator remembers. *"It is in your document"* directly under
+                // *"40 of 200 pages"* reads as a whole job done; the other way
+                // round it reads as what it is.
+                if let Some((attempted, of)) = stopped_at {
+                    ui.add_space(6.0);
+                    ui.label(t::stopped_early(*attempted, *of));
+                }
                 ui.add_space(6.0);
                 ui.label(t::applied_to_document());
                 ui.add_space(10.0);
@@ -510,6 +614,13 @@ impl OcrDialog {
                     // ui-text-exempt: diagnostic trace, never displayed.
                     format!("ocr-applied written={written} skipped={skipped} words={words}")
                 });
+            }
+            // ★ Cancelled draws its own sentence rather than a refusal's.
+            // Nothing went wrong, so there is nothing to diagnose — the
+            // sentence says what was discarded and the ordinary Recognise
+            // button below is the way to start again.
+            Phase::Cancelled { attempted } => {
+                ui.label(t::cancelled(*attempted));
             }
             Phase::Refused(refusal) => {
                 ui.label(sentence(refusal));
@@ -797,6 +908,12 @@ const LIST_FLOOR: f32 = 48.0;
 /// thing that has to be read to know what pdfce says when OCR declines.
 fn sentence(refusal: &Refusal) -> String {
     match refusal {
+        // ★★ Unreachable from the dialog, which turns a cancellation into
+        // `Phase::Cancelled` before it ever reaches here — and worded anyway,
+        // because a `match` arm that cannot be hit today is one line, while a
+        // catch-all that swallowed a real refusal would be silent. Named so a
+        // future caller that DOES reach it says something true.
+        Refusal::Cancelled { attempted } => t::cancelled(*attempted),
         Refusal::EngineAbsent => t::engine_absent().to_owned(),
         // ★ The paths go to the catalog as a LIST, not as a pre-joined string.
         //

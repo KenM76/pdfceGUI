@@ -68,6 +68,85 @@
 // The dialog
 // ---------------------------------------------------------------------------
 
+/// ★★★ **The run ended where the operator asked it to** — said on the outcome
+/// screen, above the reassurance that the words are in the document.
+///
+/// A stopped run is a success and an incomplete one at the same time, and this
+/// is the sentence that stops the first half hiding the second. Somebody who
+/// ends a 200-page recognition at page 40 must not walk away believing the
+/// document is done; they find out otherwise months later, searching for a word
+/// on page 150 that is not in the layer.
+///
+/// ★ It names both numbers. "Stopped early" alone leaves them to guess how much
+/// they have, and the answer is the whole point of having pressed Stop rather
+/// than Cancel.
+#[must_use]
+pub fn stopped_early(attempted: usize, of: usize) -> String {
+    format!(
+        "You stopped after {attempted} of {of} pages. The rest of the document has not been recognised; what was done is kept."
+    )
+}
+
+/// **Everything was thrown away**, which is what Cancel means.
+///
+/// ★ It says the document is untouched, because that is the fact the operator
+/// is actually checking for — a half-written layer is the thing they pressed
+/// Cancel to avoid, and silence about it leaves them to wonder.
+#[must_use]
+pub fn cancelled(attempted: usize) -> String {
+    if attempted == 0 {
+        "Cancelled. Nothing was recognised and your document is unchanged.".to_owned()
+    } else {
+        format!(
+            "Cancelled after {attempted} page(s). That work was thrown away and your document is unchanged."
+        )
+    }
+}
+
+/// **What the recogniser is doing right now.**
+///
+/// Operator request, 2026-09-01: *"so that the user can see that it is doing
+/// something and hasn't frozen on large documents."*
+///
+/// ★★ Three moving numbers, and each answers a different worry. The page count
+/// answers *"how far"*; the character count answers *"is it still alive"* —
+/// it moves on a dense sheet where the word count barely does; and naming the
+/// page it is ON rather than only the count tells an operator whose scan is bad
+/// exactly which sheet to look at afterwards.
+#[must_use]
+pub fn working_progress(attempted: usize, of: usize, words: usize, chars: usize) -> String {
+    format!("Page {attempted} of {of} — {words} words, {chars} characters so far")
+}
+
+/// The control that finishes the page in hand and keeps everything.
+#[must_use]
+pub fn stop_button() -> String {
+    "Stop".to_owned()
+}
+
+/// What Stop does, said in full because it is the half of the pair that keeps
+/// work and the operator must not have to guess which is which.
+#[must_use]
+pub fn stop_tooltip() -> String {
+    "Finishes the page it is working on, then stops. Everything recognised so far is kept."
+        .to_owned()
+}
+
+/// The control that abandons the run.
+#[must_use]
+pub fn cancel_button() -> String {
+    "Cancel".to_owned()
+}
+
+/// What Cancel does. The word "thrown away" is deliberate and is not softened:
+/// it is the difference between the two buttons, and a euphemism here would put
+/// the operator one click from losing a long run.
+#[must_use]
+pub fn cancel_tooltip() -> String {
+    "Stops straight away and throws away everything recognised so far. Your document is left unchanged."
+        .to_owned()
+}
+
 /// The dialog's title.
 #[must_use]
 pub fn title() -> &'static str {

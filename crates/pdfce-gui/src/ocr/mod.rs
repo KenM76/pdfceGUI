@@ -108,9 +108,19 @@
 #[cfg(test)]
 mod fixture;
 
+/// **What the recogniser is doing, and the two ways to end it early** —
+/// the operator asked for both on 2026-09-01. Its header carries why Cancel
+/// and Stop must never collapse into one act.
+/// **A recognition running on a thread**, and the two ways to end it early.
+/// Split from this module on 2026-09-01: running a recognition is a different
+/// subject from performing one.
+pub mod job;
+pub mod progress;
+
+pub use job::{Job, Tally};
+
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::mpsc::{Receiver, TryRecvError, channel};
 
 use pdfce_core::edit::EditSession;
 use pdfce_core::ocr::{OcrPage, models};
@@ -266,6 +276,17 @@ pub enum Refusal {
     /// recognised, which is the outcome the operator wants and would not think
     /// to ask for.
     AlreadyHasText,
+    /// **The operator pressed Cancel.** Nothing was kept.
+    ///
+    /// ★ A refusal rather than an outcome, because every caller that handles
+    /// "nothing came back" already handles this shape — and because it IS a
+    /// refusal from the run's point of view: it produced no result, on purpose.
+    /// The count is carried so the status line can say what was discarded
+    /// rather than only that something was.
+    Cancelled {
+        /// Pages attempted before the press.
+        attempted: usize,
+    },
     /// This build was compiled without the `ocrs` feature.
     ///
     /// Distinct from [`Self::ModelsMissing`] on purpose: *cannot look* and
@@ -296,6 +317,16 @@ pub enum Refusal {
 /// keeping them in one struct is how that is made awkward to do by accident.
 #[derive(Debug, Clone)]
 pub struct Recognised {
+    /// **How many pages had been attempted when the operator pressed Stop**, or
+    /// `None` for a run that finished on its own.
+    ///
+    /// ★★★ Carried on the result rather than inferred from a page count,
+    /// because the two are not the same: a complete run over pages that were
+    /// all skipped also has fewer written pages than requested. Only this
+    /// distinguishes *"the document is done"* from *"the operator ended it at
+    /// page 40"* — and reporting the second as the first is how somebody
+    /// discovers, months later, that a word on page 150 is not in the layer.
+    pub stopped_after: Option<usize>,
     /// ★★★ **The recognised words, per page, ready to be applied to the open
     /// session as one undoable edit.**
     ///
@@ -583,82 +614,6 @@ pub struct Request {
     pub model_dir: PathBuf,
 }
 
-/// A recognition running on its own thread.
-///
-/// Held by [`crate::dialogs::ocr`] for exactly as long as one job takes. See
-/// the module header for why this is a thread and why it carries neither a
-/// cancellation token nor a staleness key.
-pub struct Job {
-    rx: Receiver<Result<Box<Recognised>, Refusal>>,
-    done: bool,
-}
-
-impl std::fmt::Debug for Job {
-    /// Hand-written because [`Receiver`] is not [`Debug`] in a useful way.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Job").field("done", &self.done).finish()
-    }
-}
-
-impl Job {
-    /// Start recognising, and return immediately.
-    ///
-    /// The thread is detached rather than joined: nothing the UI does depends
-    /// on it finishing, and if the dialog is closed first the channel's
-    /// receiver drops, the send fails harmlessly, and the thread exits when
-    /// the work it was already doing completes. The alternative — joining on
-    /// close — would freeze the window for exactly as long as the operation
-    /// this thread exists to keep off the window.
-    #[must_use]
-    pub fn spawn(request: Request) -> Self {
-        let (tx, rx) = channel();
-        std::thread::spawn(move || {
-            let outcome = recognise(&request);
-            // A failed send means the dialog is gone. That is a normal end,
-            // not an error: the operator closed the window.
-            drop(tx.send(outcome.map(Box::new)));
-        });
-        Self { rx, done: false }
-    }
-
-    /// The result, once it exists. `None` while the job is still running.
-    ///
-    /// Non-blocking, and idempotent after the answer has been taken: `done`
-    /// stops a second call reading a disconnected channel and reporting the
-    /// disconnection as a refusal.
-    pub fn poll(&mut self) -> Option<Result<Box<Recognised>, Refusal>> {
-        if self.done {
-            return None;
-        }
-        match self.rx.try_recv() {
-            Ok(outcome) => {
-                self.done = true;
-                Some(outcome)
-            }
-            Err(TryRecvError::Empty) => None,
-            Err(TryRecvError::Disconnected) => {
-                // The worker died without sending — a panic in a dependency,
-                // which is the only way to reach this. Reported as an engine
-                // refusal naming the fact rather than swallowed: a dialog that
-                // said "Recognising…" forever would be the worst available
-                // answer.
-                self.done = true;
-                Some(Err(Refusal::Engine(
-                    // ui-text-exempt: reached only through `text::ocr::failed`,
-                    // which is the catalog entry an operator actually reads.
-                    "the recogniser stopped without reporting a result".to_owned(),
-                )))
-            }
-        }
-    }
-
-    /// Whether the job is still running.
-    #[must_use]
-    pub const fn is_running(&self) -> bool {
-        !self.done
-    }
-}
-
 /// The worker body. Runs on the spawned thread; touches no GUI type.
 ///
 /// Written as a free function taking `&Request` for the same reason
@@ -694,10 +649,18 @@ impl Job {
 /// If no page produced a single word, there is nothing to write and nothing to
 /// save, and reporting success would leave the operator with a dialog saying it
 /// worked and a document with nothing in it.
-fn recognise(request: &Request) -> Result<Recognised, Refusal> {
+pub(in crate::ocr) fn recognise(
+    request: &Request,
+    report: &job::Reporter,
+) -> Result<Recognised, Refusal> {
     if request.pages.is_empty() {
         return Err(Refusal::NothingRecognised);
     }
+    // `Some(n)` once Stop has been honoured, carrying how many pages were
+    // attempted. Read by the caller to choose `Outcome::Stopped` over
+    // `Outcome::Complete` — the two must not be confused, or a run ended at
+    // page 40 of 200 reports as a whole document recognised.
+    let mut stopped_after: Option<usize> = None;
 
     // ONCE, before the loop. See `Recogniser` for what this used to cost.
     let recogniser = Recogniser::load(&request.model_dir)?;
@@ -710,18 +673,64 @@ fn recognise(request: &Request) -> Result<Recognised, Refusal> {
     // produced nothing can say WHY. See the refusal below.
     let mut already_had_text = 0usize;
 
-    for &page_index in &request.pages {
+    let of = request.pages.len();
+    for (attempted, &page_index) in request.pages.iter().enumerate() {
+        // ★★★ **CHECKED BETWEEN PAGES, NEVER INSIDE ONE**, and that is what
+        // makes "Stop keeps the finished pages" true by construction: there is
+        // no moment in this loop at which a half-recognised page exists.
+        //
+        // Cancel is checked here too rather than only at the top, so an
+        // abandonment costs at most the page in hand — the same bound Stop
+        // has, for the same reason. What differs is what happens to that page,
+        // not how long it takes.
+        match report.wish() {
+            progress::Wish::Cancel => {
+                return Err(Refusal::Cancelled { attempted });
+            }
+            progress::Wish::StopAfterThisPage => {
+                stopped_after = Some(attempted);
+                break;
+            }
+            progress::Wish::Continue => {}
+        }
         match recognise_one(request, &recogniser, page_index) {
             Ok(one) => {
                 total_words += one.words;
                 dpi = one.dpi;
+                // ★ Sent BEFORE the page is pushed, so the count the operator
+                // reads is the count of pages ATTEMPTED rather than kept. A
+                // progress line that stalled on a run of skipped pages would
+                // look exactly like the freeze this feature exists to disprove.
+                report.page(progress::PageDone {
+                    index: page_index,
+                    attempted: attempted + 1,
+                    of,
+                    words: one.words,
+                    chars: one.chars,
+                });
                 pages.push((page_index, one.recognised));
             }
             // A page with nothing on it is not a failure of the run.
-            Err(Refusal::NothingRecognised) => pages_skipped += 1,
+            Err(Refusal::NothingRecognised) => {
+                pages_skipped += 1;
+                report.page(progress::PageDone {
+                    index: page_index,
+                    attempted: attempted + 1,
+                    of,
+                    words: 0,
+                    chars: 0,
+                });
+            }
             Err(Refusal::AlreadyHasText) => {
                 pages_skipped += 1;
                 already_had_text += 1;
+                report.page(progress::PageDone {
+                    index: page_index,
+                    attempted: attempted + 1,
+                    of,
+                    words: 0,
+                    chars: 0,
+                });
             }
             Err(other) => return Err(other),
         }
@@ -754,6 +763,7 @@ fn recognise(request: &Request) -> Result<Recognised, Refusal> {
         effective_dpi: dpi,
         words_recognised: total_words,
         pages_skipped,
+        stopped_after,
     })
 }
 
@@ -763,6 +773,13 @@ struct OnePage {
     recognised: pdfce_core::ocr::OcrPage,
     /// How many the recogniser produced.
     words: usize,
+    /// How many characters those words hold.
+    ///
+    /// ★ Asked for by name on 2026-09-01, and it is the better of the two for
+    /// showing that a long run is alive: a dense drawing can yield hundreds of
+    /// characters inside a handful of "words", so this number moves when the
+    /// word count barely does.
+    chars: usize,
     /// What it was rasterized at.
     dpi: f32,
 }
@@ -884,6 +901,12 @@ fn recognise_one(
         return Err(Refusal::NothingRecognised);
     }
 
+    // ★ Counted from the words that were actually PLACED, not from what the
+    // recogniser emitted — the two differ whenever a word is dropped on the way
+    // into page space, and the number an operator watches must describe what
+    // ended up in their document.
+    let chars_recognised = placed.iter().map(|w| w.text.chars().count()).sum();
+
     Ok(OnePage {
         recognised: OcrPage {
             words: placed,
@@ -894,6 +917,7 @@ fn recognise_one(
             confidence_available: reports_confidence(),
         },
         words: words_recognised,
+        chars: chars_recognised,
         dpi,
     })
 }
