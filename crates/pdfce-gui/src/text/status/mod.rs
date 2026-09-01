@@ -1021,26 +1021,6 @@ pub const fn flatten_declined_certified() -> &'static str {
      is still allowed; turning the values into page content is not."
 }
 
-/// **A button cannot be given anything to do.**
-///
-/// Said when `edit.form_push_button` is invoked despite being greyed — by a
-/// chord, the QAT, a context menu or the harness seam, none of which the
-/// ribbon's greying reaches.
-///
-/// ★★ It names the **limit**, not the control, because the control is fine:
-/// `add_push_button` authors a correct widget. What pdfce cannot do is execute
-/// a PDF action, so a button placed today would look right and do nothing —
-/// this project's recurring failure mode, and the reason the command is greyed
-/// rather than absent (R9: temporarily unavailable, explained).
-///
-/// ★ It does not apologise and does not promise. "Not yet" is the whole of the
-/// forward-looking claim, because a sentence that said *when* would be a
-/// commitment nobody made.
-#[must_use]
-pub fn push_button_inert() -> &'static str {
-    "pdfce cannot give a button something to do yet, so it will not place one."
-}
-
 /// **A resize was refused because the artwork cannot be rebuilt.**
 ///
 /// `OPERATOR_REQUESTS.md` O51. Two sentences, chosen by whether the drag was

@@ -66,6 +66,19 @@ pub(in crate::app::actions) fn author(
     // `Result` is consumed inside the funnel.
     let before = doc.edit_epoch;
     let placed_name = draft.name.trim().to_owned();
+    // What the button is to do, and the name to address it by afterwards.
+    //
+    // ★ `fqn` is the trimmed name, which for a field authored here IS the
+    // fully-qualified one: `add_push_button` places a top-level field, so there
+    // is no parent to prefix. A field nested under a parent would need the
+    // dotted path, and that case cannot arise from this dialog.
+    let action = draft.action.clone();
+    let fqn = placed_name.clone();
+    // Carried out of the closure: a refusal on the SECOND verb, which leaves a
+    // correctly placed button with nothing to do. The closure's own `Result`
+    // reports the first verb, and reporting a second failure through it would
+    // claim the button was not placed.
+    let mut refused: Option<String> = None;
 
     crate::app::actions::apply::vector_edit(doc, "add-form-field", page, 1, |session| {
         let outcome = match kind {
@@ -138,11 +151,92 @@ pub(in crate::app::actions) fn author(
                 spec.tooltip = tooltip;
                 spec.read_only = draft.read_only;
                 spec.border = border;
-                session.add_push_button(&spec)
+                let placed = session.add_push_button(&spec);
+                // ★★★ AND THEN GIVE IT SOMETHING TO DO.
+                //
+                // Creation authors an INERT button, deliberately and
+                // permanently: `pdfce-core`'s decision 009 posture A says a
+                // button must not gain behaviour as a side effect of being
+                // drawn, and `NewPushButton` is untouched by `Pass 183.0`.
+                // Giving one an action is a separate, named verb a caller has
+                // to go out of its way to call — which is exactly what this is.
+                //
+                // ★★ TWO COMMANDS, THEREFORE TWO UNDO ENTRIES, and it is a
+                // workaround rather than a design. `EditSession::coalesce_last`
+                // is what would fold them into one and it is **private**
+                // (`edit.rs`, `fn` not `pub fn`), so a shell cannot reach it.
+                // Reported per decision 058 as
+                // `request_placing_a_button_with_an_action_costs_two_undos.md`
+                // rather than absorbed silently. Until it lands, one Ctrl+Z
+                // takes the action off and a second removes the button — which
+                // is at least monotonic, and never leaves a button doing
+                // something the operator did not ask for.
+                //
+                // ★ The action is written ONLY when one was chosen. The default
+                // is `Nothing`, whose `to_core` is `None`, and calling
+                // `set_button_action(name, None)` on a button that has never
+                // had one would be a second command that changes nothing — an
+                // undo entry for an act that did not happen.
+                match (placed, action.to_core()) {
+                    (Ok(outcome), Some(deed)) => {
+                        match session.set_button_action(&fqn, Some(deed)) {
+                            // ★★ The success line, and it exists for one
+                            // reason: a driven check has no other oracle. The
+                            // button on the page is drawn identically whether
+                            // or not `/A` was written — which is rule 4 working
+                            // correctly, and is also what makes a screenshot
+                            // useless here. `replaced` is carried because it
+                            // names what was destroyed, including a script
+                            // pdfce will not write back.
+                            Ok(change) => {
+                                let kind = action.kind;
+                                let replaced = change.replaced.clone();
+                                crate::diag::trace(|| {
+                                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                                    format!(
+                                        "button-action-applied name={fqn} kind={kind:?} replaced={}",
+                                        replaced.as_deref().unwrap_or("none")
+                                    )
+                                });
+                                Ok(outcome)
+                            }
+                            // ★★★ The button IS placed and the action is not.
+                            // Say so: silence here is the exact defect this
+                            // feature removes — a button that looks right and
+                            // does nothing — arriving by a different door. The
+                            // engine's own words are carried because they name
+                            // the condition (a page past the end, a field that
+                            // is not there, a target that is a grouping node).
+                            Err(why) => {
+                                crate::diag::trace(|| {
+                                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                                    format!("button-action-refused name={fqn} why={why}")
+                                });
+                                refused = Some(crate::text::buttonaction::action_refused(
+                                    &fqn,
+                                    &why.to_string(),
+                                ));
+                                Ok(outcome)
+                            }
+                        }
+                    }
+                    (other, _) => other,
+                }
             }
         };
         outcome.map(|o| super::disclosures(&o, kind))
     });
+
+    // ★★ The second verb's refusal, off-canvas, after the funnel has committed
+    // the first. `record_note` keys on the epoch the funnel has just bumped, so
+    // the sentence retires with the next edit the way every other note does.
+    //
+    // Rule 4: the button on the page is drawn exactly as the saved file will
+    // draw it — no badge, no tint, nothing marking it as "placed but
+    // behaviourless". What it does NOT do is reported here instead.
+    if let Some(note) = refused {
+        crate::app::actions::record_note(doc.edit_epoch, note);
+    }
 
     // ★★★ SELECT WHAT WAS JUST PLACED. `OPERATOR_REQUESTS.md` **O53**.
     //

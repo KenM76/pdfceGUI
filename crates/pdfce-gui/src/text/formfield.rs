@@ -281,19 +281,6 @@ pub fn caption_label() -> String {
     "Words on the button".to_owned()
 }
 
-/// ★★ What a button placed by pdfce will and will not do.
-///
-/// Said before it is placed rather than discovered afterwards. pdfce authors the
-/// control correctly and runs no PDF action, so the button will look right and
-/// do nothing — this project's recurring failure mode, disclosed rather than
-/// shipped silently.
-#[must_use]
-pub fn button_inert_note() -> String {
-    "pdfce can place the button but cannot yet give it something to do, so it \
-     will not respond when pressed."
-        .to_owned()
-}
-
 /// The required control.
 #[must_use]
 pub fn required() -> String {
@@ -398,10 +385,32 @@ mod tests {
         );
     }
 
-    /// **The inert-button note says the button will not respond**, which is the
-    /// consequence, rather than describing a missing feature.
+    /// ★★★ **The inert-button note is gone, and this test is its headstone.**
+    ///
+    /// It said pdfce *"cannot yet give it something to do"*.
+    /// `set_button_action` shipped on 2026-08-30 and that sentence stayed on
+    /// screen for two days, because **nothing in this repository fails when a
+    /// capability lands**. The engine's own reply had warned in as many words:
+    /// *"if your surface tells the operator that pdfce never authors an action,
+    /// it is now saying something untrue in the direction that matters."*
+    ///
+    /// The replacement is `text::buttonaction`, which says what the button WILL
+    /// do. What is asserted here is the guard that would have caught the
+    /// staleness: **no string a push button's rows draw may claim a button
+    /// cannot be given an action.** A sentence that reintroduces the claim
+    /// fails here rather than shipping.
     #[test]
-    fn the_inert_button_note_states_the_consequence() {
-        assert!(button_inert_note().contains("not respond"));
+    fn no_string_here_claims_a_button_cannot_be_given_an_action() {
+        for s in [
+            caption_label(),
+            title(crate::canvas::formfield::FormFieldKind::PushButton),
+            intro(crate::canvas::formfield::FormFieldKind::PushButton),
+        ] {
+            let lower = s.to_lowercase();
+            assert!(
+                !(lower.contains("cannot") || lower.contains("not yet")),
+                "a button CAN be given an action since 2026-08-30: {s}"
+            );
+        }
     }
 }

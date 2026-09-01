@@ -412,29 +412,6 @@ pub(crate) enum Declined {
     /// the old one. The sentence says so, because an operator told they had
     /// "restored" a radio button would go looking for its group.
     WidgetHasNoName,
-    /// **A button was asked for, and pdfce cannot give one anything to do.**
-    ///
-    /// `edit.form_push_button` is `enabled_when` a condition nothing sets, so
-    /// its ribbon item is greyed. This is what happens when the command arrives
-    /// anyway — by a chord, the QAT, a context menu or the harness seam — and
-    /// it is the reason greying alone was never enough.
-    ///
-    /// ★★ **The alternative was silence, and silence was measured to be worse.**
-    /// A blanket refusal at the top of `dispatch_command` was written first and
-    /// the test suite rejected it, because the same change would have made
-    /// `Ctrl+Z` on an empty stack do nothing AND say nothing. Greying is a hint;
-    /// a sentence is an answer. See `app::dispatch`'s form arm for the full
-    /// account.
-    ///
-    /// # ★ Retired by the operator's next act, and by nothing else
-    ///
-    /// [`Self::still_true`] answers `true` unconditionally, like the two failed
-    /// writes above and unlike the four with a live predicate. There is no state
-    /// to re-ask: pdfce will not learn to run a PDF action between two frames,
-    /// so the sentence cannot stop being true on its own. What retires it is the
-    /// next thing the operator does, which is the right lifetime for a sentence
-    /// about one press.
-    PushButtonInert,
     /// ★★★ **A resize was refused because the appearance cannot be rebuilt**
     /// (`OPERATOR_REQUESTS.md` O51, engine `Pass 151.0`).
     ///
@@ -729,10 +706,7 @@ impl Declined {
             // while the operator reads the status bar. What retires it is their
             // next act — including, in the good case, ticking the switch the
             // sentence just named.
-            Self::SaveFailed
-            | Self::SettingsNotSaved
-            | Self::PushButtonInert
-            | Self::ResizeNotRebuildable { .. } => true,
+            Self::SaveFailed | Self::SettingsNotSaved | Self::ResizeNotRebuildable { .. } => true,
             // ★ `true`, with the others whose state cannot change between two
             // frames. A document's certification is a property of the file: it
             // does not lapse while the operator looks at the status bar, and
@@ -846,7 +820,6 @@ impl Declined {
             Self::NothingToRedo => t::redo_declined_empty(),
             Self::FieldNameTaken => t::adopt_declined_name_taken(),
             Self::WidgetHasNoName => t::adopt_declined_no_name(),
-            Self::PushButtonInert => t::push_button_inert(),
             Self::ResizeNotRebuildable { uniform } => t::resize_not_rebuildable(uniform),
             Self::FlattenCertified => t::flatten_declined_certified(),
             Self::FieldDeleteRefused => t::field_delete_declined_structural(),
@@ -1147,10 +1120,6 @@ pub(crate) fn record_rotate(why: crate::text::rotating::RotateRefusal) {
 /// header forbids sharing a slot between them.
 pub(crate) fn record_unshare(why: crate::text::unshare::UnshareRefusal) {
     LAST.with_borrow_mut(|slot| *slot = Some(Declined::Unshare(why)));
-}
-
-pub(crate) fn record_push_button_inert() {
-    LAST.with_borrow_mut(|slot| *slot = Some(Declined::PushButtonInert));
 }
 
 pub(crate) fn record_save_failure() {

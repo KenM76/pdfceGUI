@@ -69,37 +69,52 @@ fn the_history_commands_raise_actions() {
     }
 }
 
-/// ★★★ **A greyed command that is invoked anyway declines IN WORDS.**
+/// ★★★ **THE PUSH BUTTON ARMS, like every other kind** — and this test is the
+/// second half of a story that is worth reading whole.
 ///
-/// The regression test for a hole this project carried since the registry
-/// gained `enabled_when`: **the greying was drawn, never enforced.** `egui`
-/// refuses a click on a disabled widget and that is the whole of what greying
-/// does — a chord, the QAT, a context menu or the `PDFCE_DIAG_INVOKE` seam all
-/// reach `dispatch_command` without passing the ribbon at all.
+/// # What it used to assert, and why
+///
+/// It was called `a_greyed_push_button_declines_in_words_rather_than_arming`,
+/// and it was the regression test for a hole this project carried since the
+/// registry gained `enabled_when`: **the greying was drawn, never enforced.**
+/// `egui` refuses a click on a disabled widget and that is the whole of what
+/// greying does — a chord, the QAT, a context menu or the `PDFCE_DIAG_INVOKE`
+/// seam all reach `dispatch_command` without passing the ribbon at all.
 ///
 /// Found by driving the release binary, not by reading:
 /// `PDFCE_DIAG_INVOKE=mode.edit,edit.form_push_button` traced
-/// `form-tool-armed kind=PushButton`, arming a tool whose control is greyed.
+/// `form-tool-armed kind=PushButton`, arming a tool whose control was greyed.
 ///
-/// ## What this test asserts, and the thing it deliberately does NOT
+/// ★★ It asserted **two** facts and the second was the one worth having: the
+/// tool was not armed, **and** a decline was recorded so the operator got a
+/// sentence. The second is what stopped the obvious repair — a blanket refusal
+/// at the top of `dispatch_command`, which satisfied the first for all
+/// ninety-nine `enabled_when` commands at once and was rejected by the suite
+/// because it also removed the words. `the_history_commands_raise_actions` says
+/// so in its own header: *"the dispatcher must not consult one … the apply arm
+/// declines an empty stack IN WORDS."* **Greying is a hint; a sentence is the
+/// answer.**
 ///
-/// It asserts **two** facts, and the second is the one worth having:
+/// # Why it now asserts the opposite
 ///
-/// 1. the tool is not armed — a greyed command does not do its thing;
-/// 2. a decline is **recorded**, so the operator gets a sentence.
+/// The push button was greyed because a button pdfce placed ran nothing.
+/// `pdfce-core` shipped `EditSession::set_button_action` on 2026-08-30 and this
+/// shell consumed it on 2026-09-01, so the command is live and the decline it
+/// used to record has been deleted along with the branch that recorded it.
 ///
-/// The second is what stopped the obvious repair. A blanket refusal at the top
-/// of `dispatch_command` was written, and it satisfied (1) for all ninety-nine
-/// `enabled_when` commands at once — and the suite rejected it, because it also
-/// removed the words. `the_history_commands_raise_actions` says so in its own
-/// header: *"the dispatcher must not consult one … the apply arm declines an
-/// empty stack IN WORDS."* Greying is a hint; a sentence is the answer.
+/// ⇒ **This test lost its subject rather than its point.** Inverted rather than
+/// deleted, because a regression that re-greyed the button — by dropping the
+/// `forms.push_button_runnable` line in `app::conditions`, which is one line and
+/// therefore one careless revert — would otherwise be invisible: the ribbon item
+/// would go grey and every test would still pass.
 ///
-/// So a test that only checked "nothing happened" would have passed against the
-/// change this project rejected, which is the shape of a check that cannot fail
-/// for the right reason.
+/// ★ The general rule the old test protected is not orphaned. It lives in
+/// `app::dispatch::forms`' header, and the guard that would force a future
+/// author to rebuild the worded-decline branch is
+/// `canvas::formfield::tests::no_kind_is_authorable_but_inert`, whose failure
+/// message names both halves of the repair.
 #[test]
-fn a_greyed_push_button_declines_in_words_rather_than_arming() {
+fn the_push_button_arms_its_tool_like_every_other_kind() {
     let ctx = egui::Context::default();
     let mut app = crate::app::tests::opened();
     // Reached through the dispatcher rather than by writing the field, so the
@@ -111,17 +126,21 @@ fn a_greyed_push_button_declines_in_words_rather_than_arming() {
     app.dispatch_command(&ctx, "edit.form_push_button", &mut actions);
 
     assert!(
-        !matches!(
+        matches!(
             crate::canvas::tool::active(&ctx),
-            crate::canvas::tool::CanvasTool::Form(_)
+            crate::canvas::tool::CanvasTool::Form(
+                crate::canvas::formfield::FormFieldKind::PushButton
+            )
         ),
-        "a greyed command must not arm its tool" // ui-text-exempt: test assertion message
+        "the button tool did not arm. The likely cause is one line: `app::conditions` sets \
+         `forms.push_button_runnable` beside `doc.pages`, and `edit.form_push_button` is \
+         `enabled_when` it." // ui-text-exempt: test assertion message
     );
     assert_eq!(
         crate::app::status::decline::recorded_for_test(),
-        Some(crate::app::status::decline::Declined::PushButtonInert),
-        "…and it must SAY so — a command that silently does nothing is \
-         indistinguishable from one with no arm, and the two want opposite fixes"
+        None,
+        "…and it must not ALSO decline. A command that arms and complains is worse than one \
+         that does either — the operator has a live tool and a sentence saying they have not."
     );
 }
 

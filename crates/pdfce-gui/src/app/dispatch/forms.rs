@@ -78,19 +78,23 @@ pub(super) fn arm(app: &PdfceApp, ctx: &egui::Context, id: &str, kind: FormField
         });
         return;
     }
-    if !kind.is_useful_once_placed() {
-        // ★ The predicate is `is_useful_once_placed`, **not** the condition
-        // string. The condition is how the RIBBON asks; this is how the code
-        // asks; and the two are welded by `only_the_push_button_is_inert` and
-        // by the catalog test that pins the `enabled_when`. On the day pdfce
-        // runs PDF actions, one predicate flips and both surfaces follow.
-        crate::app::status::decline::record_push_button_inert();
-        crate::diag::trace(|| {
-            // ui-text-exempt: diagnostic trace, never displayed in the UI
-            format!("command-declined id={id} reason=push-button-not-runnable")
-        });
-        return;
-    }
+    // ★★★ **THE INERT-KIND BRANCH IS GONE, and its deletion is dated.**
+    //
+    // It read: *"the two are welded by `only_the_push_button_is_inert` … on the
+    // day pdfce runs PDF actions, one predicate flips and both surfaces
+    // follow."* That day was 2026-08-30, when `pdfce-core` shipped
+    // `EditSession::set_button_action`, and this shell consumed it on
+    // 2026-09-01. `FormFieldKind::is_useful_once_placed` now answers `true` for
+    // all five, so the branch could never fire and a branch that cannot fire is
+    // a mechanism with no caller — which rots, silently, and is believed.
+    //
+    // ★★ The GUARD survives, and it moved to where it can still fail:
+    // `canvas::formfield`'s `no_kind_is_authorable_but_inert`. A sixth kind that
+    // pdfce can author and cannot use fails that test, and its message names
+    // both halves of the repair — a condition `app::conditions` does not set,
+    // AND a worded decline here. Both, because of the finding this file's header
+    // records at length: **greying is drawn, never enforced**, and every route
+    // into the dispatcher except a ribbon click ignores it.
     let _ = crate::canvas::tool::arm_form(ctx, kind);
 }
 

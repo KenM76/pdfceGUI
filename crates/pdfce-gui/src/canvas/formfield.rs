@@ -42,6 +42,7 @@
 //! document until the operator presses OK, which is what makes Escape free and
 //! what stops a mis-drag leaving a stray field behind.
 
+pub mod action;
 pub mod draft;
 
 pub use draft::{Draft, Remembered};
@@ -97,13 +98,38 @@ impl FormFieldKind {
 
     /// Whether pdfce can do anything useful with this kind **once placed**.
     ///
-    /// ★ Distinct from "can it be authored", and the distinction is the whole
-    /// of the push button's greying: authoring works for all five. This asks
-    /// whether the resulting control does anything, which for a push button
-    /// means running a PDF action, and pdfce runs none.
+    /// ★★★ **`true` for all five since 2026-09-01**, and the history is worth
+    /// keeping because it is what this predicate was FOR.
+    ///
+    /// It answered `false` for [`Self::PushButton`] for the life of the
+    /// project. Authoring worked — `add_push_button` places a correct widget —
+    /// but the resulting control ran nothing, because giving a button an action
+    /// means writing `/A` and `pdfce-core` authored none by decision 009
+    /// posture A. A button that looks right and does nothing is this project's
+    /// recurring failure mode, so the tool was greyed and the placement dialog
+    /// said why.
+    ///
+    /// `pdfce-core` shipped `EditSession::set_button_action` on **2026-08-30**
+    /// (`Pass 182.0`/`183.0`/`183.1`) on the operator's direct instruction, and
+    /// this shell consumed it on 2026-09-01. `dialogs::buttonaction` is the
+    /// surface; `canvas::formfield::action` is the model.
+    ///
+    /// ★★ **The predicate is kept rather than deleted**, and not out of
+    /// sentiment. `app::dispatch::forms` decides its worded refusal on it and
+    /// the ribbon's `enabled_when` is welded to it by a catalog test — so a
+    /// future kind that pdfce can author and not use has one place to say so,
+    /// and both surfaces follow from it. Deleting it would mean the next such
+    /// kind ships a control that does nothing, silently, which is the whole
+    /// class of defect this predicate exists to make impossible.
+    ///
+    /// ★ It is a `const fn` returning a literal `true`, which clippy would
+    /// otherwise call trivial. That is the point: the interesting state is that
+    /// **nothing** is currently in the excluded set.
     #[must_use]
     pub const fn is_useful_once_placed(self) -> bool {
-        !matches!(self, Self::PushButton)
+        match self {
+            Self::Text | Self::CheckBox | Self::Radio | Self::Choice | Self::PushButton => true,
+        }
     }
 
     /// The command id that arms this kind.
@@ -228,23 +254,50 @@ mod tests {
         }
     }
 
-    /// ★★ **Exactly one kind is authorable-but-inert**, and it is the push
-    /// button.
+    /// ★★★ **NO KIND IS AUTHORABLE-BUT-INERT ANY MORE**, and the test that
+    /// used to say otherwise did its job.
     ///
-    /// Asserted rather than assumed so that adding a sixth kind has to state
-    /// which side it falls on. If pdfce ever runs PDF actions, this test fails
-    /// and the failure is the prompt to un-grey the button.
+    /// It read *"exactly one kind is authorable-but-inert, and it is the push
+    /// button"*, with the instruction: *"if pdfce ever runs PDF actions, this
+    /// test fails and the failure is the prompt to un-grey the button."* On
+    /// 2026-09-01 it failed for exactly that reason and this is what it became.
+    ///
+    /// ★★ Inverted rather than deleted, because the WELD is the point. Three
+    /// surfaces have to agree about whether a kind is useful once placed — the
+    /// ribbon's `enabled_when`, `app::dispatch::forms`' worded refusal, and this
+    /// predicate — and a build where they disagree is one where a greyed control
+    /// still works by chord, which is a defect this project has already shipped
+    /// once and found by driving rather than by testing.
+    ///
+    /// ⇒ So the assertion now says *"the set is empty"*. A sixth kind that pdfce
+    /// can author and not use fails here, and the failure names what to do.
     #[test]
-    fn only_the_push_button_is_inert() {
+    fn no_kind_is_authorable_but_inert() {
         let inert: Vec<_> = FormFieldKind::ALL
             .into_iter()
             .filter(|k| !k.is_useful_once_placed())
             .collect();
-        assert_eq!(
-            inert,
-            vec![FormFieldKind::PushButton],
-            "the set of authorable-but-inert kinds changed; if pdfce now runs \
-             actions, un-grey the push button and delete this expectation"
+        assert!(
+            inert.is_empty(),
+            "{inert:?} can be authored and does nothing once placed. Either wire the verb that \
+             makes it useful, or grey its command with a condition `app::conditions` does not \
+             set and give `app::dispatch::forms` a worded refusal for it — greying alone is a \
+             drawing, not a rule, and every other route into the dispatcher ignores it."
+        );
+    }
+
+    /// ★★ **The push button in particular**, named rather than left to the
+    /// blanket above.
+    ///
+    /// `set_button_action` shipped 2026-08-30 and this shell consumed it on
+    /// 2026-09-01. A regression that re-greyed the button would pass the empty-
+    /// set test above only by also changing it, and would pass nothing here.
+    #[test]
+    fn a_push_button_can_be_given_something_to_do() {
+        assert!(
+            FormFieldKind::PushButton.is_useful_once_placed(),
+            "the placement dialog offers seven actions and the ribbon item is live; a `false` \
+             here would grey the control while the dialog behind it still worked"
         );
     }
 }

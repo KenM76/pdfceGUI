@@ -73,6 +73,11 @@
 /// naming the third-party material this binary redistributes. Consumed by
 /// `crate::dialogs::about`.
 pub mod about;
+/// ★★★ **What a push button DOES** — every word the placement dialog's action
+/// chooser says, including the submit disclosure. Its own module because two of
+/// the seven choices write an address into the document that some other program
+/// may act on, and the operator cannot see that by looking at the page.
+pub mod buttonaction;
 /// The label and tooltip of every ribbon command. Consumed by
 /// `crate::shell::commands`.
 /// The four sentences the object clipboard can say when it cannot act.

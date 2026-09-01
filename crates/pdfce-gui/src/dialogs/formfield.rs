@@ -429,21 +429,26 @@ impl FormFieldDialog {
             .on_hover_text(t::sort_hover());
     }
 
-    /// A push button's caption, and the one thing it cannot do.
+    /// A push button's caption, and what pressing it does.
     fn button_rows(&mut self, ui: &mut Ui) {
         ui.label(t::caption_label());
         ui.add(egui::TextEdit::singleline(&mut self.draft.caption).desired_width(f32::INFINITY));
-        // ★★ Stated plainly rather than hidden, because a button that does
-        // nothing when pressed is this project's recurring failure mode arriving
-        // by the front door. pdfce authors the control correctly and runs no PDF
-        // action, so the button will look right and do nothing — which the
-        // operator deserves to know *before* they place it, not after.
+        crate::dialogs::buttonaction::rows(ui, &mut self.draft.action);
+        // ★★★ THE INERT NOTE IS GONE, and its deletion is the feature.
         //
-        // The ribbon command is greyed for the same reason, so this row is
-        // currently unreachable; it is written because the greying is one
-        // condition away from lifting and the disclosure must not lag it.
-        ui.add_space(6.0);
-        ui.small(t::button_inert_note());
+        // Until 2026-09-01 this row ended with a sentence saying pdfce *"can
+        // place the button but cannot yet give it something to do"*, and the
+        // ribbon command was greyed for the same reason. `pdfce-core` shipped
+        // `set_button_action` on 2026-08-30 and the reply said, in as many
+        // words: *"if your surface tells the operator that pdfce never authors
+        // an action, it is now saying something untrue in the direction that
+        // matters."*
+        //
+        // ★ Two days passed before anyone checked. That is the finding worth
+        // keeping: the reply arrived, was read, and the sentence it warned
+        // about stayed on screen — because nothing in this repository fails
+        // when a capability lands. See `canvas::formfield::action`'s tripwire
+        // for the shape that would have caught it.
     }
 
     /// Required and read-only — asked identically for all five kinds.

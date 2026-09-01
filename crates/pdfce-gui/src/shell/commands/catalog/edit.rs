@@ -142,13 +142,20 @@ pub(super) fn band() -> Vec<Command> {
         // ruling of 2026-08-26: *"leave push buttons on the ribbon but greyed
         // out for now."*
         //
-        // R9-correct rather than an exception to R9, which reserves greying for
-        // a TEMPORARILY unavailable capability that is explained on hover.
-        // Authoring works — `add_push_button` is a real verb — and what pdfce
-        // cannot do is RUN what the button would do, because it executes no PDF
-        // actions. `forms.push_button_runnable` is a condition nothing sets, so
-        // the control is permanently disabled until something does, at which
-        // point un-greying it is one line.
+        // ★★★ **AND SOMETHING DOES SET IT, since 2026-09-01.** The paragraph
+        // above is the history; this is the state.
+        //
+        // `forms.push_button_runnable` was a condition nothing set, because a
+        // button pdfce placed ran nothing. `pdfce-core` shipped
+        // `EditSession::set_button_action` on 2026-08-30 and `app::conditions`
+        // sets the name alongside `doc.pages` — the one line this comment
+        // promised. The greying now means what R9 says greying means: no
+        // document open, nothing to place a button on.
+        //
+        // ★ The `enabled_when` STAYS. Deleting it would make the control live
+        // with no document, which is the thing the condition was always also
+        // doing. The catalog test that pins this string is what keeps the
+        // ribbon and `app::dispatch::forms` asking the same question.
         command("edit.form_push_button", t::edit_form_push_button(), 438)
             .with_icon("form-field")
             .enabled_when("forms.push_button_runnable"),

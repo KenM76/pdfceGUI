@@ -585,6 +585,7 @@ pub mod bookmark_edit;
 /// **disagreement** between the panel's item count and the number of rows it
 /// draws after a collapse — which is the whole of *"the sign is honoured"*.
 pub mod bookmark_move;
+pub mod button_action;
 pub mod chords;
 /// ★★★ **The Comments panel stopped being a viewer** — a note can be written
 /// onto a shape that already exists, which needed a verb `pdfce-core` did not
@@ -917,6 +918,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // that matters: the promised resolution and the reported one are the
         // same number, which is the shell's half of a single-derivation
         // guarantee `pdfce-core` holds up on its side with a test.
+        Box::new(button_action::APlacedButtonCanBeGivenSomethingToDo),
         Box::new(insert_image::InsertImagePlacesAPicture),
         // `OPERATOR_REQUESTS.md` O66, 2026-08-31. Immediately after its
         // sibling, because it depends on everything that one establishes — the

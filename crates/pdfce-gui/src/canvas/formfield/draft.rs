@@ -117,6 +117,15 @@ pub struct Draft {
     pub sort: bool,
     /// **Push button** — the words on the button.
     pub caption: String,
+    /// **Push button** — what pressing it does.
+    ///
+    /// The placement dialog is the only surface for this, and the reason is a
+    /// gap rather than a design: `pdfce-core` can WRITE a button's action and
+    /// cannot READ one back, so a control over an *existing* button could not
+    /// say what it currently is. A button being placed has no action yet, which
+    /// makes this the one place the question has a known answer. See
+    /// `canvas::formfield::action`'s header and the tripwire test in it.
+    pub action: super::action::ButtonDoes,
 }
 
 impl Draft {
@@ -186,6 +195,10 @@ impl Draft {
             multi_select: false,
             sort: false,
             caption: String::new(),
+            // Nothing, which is exactly what `add_push_button` authors on its
+            // own. A dialog opening with an action pre-chosen would be pdfce
+            // deciding what somebody's button does.
+            action: super::action::ButtonDoes::default(),
         }
     }
 }

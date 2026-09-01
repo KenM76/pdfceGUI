@@ -105,6 +105,26 @@ impl PdfceApp {
             set.set("doc.open");
             if !doc.pages.is_empty() {
                 set.set("doc.pages");
+                // ★★★ **THE ONE LINE**, and it was written as one line on
+                // purpose a fortnight before it could be uncommented.
+                //
+                // `edit.form_push_button` is `enabled_when("forms.push_button_runnable")`
+                // and nothing set that name for the life of the project, because a
+                // button pdfce placed ran nothing: `/A` was unauthorable by decision
+                // 009 posture A. The catalog comment beside the command said the
+                // greying was *"one line"* away from lifting; this is the line.
+                //
+                // `pdfce-core` shipped `set_button_action` on 2026-08-30 (`Pass
+                // 182.0`/`183.0`/`183.1`). The condition rides `doc.pages` because a
+                // button needs a sheet to sit on and nothing more — the seven things
+                // it can be set to are all writable into any document a field can be
+                // placed in, so there is no narrower precondition to state.
+                //
+                // ★ Welded to `FormFieldKind::is_useful_once_placed` by a test, and
+                // that weld is the mechanism: the ribbon asks by condition string and
+                // `app::dispatch::forms` asks by predicate, and a build where the two
+                // disagree is one where a greyed control still works by chord.
+                set.set("forms.push_button_runnable");
             }
             if !doc.selection.is_empty() {
                 set.set("selection.any");
