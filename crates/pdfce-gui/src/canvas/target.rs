@@ -399,16 +399,30 @@ impl CanvasTargetProvider for ObjectModelProvider {
         if page_index != self.page_index() {
             return Vec::new();
         }
-        match self.part_kind_of(target) {
-            Some(crate::panels::objects::provider::PartKind::Subpath) => {
-                self.subpath_hits_of(target, point, tolerance)
-            }
-            // ★ A text run inside a form has no leaf-indexed hit test yet, so
-            // it answers "no parts" rather than the page-object list — which
-            // would be another object's runs entirely. Named here rather than
-            // left as a fall-through: it is the next thing to build, not an
+        use crate::panels::objects::provider::PartKind;
+        match (self.part_kind_of(target), target.page_object_index()) {
+            (Some(PartKind::Subpath), _) => self.subpath_hits_of(target, point, tolerance),
+            // ★★★ **A TEXT OBJECT'S RUNS, and forgetting them here broke the
+            // Points tool for text — caught by the full sweep, 2026-09-01.**
+            //
+            // The first version of this override handled `Subpath` and answered
+            // empty for everything else, which silently dropped the `Run` arm
+            // the index-based `part_hits` had always dispatched. The symptom
+            // was `canvas-anchors-declined reason=not-entered`: a Points-tool
+            // click on text found no part, so the rung was never entered and no
+            // points drew. Every unit test passed; the driven suite caught it.
+            //
+            // ⇒ The lesson is the one this project keeps relearning about
+            // generalising a function: the new axis (which index space) is easy
+            // to see, and the axis that was ALREADY there (which kind of part)
+            // is the one that gets dropped.
+            (Some(PartKind::Run), Some(object)) => self.text_run_hits(object, point, tolerance),
+            // ★ A text run INSIDE a form has no leaf-indexed hit test yet —
+            // `text_run_hits` indexes the page's own list, and answering from it
+            // would return another object's runs entirely. Empty is the honest
+            // answer, and it is the next thing to build rather than an
             // oversight.
-            _ => Vec::new(),
+            (Some(PartKind::Run), None) | (None, _) => Vec::new(),
         }
     }
 

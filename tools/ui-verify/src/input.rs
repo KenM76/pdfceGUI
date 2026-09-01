@@ -763,6 +763,30 @@ impl Driver {
         self.focus.set(Some(w));
         sys::raise_window(w);
         std::thread::sleep(MOVE_SETTLE);
+        // ★★★ **ONE RETRY, and the whole-suite measurement is why** —
+        // 2026-09-01.
+        //
+        // A full sweep of 127 checks reported 45 of them SKIPPED on *"could not
+        // be brought to the front"*, and every one of them passed when re-run
+        // alone seconds later. The application under test is launched and killed
+        // once per check, and Windows' foreground lock does not settle between a
+        // process dying and the next one asking — so the first ask after a churn
+        // is refused and the second is granted.
+        //
+        // ⇒ Without this, a suite run back-to-back reports a third of itself as
+        // *"could not begin"*, which this harness's own rule calls the failure
+        // it exists to remove: a check that did not run has told you nothing,
+        // and "told you nothing" rendered as a skip is read as "nothing to see".
+        //
+        // ★ ONE retry, not a loop, and the sentence below is why: a foreground
+        // held by a stray system modal is a real condition that no amount of
+        // retrying fixes, and turning it into a slow timeout would hide the one
+        // message that names the culprit.
+        if !sys::is_foreground(w) {
+            std::thread::sleep(MOVE_SETTLE * 4);
+            sys::raise_window(w);
+            std::thread::sleep(MOVE_SETTLE);
+        }
         if !sys::is_foreground(w) {
             return Err(Error::new(format!(
                 "the window containing ({}, {}) could not be brought to the front. Windows \
@@ -792,6 +816,15 @@ impl Driver {
         };
         self.raise();
         std::thread::sleep(MOVE_SETTLE);
+        // ★ The same single retry `raise_and_confirm_at` takes, and for the
+        // measurement recorded there: the foreground lock does not settle
+        // between one launched-and-killed application and the next, so the
+        // first ask after a churn is refused and the second is granted.
+        if !sys::is_foreground(w) && !self.application_has_the_foreground() {
+            std::thread::sleep(MOVE_SETTLE * 4);
+            self.raise();
+            std::thread::sleep(MOVE_SETTLE);
+        }
         if !sys::is_foreground(w) && !self.application_has_the_foreground() {
             return Err(Error::new(format!(
                 "the target window could not be brought to the front, so anything typed now \
