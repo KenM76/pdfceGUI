@@ -80,6 +80,61 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O86 — ⬜ **Filled fields come out the wrong SIZE** — diagnosed, measured, filed with the engine
+
+**Ken, 2026-09-01:**
+
+> *"when I fill out the form fields on `TRP5188 - Weber Supply.pdf` the font
+> doesn't match what is set for the fields. Adobe uses the same font and size as
+> in the first filled out row below the headers. 'TC-10 Wheel Chocks' is in the
+> font that should be showing for the other fields."*
+
+### ★★★ It is the size, not the typeface — and pdfce announces it
+
+Every field in that document declares the same default appearance:
+**`/Helv 0 Tf`**. `0` means *auto-size* — the reader works out what fits.
+
+pdfce's answer is **12 pt, always**, and `fill-field` says so on the way past:
+*"auto-sized to 12 pt (a reviewable pdfce heuristic; §12.7.3.3 mandates no
+formula)."*
+
+| | box height | Acrobat wrote | pdfce writes |
+|---|---|---|---|
+| `DescriptionRow1` | 26.40 pt | **18.08 pt** | 12 pt |
+| `WO` | 13.08 pt | **8.21 pt** | 12 pt |
+
+⇒ On the description rows your text comes out **two-thirds** the right size; on
+the header fields 12 pt would be **150%** and overflow a 13 pt box. One constant
+cannot serve both, and your form has both on the same page — which is why it is
+obvious at a glance.
+
+### ★★ Acrobat's formula, measured off your file
+
+It writes two `Tf` operators and the first is the candidate:
+
+```
+/Helv  21.0975 Tf     <- from the box height
+/Helv 18.082 Tf       <- shrunk so the words fit the width
+```
+
+`(box height − 2) ÷ 1.156` gives 21.0975 on the description box and 9.5396 on
+the WO box. **1.156 is Helvetica's own bounding-box height** — the same number
+falls out of two boxes that differ by a factor of two, so it is the rule rather
+than a coincidence. Then it shrinks to fit the width.
+
+**Filed:** `open/request_auto_sized_field_text_is_a_flat_12pt_and_acrobat_fits_the_box.md`,
+with both measurements and the derivation.
+
+**Status:** ⬜ **OPEN — the fix is the engine's.** Appearance generation is
+`pdfce-core`; this shell calls `fill_text_field` and the size is chosen inside.
+Nothing to build here until it lands, at which point the fill check gets re-driven.
+
+★ Not blocking you — you can fill in Acrobat — and you did not ask for a
+workaround.
+
+---
+
+
 ## O85 — ⬜ **"I pressed Ctrl+S to save and it closed"** — NOT REPRODUCED YET
 
 **Ken, 2026-09-01:** *"can you try doing an edit and save? I did this and
