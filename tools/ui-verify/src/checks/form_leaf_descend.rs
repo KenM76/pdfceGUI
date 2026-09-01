@@ -154,7 +154,32 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         )));
     }
 
-    // --- A: inside the container -------------------------------------------
+    // --- A: on a stroke inside the container --------------------------------
+    //
+    // ★★★ **THE LADDER LOST A RUNG ON 2026-09-01, AND THAT IS THE FIX.**
+    //
+    // This step used to click, then double-click, and require a `smart-enter`
+    // line before going on. That was right when a first click on anything
+    // inside a form resolved to the FORM — so the operator had to enter the
+    // container before they could reach what was in it.
+    //
+    // ⇒ Resolving to the container is now refused when the container holds
+    // essentially everything on the page (`container_is_worth_selecting`),
+    // because every CAD exporter wraps a whole drawing in one such form and
+    // "select the container first" meant "select the whole drawing, every
+    // time" — the operator's own headline complaint, restored by the feature
+    // built to improve selection.
+    //
+    // So on THIS fixture the first click lands on the stroke itself. The
+    // container rung is not skipped; **it was never a rung here**, and the
+    // ladder is one gesture shorter for exactly the documents where that
+    // matters most.
+    //
+    // ★★ `smart-enter` is therefore no longer required — but it is still
+    // ACCEPTED, and the check reports which of the two happened. A fixture
+    // whose form does not swallow the page still enters, and this check must
+    // pass on both without being told which it is looking at. Requiring either
+    // one would make it a test of the fixture rather than of the ladder.
     let at = aim(
         ctx,
         &session,
@@ -163,18 +188,43 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     )?;
     driver.click_at(at)?;
     session.settle(25);
-    driver.double_click_at(at)?;
-    session.settle(30);
 
     let trace = session.trace()?;
-    if trace.events(ENTER).count() == 0 {
+    let first_click = trace
+        .last(SELECTION)
+        .and_then(|l| l.get("first").map(str::to_owned))
+        .unwrap_or_else(|| "none".to_owned());
+    if first_click == "none" {
         return Err(Error::new(format!(
-            "no `{ENTER}` line, so the double-click did not go inside the container — that is \
-             another check's subject and this one cannot reach its own. Trace: {}.",
+            "the first click selected nothing, so there is no stroke under \
+             ({:.0}, {:.0}) and this check cannot reach its own subject. Trace: {}.",
+            ON_THE_BAR.0,
+            ON_THE_BAR.1,
             session.trace_path().display()
         )));
     }
-    report.note("★ inside the container");
+    if !first_click.starts_with("leaf:") {
+        // The container still won the click, so this fixture's form does not
+        // swallow the page — enter it, which is the older route and still
+        // correct.
+        driver.double_click_at(at)?;
+        session.settle(30);
+        let trace = session.trace()?;
+        if trace.events(ENTER).count() == 0 {
+            return Err(Error::new(format!(
+                "the first click resolved to `{first_click}` rather than a leaf, and the \
+                 double-click traced no `{ENTER}` line — so neither route reached the inside of \
+                 the container and this check cannot reach its own subject. Trace: {}.",
+                session.trace_path().display()
+            )));
+        }
+        report.note("★ entered the container — this fixture's form does not swallow the page");
+    } else {
+        report.note(format!(
+            "★ the first click reached the stroke directly: `{first_click}` — this form holds \
+             essentially the whole page, so there is no container rung to climb"
+        ));
+    }
 
     // --- B: one rung deeper -------------------------------------------------
     driver.double_click_at(at)?;

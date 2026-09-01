@@ -308,6 +308,36 @@ impl Scope {
         {
             return target;
         }
+        // ★★★ **A CONTAINER THAT HOLDS EVERYTHING IS THE PAGE** — 2026-09-01,
+        // and this guard repairs a defect this module CAUSED.
+        //
+        // Resolving a leaf to its container is right for a title block and
+        // wrong for the commonest form in the world: every CAD exporter wraps a
+        // drawing's whole visible body in one page-sized form, and a `/BBox` is
+        // a clipping extent (§8.10.1) rather than a claim about ink. So the
+        // wrapper contains everything, wins every click, and "select the
+        // container first" became "select the whole drawing, every time".
+        //
+        // ⇒ Which is the operator's own HEADLINE complaint, verbatim, restored
+        // by the feature built to improve selection:
+        //
+        //   "There are obviously more than one item on the page, but when I
+        //    click on one of the objects all I get is the page selected."
+        //
+        // ★★ It shipped on 2026-08-31 and was found on 2026-09-01 by
+        // `a_click_inside_a_form_selects_what_is_drawn_there` — a driven check
+        // written for the FIRST occurrence, which had SKIPPED on a stale binary
+        // through both sweeps in between. The check is why this cost a day
+        // rather than a fortnight, and the skip is why it cost a day rather
+        // than an hour.
+        //
+        // ★ Entering such a form is untouched. A double-click descends, the
+        // Objects panel lists it, the canvas menu reaches it. Reachable on
+        // purpose was always the design; winning by DEFAULT is what was wrong,
+        // both times.
+        if !targets.container_is_worth_selecting(page, container) {
+            return target;
+        }
         container
     }
 }
