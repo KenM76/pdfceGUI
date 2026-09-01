@@ -248,6 +248,13 @@ impl Default for Capabilities {
     }
 }
 
+/// The one command a chord reaches from **every** mode, whichever tab draws it.
+///
+/// See [`offers_command`] for the argument. A constant rather than a literal in
+/// the comparison so the exception has a name, and so a reader grepping for
+/// `edit.copy` finds the rule as well as the registration.
+const COPY_IN_EVERY_MODE: &str = "edit.copy"; // ui-text-exempt: a registered command id, never displayed
+
 /// **Whether the active mode offers `command_id` at all.**
 ///
 /// The rule a **keyboard chord** is filtered through, so that a chord cannot
@@ -341,6 +348,29 @@ pub fn offers_command(shell: Option<&Shell>, mode_id: Option<&str>, command_id: 
     let Some(owning_tab) = owning_tab else {
         return true;
     };
+    // ★★★ **COPY ESCAPES ITS TAB**, 2026-08-31 — `OPERATOR_REQUESTS.md` O71.
+    //
+    // The rule above is right and this is the one exception to it: a chord
+    // reaches a command only where the mode shows the tab that owns it, so an
+    // operator in Read cannot press a key belonging to a tab they cannot see.
+    // `edit.copy` lives on the Edit tab because that is where the Clipboard
+    // group belongs, and copying is available in **every** mode by the
+    // operator's own ruling — *copying is not authoring*, 2026-08-14, which
+    // already moved both text-copy verbs off the authoring tab.
+    //
+    // ⇒ Without this, `Ctrl+C` in Read traced `chord-not-offered id=edit.copy
+    // mode=read` and did nothing, which is exactly what O71 reported: a picture
+    // that can be selected while reading and not copied. Found by driving it —
+    // `dispatch::clipboard` permits copy in every mode and had never been
+    // reached from one that could not open the Edit tab.
+    //
+    // ★ **Copy only.** `edit.cut` and `edit.paste` change the document and stay
+    // behind their tab, which is the same asymmetry `dispatch::clipboard`'s
+    // rung 3 already enforces one layer down: the gate follows what the verb
+    // DOES, not which group it is drawn in.
+    if command_id == COPY_IN_EVERY_MODE {
+        return true;
+    }
     let Some(mode) = shell.modes().iter().find(|m| m.id == mode_id) else {
         return true;
     };
@@ -357,6 +387,42 @@ pub fn offers_command(shell: Option<&Shell>, mode_id: Option<&str>, command_id: 
 #[must_use]
 pub fn content_gesture(caps: Capabilities) -> bool {
     caps.edit_content
+}
+
+/// The memory slot [`publish_edit_content`] writes and [`edit_content_now`]
+/// reads.
+const EDIT_CONTENT_KEY: &str = "pdfce.caps.edit-content"; // ui-text-exempt: a memory key, never displayed
+
+/// **Publish whether this frame's mode edits page content**, for the canvas
+/// helpers that have no `Capabilities` to hand.
+///
+/// # ★★ Why a published value rather than a fifth parameter
+///
+/// `canvas::pressing::grabbable` decides which grips a selection offers, and as
+/// of `OPERATOR_REQUESTS.md` O71 that answer depends on the mode: a content
+/// selection is reachable in **Read**, where every grip would commit an edit
+/// the mode forbids. It has four callers and only two of them hold a
+/// `Capabilities`, so the alternative was threading a boolean through two call
+/// chains that have no other interest in it.
+///
+/// ★ This is the same shape `canvas::tool` uses for the armed tool and
+/// `crate::pagedrag` for the active document, and it carries the same
+/// obligation: **one writer**. `app::frame` publishes it once per frame before
+/// any surface draws, so a reader cannot get last frame's answer.
+pub fn publish_edit_content(ctx: &egui::Context, on: bool) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new(EDIT_CONTENT_KEY), on));
+}
+
+/// Whether this frame's mode edits page content. Defaults to `false`.
+///
+/// ★ `false` when nothing has been published — a unit test with a bare
+/// `egui::Context`, or a frame before the publication. That is the safe
+/// direction: the consequence of a wrong `false` is a selection that offers no
+/// grips, and of a wrong `true` is eight controls whose drag is refused.
+#[must_use]
+pub fn edit_content_now(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<bool>(egui::Id::new(EDIT_CONTENT_KEY)))
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -679,7 +745,22 @@ mod tests {
                 // an *annotation*, which it could not paste anywhere.
                 // Authoring the page's own content — correctly refused.
                 "edit.add_text",
-                "edit.copy",
+                // ★★★ `edit.copy` was HERE until 2026-08-31, and its removal is
+                // the one exception `offers_command` carries —
+                // `OPERATOR_REQUESTS.md` O71.
+                //
+                // The paragraph above says Read still copies TEXT, and that was
+                // true and sufficient while text was the only thing Read could
+                // select. O71 made a picture selectable in Read so it could be
+                // pasted into Word, and then `Ctrl+C` traced
+                // `chord-not-offered id=edit.copy mode=read` and did nothing:
+                // the command was permitted by the dispatcher and unreachable by
+                // the keyboard. Found by driving it, not by reading it.
+                //
+                // ⇒ Copy escapes its tab; **cut and paste do not**, and the
+                // asymmetry is the operator's own *copying is not authoring*
+                // ruling applied one layer up from where
+                // `dispatch::clipboard`'s rung 3 already applies it.
                 "edit.cut",
                 "edit.paste",
                 // ★ Added 2026-08-29 with `edit.paste_duplicate` (O58). Read

@@ -77,6 +77,30 @@
 #[cfg(windows)]
 mod win32;
 
+/// **A picture other programs can paste** — `OPERATOR_REQUESTS.md` O71.
+///
+/// Its own file rather than a third function in [`win32`], because it is the
+/// first thing in this crate that is not about a *window*: eight imported
+/// symbols, two clipboard formats and a `BITMAPINFOHEADER`, with an argument
+/// about why the two payloads must be written in one transaction. Everything
+/// the crate header says about hand-written declarations applies to it.
+#[cfg(windows)]
+pub mod clipboard;
+
+/// Off Windows, the clipboard writer answers `false` — nothing was written.
+///
+/// A stub module rather than a `cfg` on every call site, matching how
+/// [`own_window`] and [`cursor_position`] are handled: a caller writes one line
+/// and reads one `bool` on every platform.
+#[cfg(not(windows))]
+pub mod clipboard {
+    /// No-op off Windows. See the crate header.
+    #[must_use]
+    pub fn set_image_and_text(_rgba: &[u8], _width: u32, _height: u32, _text: &str) -> bool {
+        false
+    }
+}
+
 #[cfg(windows)]
 pub use win32::{cursor_position, own_window};
 

@@ -208,14 +208,18 @@ pub mod markup_rectangle;
 /// **greyed at a specific moment mid-gesture**. Its header carries the argument.
 pub mod markup_shapes;
 pub mod progressive;
+/// ★ **Smart-Selector** — a click selects the wrapped drawing, a double-click
+/// goes inside it (`OPERATOR_REQUESTS.md` O70). Reads `canvas-selection …
+/// first=`, the one field that tells the two index spaces apart.
+/// ★ **Read mode copies a picture** — `OPERATOR_REQUESTS.md` O71. Two halves
+/// in one sequence: an image is selectable while reading, and `Ctrl+C` puts a
+/// bitmap on the Windows clipboard rather than a sentence.
+pub mod read_image_copy;
 /// ★★ **A signed document is warned about before it is saved.** The guard both
 /// HOLDS the write while the question is on screen and RELEASES it when the
 /// operator authorises one — asserted as a pair, because a build that showed
 /// the window and wrote the file anyway satisfies either half alone.
 pub mod signature_save;
-/// ★ **Smart-Selector** — a click selects the wrapped drawing, a double-click
-/// goes inside it (`OPERATOR_REQUESTS.md` O70). Reads `canvas-selection …
-/// first=`, the one field that tells the two index spaces apart.
 pub mod smart_select;
 pub mod unembed_fonts;
 pub mod widget_move;
@@ -919,6 +923,11 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // question that line was extended for: WHICH index space did the click
         // land in? Both answers are `sel=1 level=Object`.
         Box::new(smart_select::AClickSelectsTheWholeDrawing),
+        // `OPERATOR_REQUESTS.md` O71, 2026-08-31. Beside the Smart-Selector
+        // check because both are about what a plain click MEANS — that one in
+        // Edit, this one in Read, which is the stance where the answer had
+        // always been "text, or nothing".
+        Box::new(read_image_copy::ReadModeCopiesAPicture),
         // The Properties panel's document half, wired 2026-08-19 after a
         // recorded blocker — "`pdfce-core` exposes no /Info accessor" — turned
         // out to have cleared without the prose moving. Beside the page checks

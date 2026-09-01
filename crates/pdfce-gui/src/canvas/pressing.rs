@@ -245,9 +245,24 @@ pub fn grabbable(
             b.expand(overlay::ANCHOR_PX)
         }
     });
+    // ★★★ **…AND NOT IN A MODE THAT CANNOT EDIT CONTENT** — 2026-08-31, O71.
+    //
+    // A content selection is reachable in Read as of that row: the ordinary
+    // pointer picks an IMAGE there so it can be copied out of pdfce. Everything
+    // else about that selection is the same, and the grips must not be — every
+    // one of them commits a geometry edit the mode forbids, so offering them
+    // would draw eight controls whose drag the funnel then refuses.
+    //
+    // ★ Read from `egui::Memory` rather than taken as a parameter, because this
+    // function has four callers and only two of them hold a `Capabilities`.
+    // `crate::app::modes::capability::edit_content_now` publishes it for
+    // exactly this kind of read — the same shape `canvas::tool` uses for the
+    // armed tool, and for the same reason: the alternative is a fifth argument
+    // threaded through two call chains to answer one boolean.
+    let editable = crate::app::modes::capability::edit_content_now(ctx);
     Grabbable {
         bounds,
-        offer: if at_object_rung {
+        offer: if at_object_rung && editable {
             handles::GripSet::all()
         } else {
             handles::GripSet::default()

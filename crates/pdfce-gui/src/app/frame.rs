@@ -375,6 +375,16 @@ impl eframe::App for PdfceApp {
         // press and wrong for a mirror that runs sixty times a second.
         crate::canvas::smart::sync(&ctx, self.prefs.smart_select);
 
+        // ★ Step 0b³ — **publish whether this mode edits page content**, for
+        // the canvas helpers that have no `Capabilities` to hand (O71).
+        //
+        // Before anything draws, so no surface can read last frame's answer.
+        // `capability::publish_edit_content`'s docs carry why this is a
+        // published value rather than a fifth parameter threaded through two
+        // call chains — and the obligation that comes with it: one writer, and
+        // it is this line.
+        crate::app::modes::capability::publish_edit_content(&ctx, self.capabilities().edit_content);
+
         // ★ Step 0c — clear any bitmap cursor, BEFORE anything draws.
         //
         // `egui::PlatformOutput::take` keeps `cursor_image` across frames —

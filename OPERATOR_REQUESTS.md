@@ -846,7 +846,51 @@ three angles. They should be designed together and shipped together.
 
 ---
 
-## O71 — ⬜ In Read mode the ordinary pointer must select an image so it can be copied out of pdfce
+## O71 — ✅ BUILT AND DRIVEN 2026-08-31
+
+> **Click a picture while reading, press Ctrl+C, and paste it into Word.** It
+> arrives as a picture, not as a sentence.
+>
+> **Measured, driving the real binary:** a click in Read selects the image, the
+> copy reports one object, and a **1237 × 1600 px** bitmap goes on the Windows
+> clipboard with it.
+>
+> ★★★ **Two things had to be true and neither was.** The click in Read was
+> swallowed by the text sweep, which owns every press in that mode — so a
+> picture could not be selected at all. And the copy put a marker sentence on
+> the clipboard and the real payload in pdfce's own memory, which is exactly
+> right for pasting back into pdfce and worth nothing to Word.
+>
+> ★★ **And a third thing, which only driving it found.** With both halves
+> built, `Ctrl+C` in Read still did nothing: the chord filter refuses a key
+> whose command lives on a tab the mode does not show, and Copy lives on the
+> Edit tab. The command itself was permitted in every mode; the keyboard could
+> not reach it. Copy now escapes its tab — cut and paste do not, which is your
+> own *copying is not authoring* ruling applied one layer further up.
+>
+> **What the picture is:** the selection rendered on its own, at up to 1,600 px
+> on the long edge and never smaller than 1:1, composited onto white. Not a
+> crop of the page — on a drawing almost everything's box overlaps a dozen
+> neighbours, and a crop would paste the neighbourhood.
+>
+> **What it will not do, said plainly:** a picture on the clipboard cannot be
+> transparent in a way every Windows program agrees about, so it comes out on
+> white paper — the same white you were looking at.
+>
+> ### ⬜ Owed: the right-click route
+>
+> Ctrl+C is the only way to reach this today. Acrobat Reader offers *Copy
+> Image* on the right-click, and that is the route somebody discovers without
+> being told. The canvas menu is currently withheld outside Edit — reasonably,
+> since almost every item on it edits — so a Read-mode menu means a menu of its
+> own rather than relaxing a gate. Named rather than left as a silence.
+>
+> **Verified:** driven —
+> `read_mode_copies_a_picture_other_programs_can_paste`.
+
+<details><summary>The row as filed</summary>
+
+### ⬜ In Read mode the ordinary pointer must select an image so it can be copied out of pdfce
 
 **Asked:** 2026-08-31.
 
@@ -859,6 +903,8 @@ will accept — not pdfce's private clipboard format. O18 covers the text half o
 that and is a useful precedent for what went wrong last time.
 
 **Status:** not investigated.
+
+</details>
 
 ---
 

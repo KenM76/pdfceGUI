@@ -609,7 +609,30 @@ fn copy_content(ctx: &egui::Context, doc: &OpenDoc) -> Result<Clipped, Refusal> 
     // Until then the marker is what makes the chord arrive and the in-memory
     // clip is what is pasted, so a pdfce→pdfce paste is already lossless. What
     // is missing is pdfce→pdfce **across two processes**.
-    ctx.copy_text(crate::text::clipboard::os_marker(objects.len()));
+    // ★★★ **AND A PICTURE BESIDE IT, as of 2026-08-31** —
+    // `OPERATOR_REQUESTS.md` O71: *"so we can copy and paste them … outside of
+    // the pdfcegui."*
+    //
+    // The marker sentence and the bitmap go on in ONE clipboard transaction,
+    // and that is not an optimisation. `EmptyClipboard` is per-open, so two
+    // calls would mean the second erased the first — and if the picture went on
+    // second, this application's own `Ctrl+V` would stop arriving for the
+    // reason the paragraphs above set out. `native_window::clipboard` writes
+    // both or neither.
+    //
+    // ★ It FALLS BACK rather than failing. A clipboard another process is
+    // holding, a render that declines, a degenerate clip — each of those loses
+    // the picture and none of them loses the copy, so the marker still goes on
+    // by the route it always did and the operator's `Ctrl+V` still works. What
+    // they lose is the paste into Word, and the trace says which.
+    let marker = crate::text::clipboard::os_marker(objects.len());
+    if crate::canvas::clipimage::publish(&clip, &marker).is_none() {
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            "clipboard-image-declined".to_owned()
+        });
+        ctx.copy_text(marker);
+    }
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
         //

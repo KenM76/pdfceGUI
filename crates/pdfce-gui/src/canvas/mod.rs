@@ -305,6 +305,11 @@ pub mod scaling;
 // unit the whole thing reads in. Its header carries the three decisions this
 // feature turns on: the unit, the space the grid lives in, and why the
 // reservation it takes out of the viewport is a constant (R128).
+/// **The copied selection as a picture**, for programs that are not pdfce —
+/// `OPERATOR_REQUESTS.md` O71. Renders the clip's own one-page PDF rather than
+/// cropping the page, and composites onto white because `CF_DIB` has no alpha
+/// consumers agree about.
+pub mod clipimage;
 pub mod rulers;
 pub mod selection;
 /// **Smart-Selector** — a click selects a container, a double-click goes

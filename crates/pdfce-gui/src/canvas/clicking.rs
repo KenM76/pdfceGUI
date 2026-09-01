@@ -435,6 +435,55 @@ pub fn click(
                 hit.outline,
             )
         });
+    // ★★★ **AN IMAGE, IN A MODE THAT CANNOT EDIT** — `OPERATOR_REQUESTS.md`
+    // O71: *"In read mode the regular pointer should also allow us to select
+    // images so we can copy and paste them … outside of the pdfcegui."*
+    //
+    // # Why it is HERE, one rung above the text fall-through
+    //
+    // Because it must be **additive**, exactly as the annotation arm two rungs
+    // up is: a click that hits no image has to keep meaning what it meant
+    // before — text in Read and Review — or adding this would have taken text
+    // selection away in the same stroke. It is an `if let` over a hit computed
+    // on the spot, so a miss is not a branch at all.
+    //
+    // Above the text arm rather than below it because `takes_the_press` is true
+    // for the whole canvas in these modes: a rung below it is a rung that never
+    // runs. That is the same mistake the annotation arm's comment records, and
+    // this is the second feature to have been at risk from it.
+    //
+    // # ★★ IMAGES ONLY, and the narrowness is the decision
+    //
+    // The filter is one class. He asked for images, and the reason to hold the
+    // line there is Read mode's whole promise: a click means *read*, and every
+    // additional selectable class is a click that stops sweeping text. A path
+    // on a CAD sheet is under the pointer almost everywhere, so allowing paths
+    // here would make text selection unreachable on exactly the drawings this
+    // program is for.
+    //
+    // ★ In **Edit** this arm is skipped and the ordinary content ladder below
+    // handles images along with everything else — with grips, a marquee and the
+    // rest. Two behaviours, one for each stance, rather than one behaviour that
+    // is wrong in one of them.
+    } else if !caps.edit_content
+        && let Some(t) = targets
+        && let Some(image) = crate::canvas::input::topmost(
+            t,
+            page_index,
+            point,
+            map,
+            crate::canvas::pick::PickFilter::none()
+                .with(crate::canvas::pick::PickClass::Image, true),
+            scope,
+        )
+    {
+        // ★ The text selection goes, because the operator has just said they
+        // mean the picture. Leaving a swept range behind would make the next
+        // `Ctrl+C` ambiguous — and `canvas::clipboard::text_owns_the_chord`
+        // resolves that ambiguity in text's favour, so the copy would silently
+        // be of the words rather than of the image they just clicked.
+        *text_selection = None;
+        selection.select_only(page_index, image, "read-image");
     } else if super::textsel::takes_the_press(active_tool, caps) {
         if let (Some(page_text), Some(page)) = (doc.page_text(), doc.pages.get(page_index)) {
             // ★ The SAME options the extraction ran with, through the funnel —
