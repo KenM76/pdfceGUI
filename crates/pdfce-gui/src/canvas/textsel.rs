@@ -809,6 +809,46 @@ fn model<'a>(ctx: &PageContext<'a>) -> EditableTextModel<'a> {
 /// **always answers**, falling back to the nearest line when no line's box
 /// contains the point — which is deliberate and is Acrobat's behaviour: a drag
 /// begun in the margin selects from the nearest text rather than from nothing.
+/// **Is `canvas` inside the box of any text run on this page?**
+///
+/// # ★★★ CONTAINMENT, and it must not be [`hit`]
+///
+/// [`hit`] falls back to the nearest line when no box contains the point —
+/// deliberately, because that is Acrobat's behaviour for a sweep begun in the
+/// margin. It therefore answers `Some` almost everywhere on a page with any
+/// text at all, and a caller asking *"is there a word here?"* would get "yes"
+/// over blank paper.
+///
+/// This is the other question, and the two must not be confused. Its one caller
+/// is `canvas::clicking`, deciding whether a click in Read mode means the
+/// picture underneath or the words on top of it — and answering "words"
+/// everywhere would make a scanned page's image unselectable, which is the
+/// mirror image of the defect it exists to fix.
+///
+/// ## ★★ Artifacts count
+///
+/// A run flagged as an artifact — a running head, a folio — is still text an
+/// operator can see and expects to select. `include_artifacts` governs what
+/// goes into extracted *plain text*, which is a different question from what is
+/// under the pointer.
+///
+/// ## ★ A run with no `bbox` is skipped rather than guessed at
+///
+/// `TextRun::bbox` is `Option` because a run whose glyphs carry no usable
+/// geometry has no honest box. Treating that as a hit would put the answer back
+/// where [`hit`]'s fallback already is.
+#[must_use]
+pub fn word_at(ctx: &PageContext<'_>, canvas: Pos2) -> Option<()> {
+    let pdf = crate::viewer::canvas_to_pdf_space(canvas, ctx.page)?;
+    let (x, y) = (f64::from(pdf.x), f64::from(pdf.y));
+    ctx.text
+        .runs
+        .iter()
+        .filter_map(|run| run.bbox)
+        .any(|b| x >= b.llx && x <= b.urx && y >= b.lly && y <= b.ury)
+        .then_some(())
+}
+
 fn hit(model: &EditableTextModel<'_>, ctx: &PageContext<'_>, canvas: Pos2) -> Option<TextPosition> {
     let pdf = crate::viewer::canvas_to_pdf_space(canvas, ctx.page)?;
     // ★★ ONE call, since 2026-08-27. `EditableTextModel::hit_test` **projects

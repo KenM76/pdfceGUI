@@ -465,7 +465,29 @@ pub fn click(
     // handles images along with everything else — with grips, a marquee and the
     // rest. Two behaviours, one for each stance, rather than one behaviour that
     // is wrong in one of them.
+    // ★★★ **…AND TEXT UNDER THE POINTER STILL WINS** — 2026-09-01, hours after
+    // the arm above shipped, on the operator's report: *"I can't seem to copy
+    // and paste text we have OCRed."*
+    //
+    // The narrowness chosen above — images only — was designed against a CAD
+    // sheet, where a path is under the pointer almost everywhere and allowing
+    // paths would have made text unreachable. It does nothing for the case that
+    // actually broke: **a scanned page IS one image**, edge to edge, so every
+    // click hits it, and an OCR layer is invisible text sitting exactly on top.
+    // The one document class where text selection matters most is the one where
+    // this arm swallowed it.
+    //
+    // ⇒ So the image only takes the press where there is **no text under the
+    // pointer**. That is what every reader does — a cursor over a word, a
+    // pointer over the picture — and it makes the arm safe on a scan by
+    // construction rather than by choosing the right filter.
+    //
+    // ★ `word_at` is asked of the SAME `PageText` the sweep below would use, so
+    // the two cannot disagree about whether there is a word here. A second
+    // opinion computed differently would produce a click that selects the image
+    // and a drag that selects text, from one pixel.
     } else if !caps.edit_content
+        && !text_under(doc, page_index, point)
         && let Some(t) = targets
         && let Some(image) = crate::canvas::input::topmost(
             t,
@@ -839,4 +861,45 @@ pub fn click(
             });
         }
     }
+}
+
+/// **Is there a word under this point?**
+///
+/// # ★★★ The one question that keeps the Read-mode image arm off a scan
+///
+/// Added 2026-09-01 on the operator's report — *"I can't seem to copy and paste
+/// text we have OCRed"* — hours after the image arm shipped. That arm was
+/// narrowed to images because a CAD sheet has a path under the pointer almost
+/// everywhere and allowing paths would have made text unreachable. The case it
+/// did not anticipate is the one where the narrowing does not help at all: **a
+/// scanned page IS one image**, edge to edge, so every click hits it, and an OCR
+/// layer is invisible text lying exactly on top of it.
+///
+/// ⇒ The document class where selecting text matters most was the one where the
+/// arm swallowed it.
+///
+/// ## ★★ Asked of the SAME `PageText` the sweep would use
+///
+/// Not of a second extraction and not of a cached copy taken elsewhere. Two
+/// extractions under two configurations segment differently, so a second
+/// opinion here would produce a click that takes the image and a drag that
+/// takes text — from one pixel, with nothing on screen to explain it.
+///
+/// ## ★ Absent page text answers `false`, which yields to the image
+///
+/// That is the honest direction. `page_text` is `None` before the extraction has
+/// run for this page; treating "I do not know yet" as "there is text here" would
+/// make the image unclickable for the first frames after a page turn, which is
+/// the flicker an operator reports as *"sometimes it does not work"*.
+fn text_under(doc: &OpenDoc, page_index: usize, point: egui::Pos2) -> bool {
+    let (Some(page_text), Some(page)) = (doc.page_text(), doc.pages.get(page_index)) else {
+        return false;
+    };
+    let ctx = super::textsel::PageContext {
+        text: &page_text,
+        page,
+        index: page_index,
+        epoch: doc.edit_epoch,
+    };
+    super::textsel::word_at(&ctx, point).is_some()
 }
