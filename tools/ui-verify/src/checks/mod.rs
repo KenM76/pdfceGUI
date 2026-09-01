@@ -601,6 +601,7 @@ pub mod draft_selection;
 /// ★ `DEFECTS.md` **D10**'s second half — three themes shipped and nothing an
 /// operator could press chose one. Proved the only way a theme can be proved:
 /// two captures of one window, before and after the click.
+pub mod save_after_edit;
 pub mod settings_theme;
 /// The keyboard reference lists every chord, and every chord names a command.
 pub mod shortcuts;
@@ -920,6 +921,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // same number, which is the shell's half of a single-derivation
         // guarantee `pdfce-core` holds up on its side with a test.
         Box::new(attachment_clip::AnAttachmentMovesBetweenTwoOpenDocuments),
+        Box::new(save_after_edit::CtrlSAfterAnEditSavesAndTheProgramIsStillRunning),
         Box::new(button_action::APlacedButtonCanBeGivenSomethingToDo),
         Box::new(insert_image::InsertImagePlacesAPicture),
         // `OPERATOR_REQUESTS.md` O66, 2026-08-31. Immediately after its

@@ -341,6 +341,27 @@ impl Session {
     }
 }
 
+impl Session {
+    /// **Has the application gone?**
+    ///
+    /// ★★★ Added 2026-09-01 for `ctrl_s_after_an_edit_saves_and_the_program_is_still_running`,
+    /// and it is the first check in this harness whose subject is the process
+    /// rather than the pixels. The operator reported that pressing `Ctrl+S`
+    /// after an edit **closed the program**, and nothing here could express
+    /// that: every other oracle is a trace line, and a program that has exited
+    /// writes none — which is indistinguishable from a missed click.
+    ///
+    /// `try_wait` rather than `wait`: it must never block. A check calling this
+    /// is asking a question, not waiting for an answer.
+    ///
+    /// ★ `&mut self` is why `Session` is held mutably by the one check that
+    /// uses it. Reaping here is harmless — `Drop` kills and waits again, and
+    /// both tolerate an already-exited child.
+    pub fn has_exited(&mut self) -> Result<bool> {
+        Ok(self.child.try_wait()?.is_some())
+    }
+}
+
 impl Drop for Session {
     /// Kill the child on every path — normal return, early error, or panic.
     ///

@@ -100,6 +100,10 @@ pub mod vk {
     /// `pub const A..Z`. They were added on 2026-08-18, when fourteen declared
     /// shortcuts turned out never to have been dispatched — a defect no check
     /// could have caught while the harness could not spell the keys.
+    /// `S`, for `Ctrl+S`. Added 2026-09-01 when the operator reported that
+    /// pressing it after an edit closed the program — the chord suite pressed
+    /// it via a table entry and no check had ever needed the code by name.
+    pub const S: u16 = 0x53;
     pub const Z: u16 = 0x5A;
     /// `Y`, for `Ctrl+Y` — redo's other spelling.
     pub const Y: u16 = 0x59;

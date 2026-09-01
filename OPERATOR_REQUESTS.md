@@ -80,6 +80,64 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O85 — ⬜ **"I pressed Ctrl+S to save and it closed"** — NOT REPRODUCED YET
+
+**Ken, 2026-09-01:** *"can you try doing an edit and save? I did this and
+pressed ctrl+s to save and it closed."*
+
+### What was done immediately
+
+A driven check now exists and is permanent:
+`ctrl_s_after_an_edit_saves_and_the_program_is_still_running`. It makes a real
+edit, presses a **real** `Ctrl+S` through the keyboard, and asserts four things
+in this order — the order matters, because a program that has exited writes no
+trace line, and an absent line is this harness's commonest *false* signal:
+
+1. the edit landed, so there is something to save;
+2. **the process is still running** after the chord;
+3. the save committed (`save-in-place outcome=ok`);
+4. **the document is still open**, on the same page count.
+
+★★ Step 4 is `O65` — *"it closes the document after saving"* — which was fixed
+on 2026-08-31 and marked **NOT DRIVEN**. It is driven now, for the first time,
+and it holds.
+
+**It PASSES.** So this particular path — a page rotation, then `Ctrl+S`, on a
+plain drawing — saves, keeps the program, and keeps the document.
+
+### ★★★ What that means, and the one thing needed to close it
+
+The check is not the report. What it proves is that `Ctrl+S` is not broken *in
+general*, which narrows the fault to something about **the edit** or **the
+document**, and those are the two things this end cannot guess.
+
+⇒ **The question, and it is one line to answer:** *what kind of edit was it?*
+
+| candidate | why it is a candidate |
+|---|---|
+| a **text** edit, with the caret still in the page | `Ctrl+S` arriving while the typing guard owns the keyboard is a route nothing here drives |
+| a **markup or form** edit on the canvas | needs a click, so it is not in the seam-driven path above |
+| a **signed or certified** document | a save on one opens the invalidation window first, and that is a second surface between the chord and the write |
+| a document opened from a path that no longer exists | `Save` becomes `Save a copy`, which opens a native picker — a different code path entirely |
+
+Also useful, if it is quick: whether the **whole window** went, or the
+**document** went and the program stayed. Those are different faults with
+different fixes, and *"it closed"* fits both.
+
+### Ruled out so far
+
+- `Ctrl+S` is bound to `file.save` and to nothing else (manifest, asserted).
+- All seven driven chords dispatch what the manifest binds them to.
+- `file.save` through the harness seam saves and returns, twice, on a clean
+  document and on an edited one.
+- The save path contains no `panic!`, `unwrap` or `expect` outside `#[cfg(test)]`.
+
+**Status:** ⬜ **OPEN, and blocked on one answer from you.** Everything that can
+be checked without knowing which edit it was has been checked.
+
+---
+
+
 ## Q3 — ⬜ TWO THINGS THE ENGINE SHIPPED TODAY THAT ONLY YOU CAN SCOPE
 
 **Not a request of yours — a question to you**, filed here rather than asked in
