@@ -139,6 +139,17 @@ const REGION_SKIP: &str = "ocr-skip"; // ui-text-exempt: trace region name, neve
 /// change: recognition became an edit to the open session on 2026-08-27, so
 /// there is no transaction to complete and nothing for a second button to do.
 const REGION_RUN: &str = "ocr-run"; // ui-text-exempt: trace region name, never displayed
+/// The live progress line, drawn once a page has finished.
+///
+/// ★ Published so a driven check can assert the operator can SEE the run
+/// moving. The whole request was *"so that the user can see that it is doing
+/// something and hasn't frozen"*, and a feature whose entire purpose is to be
+/// visible needs an oracle that is about visibility.
+const REGION_PROGRESS: &str = "ocr-progress"; // ui-text-exempt: trace region name
+/// The control that finishes the page in hand and keeps everything.
+const REGION_STOP: &str = "ocr-stop"; // ui-text-exempt: trace region name
+/// The control that abandons the run.
+const REGION_CANCEL: &str = "ocr-cancel"; // ui-text-exempt: trace region name
 
 /// Where one Recognise-text transaction has got to.
 ///
@@ -540,12 +551,13 @@ impl OcrDialog {
                 let tally = job.tally();
                 if tally.attempted > 0 {
                     ui.add_space(4.0);
-                    ui.label(t::working_progress(
+                    let said = ui.label(t::working_progress(
                         tally.attempted,
                         tally.of,
                         tally.words,
                         tally.chars,
                     ));
+                    crate::diag::ui_rect(REGION_PROGRESS, said.rect);
                 }
                 ui.add_space(8.0);
                 // ★★ STOP FIRST, and the order is the argument. It is the
@@ -554,18 +566,16 @@ impl OcrDialog {
                 // that orders the Format tab's group. An operator reaching in a
                 // hurry meets the button that keeps their work.
                 ui.horizontal(|ui| {
-                    if ui
-                        .button(t::stop_button())
-                        .on_hover_text(t::stop_tooltip())
-                        .clicked()
-                    {
+                    let stop = ui.button(t::stop_button()).on_hover_text(t::stop_tooltip());
+                    crate::diag::ui_rect(REGION_STOP, stop.rect);
+                    if stop.clicked() {
                         job.stop();
                     }
-                    if ui
+                    let cancel = ui
                         .button(t::cancel_button())
-                        .on_hover_text(t::cancel_tooltip())
-                        .clicked()
-                    {
+                        .on_hover_text(t::cancel_tooltip());
+                    crate::diag::ui_rect(REGION_CANCEL, cancel.rect);
+                    if cancel.clicked() {
                         job.cancel();
                     }
                 });

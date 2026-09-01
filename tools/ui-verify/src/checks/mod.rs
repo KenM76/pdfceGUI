@@ -602,6 +602,7 @@ pub mod draft_selection;
 /// operator could press chose one. Proved the only way a theme can be proved:
 /// two captures of one window, before and after the click.
 pub mod marquee_table;
+pub mod ocr_text_select;
 pub mod save_after_edit;
 pub mod settings_theme;
 /// The keyboard reference lists every chord, and every chord names a command.
@@ -923,6 +924,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // guarantee `pdfce-core` holds up on its side with a test.
         Box::new(attachment_clip::AnAttachmentMovesBetweenTwoOpenDocuments),
         Box::new(marquee_table::AMarqueeOverATableTakesItsTextAsWellAsItsLines),
+        Box::new(ocr_text_select::TextOnAScanCanStillBeSweptOverTheImage),
         Box::new(save_after_edit::CtrlSAfterAnEditSavesAndTheProgramIsStillRunning),
         Box::new(button_action::APlacedButtonCanBeGivenSomethingToDo),
         Box::new(insert_image::InsertImagePlacesAPicture),
