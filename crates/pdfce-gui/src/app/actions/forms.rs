@@ -312,6 +312,29 @@ pub enum FieldAction {
         /// The new partial name.
         to: String,
     },
+    /// **Give an existing push button an action, or take one away**
+    /// (`pdfce-core` `Pass 182.0`/`183.0`/`183.1`; read side `Pass 212.0`).
+    ///
+    /// Raised by `crate::panels::forms::button` and by nothing else.
+    ///
+    /// # ★★ `None` is a real operand, not an absence
+    ///
+    /// `set_button_action` takes `Option<ButtonAction>` and `None` **removes**
+    /// whatever is there — the half a form editor needs when it opens somebody
+    /// else's document and wants the button inert. So this variant carries an
+    /// `Option` rather than being two variants: *set* and *clear* are one verb
+    /// with one refusal set, and splitting them here would give the shell two
+    /// spellings of one act.
+    ///
+    /// ★ Boxed because `ButtonAction` carries a `SubmitSpec`, which is much the
+    /// largest thing in this enum. Without it every `FieldAction` — including
+    /// `Select`, raised on every click — would be sized for a submit.
+    SetButtonAction {
+        /// The button's fully-qualified name.
+        field: String,
+        /// What it should do, or `None` to make it inert.
+        action: Box<Option<pdfce_core::edit::ButtonAction>>,
+    },
     /// **Delete the selected field, with every widget it draws.**
     ///
     /// ★ Distinct from [`Self::DeleteWidget`] and the distinction is not a
@@ -584,6 +607,9 @@ pub(super) fn apply(doc: &mut OpenDoc, action: FieldAction) {
         } => edit_widget(doc, &field, widget, &edit, touched),
         FieldAction::Import { path } => import_data(doc, &path),
         FieldAction::Rename { from, to } => rename(doc, &from, &to),
+        FieldAction::SetButtonAction { field, action } => {
+            set_button_action(doc, &field, *action);
+        }
         FieldAction::DeleteField { field } => delete::field(doc, &field),
         FieldAction::MoveWidget {
             field,
@@ -1067,6 +1093,38 @@ pub(super) fn import_data(doc: &mut OpenDoc, path: &std::path::Path) {
             vec![crate::text::export_form::imported(
                 outcome.applied,
                 outcome.skipped,
+            )]
+        })
+    });
+}
+
+/// **Give an existing push button an action**, as one undoable command.
+///
+/// # ★★★ The disclosure this owes, and it is the whole reason `replaced` exists
+///
+/// `ButtonActionChange::replaced` names what was destroyed — **as a `String`,
+/// including `"JavaScript"`, deliberately**. `pdfce-core`'s own reasoning:
+/// `Option<ButtonAction>` would have made a removed script inexpressible and
+/// forced it to be reported as `None`, i.e. as *"there was nothing there"*.
+///
+/// ⇒ A form editor overwriting another tool's work needs to know it did, and
+/// this is the one moment it can be told. The status line carries it.
+///
+/// ★ pdfce will not write a script back. That asymmetry is deliberate and is
+/// disclosed on the row rather than here: a `Foreign` action renders no Change
+/// control at all, so the only way to reach this function with a script in the
+/// way is through a route that has already said so.
+fn set_button_action(
+    doc: &mut OpenDoc,
+    field: &str,
+    action: Option<pdfce_core::edit::ButtonAction>,
+) {
+    let name = field.to_owned();
+    super::apply::vector_edit(doc, "set-button-action", 0, 1, |session| {
+        session.set_button_action(field, action).map(|change| {
+            vec![crate::text::buttonaction::changed(
+                &name,
+                change.replaced.as_deref(),
             )]
         })
     });

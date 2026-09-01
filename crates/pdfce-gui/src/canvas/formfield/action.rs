@@ -31,20 +31,24 @@
 //!
 //! ## ★★ What is deliberately NOT here
 //!
-//! **Reading an existing button's action.** `pdfce-core` `28b982c` writes one
-//! and cannot read one back — `forms::Widget` models `/Rect`, `/AS`, `/AP`
-//! on-states, `/P`, `/MK /CA` and `/MK /R`, and no `/A`. Filed as
-//! `request_a_buttons_action_can_be_written_and_not_read.md` on 2026-09-01.
+//! **Reading an existing button's action** — because that is not a draft.
+//! `pdfce-core` `28b982c` could write one and not read one back, which is why
+//! this module served only the placement path; the reader landed the same day
+//! (`request_a_buttons_action_can_be_written_and_not_read.md`, answered by
+//! `Pass 212.0`) and lives in `panels::forms::button`, which converts INTO this
+//! type rather than the other way round.
 //!
-//! ⇒ So this module serves the **placement** path only, where the current
-//! action is known to be *none* because the button does not exist yet. The
-//! Forms panel's row for an *existing* button stays as it is until the reader
-//! lands, because the three ways to draw that control without one are: lie
-//! about somebody else's script, invent an interaction no form editor has, or
-//! make the only way to read an action be to destroy it.
+//! ⇒ **That was true for four hours.** `Pass 212.0` shipped
+//! `EditSession::button_action` on 2026-09-01, so this model now serves two
+//! surfaces: the placement dialog, where the current action is known to be
+//! *none* because the button does not exist yet, and `panels::forms::button`,
+//! where it is read from the document.
 //!
-//! [`the_reader_has_not_landed`] is the tripwire for that, and it names its own
-//! deletion.
+//! ★ The engine shipped **four** states where three were asked for, and the
+//! fourth is the one that makes the row honest. `panels::forms::button`'s
+//! header carries that argument; this module is unchanged by it, because a
+//! DRAFT has no fourth state — an operator is always editing something this
+//! shell can express, or it would not have offered to edit it.
 //!
 //! ## `/JavaScript` and `/Launch`
 //!
@@ -413,45 +417,38 @@ pub fn url_is_unencrypted(url: &str) -> bool {
 mod tests {
     use super::*;
 
-    /// ★★★ **A TRIPWIRE THAT NAMES ITS OWN DELETION.**
+    /// ★★★ **THE TRIPWIRE FIRED, AND THIS IS WHAT IT LEFT BEHIND.**
     ///
-    /// `pdfce-core` `28b982c` can write a button's action and cannot read one.
-    /// This shell's Forms panel therefore has no row for an existing button's
-    /// action, and the placement dialog is the only surface — which is honest
-    /// only while the reader is genuinely absent.
+    /// It read *"a tripwire that names its own deletion"* and asserted that
+    /// `pdfce-core` could write a button's action and not read one — so this
+    /// module served the PLACEMENT path only, and the Forms panel had no row
+    /// for a button already in the document.
     ///
-    /// This test **asserts the limitation**, so it goes red on the first build
-    /// after `cargo update` that brings a reader. That shape has closed four
-    /// requests in two days by naming, at the moment the capability landed, the
-    /// exact code to delete.
+    /// `Pass 212.0` shipped `EditSession::button_action` on 2026-09-01, hours
+    /// after the request, and the four steps that test named were carried out:
+    /// the test deleted, the row added (`panels::forms::button`),
+    /// `ButtonActionState::Foreign` consumed so a script is named rather than
+    /// silently offered for replacement, and the request closed.
     ///
-    /// # When this fails, do this
+    /// ★★ Kept as a headstone rather than deleted outright, because the shape
+    /// paid out for the fifth time in three days and the count is the
+    /// argument: a test that ASSERTS a limitation goes red on the first build
+    /// after `cargo update` that lifts it, and names the code to change while
+    /// somebody is still looking.
     ///
-    /// 1. Delete this test.
-    /// 2. Add the existing-button row to `panels::forms::rows` — a push button
-    ///    currently renders `block_reason`'s note and nothing else.
-    /// 3. Consume `ButtonActionState::Foreign` in particular: it is the variant
-    ///    that lets the row say *"this button runs a script"* rather than
-    ///    silently offering to replace one.
-    /// 4. Close `request_a_buttons_action_can_be_written_and_not_read.md`.
-    ///
-    /// The probe is a compile-time one expressed at run time: `EditSession` has
-    /// no `button_action`, so the day it does, this file stops describing the
-    /// engine. There is no way to ask Rust *"does this method exist?"* without
-    /// a macro, so the assertion is on the documented fact and the comment is
-    /// the instrument. **Grep `button_action` in the engine after every
-    /// update.**
+    /// What survives as an assertion is the half that is still true: `Nothing`
+    /// clears, and every other kind writes.
     #[test]
-    fn the_reader_has_not_landed() {
-        // The one thing this shell can do today: build an action to write.
+    fn the_reader_landed_and_this_is_what_was_owed() {
         let does = ButtonDoes {
             kind: ButtonDoesKind::ResetForm,
             ..ButtonDoes::default()
         };
         assert!(does.to_core().is_some());
-        // And the one thing it cannot: ask what a button already does. If a
-        // reader has landed, the placement dialog is no longer the only honest
-        // surface and the Forms panel owes a row. See the doc comment.
+        assert!(
+            ButtonDoes::default().to_core().is_none(),
+            "Nothing must clear rather than write"
+        );
     }
 
     #[test]

@@ -40,6 +40,115 @@ use crate::canvas::formfield::action::{
     ActionBlocker, ButtonDoesKind, NamedChoice, PageViewChoice,
 };
 
+/// ★★★ **What an EXISTING button currently does**, one sentence per state.
+///
+/// # The four states, and why there are four
+///
+/// `EditSession::button_action` answers with `ButtonActionState`, and this
+/// shell asked for **three** — `None`, `Known`, `Foreign`. `pdfce-core` shipped
+/// four and explained why, and the explanation is worth carrying because the
+/// distinction is entirely about what a control may OFFER:
+///
+/// | state | what it means | what this row offers |
+/// |---|---|---|
+/// | `None` | no `/A` at all | "Nothing" — set one |
+/// | `Known` | modelled; writable back unchanged | show it, change it |
+/// | `Unmodelled` | pdfce **authors** this subtype and did not decode this instance | name it, offer to **replace**, never claim to show it |
+/// | `Foreign` | pdfce recognises it and **will not author** it | name it, offer nothing |
+///
+/// ★★ `Unmodelled` and `Foreign` differ in exactly one thing — whether
+/// replacing is offered — and that is the decision the operator is actually
+/// being asked to make. A three-state enum would have forced a wrong answer in
+/// one direction or the other: `Foreign("SubmitForm")` on a submit pdfce writes
+/// happily would grey a row that should have been live.
+///
+/// ★ Today `GoTo` and `SubmitForm` answer `Unmodelled` — authored, not yet
+/// decoded. That will widen, and widening is additive: a state that becomes
+/// `Known` gains a value to show and loses nothing.
+#[must_use]
+pub fn current_none() -> String {
+    "Does nothing when pressed.".to_owned()
+}
+
+/// A modelled action, named in the operator's terms.
+#[must_use]
+pub fn current_known(kind: ButtonDoesKind) -> String {
+    format!("Pressing it: {}.", does_choice(kind).to_lowercase())
+}
+
+/// ★★ A subtype pdfce writes but did not decode **this instance** of.
+///
+/// The sentence must do two things at once and neither may be dropped: say the
+/// button **does** something, and refuse to say what. Claiming to show it would
+/// be the sneaky half of rule 4; claiming it does nothing would be worse.
+#[must_use]
+pub fn current_unmodelled(subtype: &str) -> String {
+    let named = if subtype.is_empty() {
+        "an action".to_owned()
+    } else {
+        format!("a {subtype} action")
+    };
+    format!(
+        "This button carries {named}. pdfce cannot show you its settings yet, so you can replace it — which discards what is there now — but not edit it."
+    )
+}
+
+/// ★★★ A subtype pdfce recognises and will not author.
+///
+/// The variant the request argued for by name. `None` and `Known` could both be
+/// synthesised by a shell that guessed; this one cannot, and it is what lets
+/// the row say *"this button runs a script"* instead of silently offering to
+/// replace one with "Nothing".
+#[must_use]
+pub fn current_foreign(subtype: &str) -> String {
+    let named = if subtype.is_empty() {
+        "an action".to_owned()
+    } else {
+        format!("a {subtype} action")
+    };
+    format!(
+        "This button carries {named}, which pdfce will not write. It is left exactly as it is, and saving the document keeps it."
+    )
+}
+
+/// Said when the reader itself refused — the field is not a push button, or is
+/// not there.
+///
+/// ★ The refusals match the WRITER's, deliberately: a shell must not learn
+/// through the reader about a field it would be refused permission to change.
+#[must_use]
+pub fn current_unreadable(why: &str) -> String {
+    format!("pdfce could not read what this button does: {why}")
+}
+
+/// The control that opens the chooser on an existing button.
+#[must_use]
+pub fn change_button() -> String {
+    "Change…".to_owned()
+}
+
+/// The control that applies a change to an existing button.
+#[must_use]
+pub fn apply_button() -> String {
+    "Apply".to_owned()
+}
+
+/// The status line after an existing button's action is changed.
+///
+/// ★★ `replaced` is what the engine says was destroyed, **including a script**.
+/// `ButtonActionChange::replaced` carries it as a `String` rather than an
+/// `Option<ButtonAction>` precisely so a removed script is expressible — a form
+/// editor overwriting another tool's work should know it did.
+#[must_use]
+pub fn changed(name: &str, replaced: Option<&str>) -> String {
+    match replaced {
+        Some(was) if !was.is_empty() && was != "none" => {
+            format!("{name} changed. It previously carried a {was} action, which is gone.")
+        }
+        _ => format!("{name} changed."),
+    }
+}
+
 /// The label above the chooser.
 ///
 /// Phrased as a question about the button rather than as *"Action"*, which is
@@ -261,6 +370,22 @@ pub fn placed_with_action(name: &str, kind: ButtonDoesKind) -> String {
             does_choice(kind).to_lowercase()
         )
     }
+}
+
+/// ★★ Said when the button and its action could not be folded into one undo
+/// entry.
+///
+/// `EditSession::coalesce_last` answers `false` when the undo stack was shorter
+/// than the count asked for — every change is applied and only the **grouping**
+/// failed. So the button exists and does what it was asked to do; the only
+/// thing wrong is that taking it back needs two presses.
+///
+/// ★ Worth a sentence rather than a shrug: an operator who presses Ctrl+Z once,
+/// sees a button still sitting there, and is told nothing will conclude that
+/// undo is broken — which is a far worse belief than the truth.
+#[must_use]
+pub fn two_undo_entries(name: &str) -> String {
+    format!("Placed {name}. Undoing it takes two presses rather than one.")
 }
 
 /// Said when the action could not be written although the button was placed.

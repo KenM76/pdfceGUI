@@ -79,6 +79,10 @@ pub(in crate::app::actions) fn author(
     // reports the first verb, and reporting a second failure through it would
     // claim the button was not placed.
     let mut refused: Option<String> = None;
+    // ★ Whether the two commands became one undo entry. `true` until something
+    // says otherwise, because the ordinary case is the fold succeeding and a
+    // sentence is owed only when it does not.
+    let mut folded = true;
 
     crate::app::actions::apply::vector_edit(doc, "add-form-field", page, 1, |session| {
         let outcome = match kind {
@@ -161,16 +165,18 @@ pub(in crate::app::actions) fn author(
                 // Giving one an action is a separate, named verb a caller has
                 // to go out of its way to call — which is exactly what this is.
                 //
-                // ★★ TWO COMMANDS, THEREFORE TWO UNDO ENTRIES, and it is a
-                // workaround rather than a design. `EditSession::coalesce_last`
-                // is what would fold them into one and it is **private**
-                // (`edit.rs`, `fn` not `pub fn`), so a shell cannot reach it.
-                // Reported per decision 058 as
-                // `request_placing_a_button_with_an_action_costs_two_undos.md`
-                // rather than absorbed silently. Until it lands, one Ctrl+Z
-                // takes the action off and a second removes the button — which
-                // is at least monotonic, and never leaves a button doing
-                // something the operator did not ask for.
+                // ★★★ TWO COMMANDS, ONE UNDO ENTRY — since 2026-09-01.
+                //
+                // This read *"two commands, therefore two undo entries, and it
+                // is a workaround rather than a design"*, because
+                // `EditSession::coalesce_last` was private. It was reported per
+                // decision 058 rather than absorbed silently, and `pdfce-core`
+                // made it `pub` the same day, choosing the general fix over a
+                // combined verb for the reason the request argued: the
+                // two-verbs-one-gesture shape recurs, and a combined verb fixes
+                // one instance of it.
+                //
+                // The fold is below, after both verbs have run.
                 //
                 // ★ The action is written ONLY when one was chosen. The default
                 // is `Nothing`, whose `to_core` is `None`, and calling
@@ -198,6 +204,41 @@ pub(in crate::app::actions) fn author(
                                         replaced.as_deref().unwrap_or("none")
                                     )
                                 });
+                                // ★★ FOLD, IMMEDIATELY, and check the answer.
+                                //
+                                // Three things the public contract states that
+                                // the private one never had to, and all three
+                                // are honoured here:
+                                //
+                                // 1. **Check the return.** `false` means every
+                                //    change was applied and only the GROUPING
+                                //    failed — the undo stack was shorter than
+                                //    `count`. Disclose it; do not retry, do not
+                                //    ignore.
+                                // 2. **`count` counts the commands just
+                                //    pushed.** Two: the button and its action.
+                                //    The guard covers a short stack; it does
+                                //    NOT cover miscounting, which would fold an
+                                //    unrelated earlier edit in with nothing to
+                                //    detect it.
+                                // 3. **Fold before anything else can push.**
+                                //    There is no handle saying which commands
+                                //    are ours, so this is the only safe moment.
+                                //
+                                // ★ The label names the GESTURE, not the last
+                                // verb — which is what a label is for, and why
+                                // `cut_field` relabels a single-target cut
+                                // rather than leaving it saying "undo delete".
+                                // `AddFormField` is the gesture: the operator
+                                // drew a field. There is no `AddPushButton`
+                                // kind and there should not be — an undo
+                                // control saying "undo add form field" is
+                                // right for all five kinds.
+                                if !session
+                                    .coalesce_last(2, pdfce_core::edit::CommandKind::AddFormField)
+                                {
+                                    folded = false;
+                                }
                                 Ok(outcome)
                             }
                             // ★★★ The button IS placed and the action is not.
@@ -236,6 +277,17 @@ pub(in crate::app::actions) fn author(
     // behaviourless". What it does NOT do is reported here instead.
     if let Some(note) = refused {
         crate::app::actions::record_note(doc.edit_epoch, note);
+    } else if !folded {
+        // ★★ Said, not swallowed. The engine's contract is explicit that a
+        // `false` here means the work is done and only the grouping failed —
+        // so the button is placed and does what it was asked to do, and the
+        // only thing wrong is that undoing it takes two presses. An operator
+        // who presses Ctrl+Z once and sees a button that still exists deserves
+        // to know why rather than to conclude undo is broken.
+        crate::app::actions::record_note(
+            doc.edit_epoch,
+            crate::text::buttonaction::two_undo_entries(&placed_name),
+        );
     }
 
     // ★★★ SELECT WHAT WAS JUST PLACED. `OPERATOR_REQUESTS.md` **O53**.

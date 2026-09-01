@@ -72,6 +72,7 @@
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 
+use crate::app::state::OpenDoc;
 use pdfce_core::forms::{ButtonKind, Field, FieldFlags, FieldType, FieldValue};
 use pdfce_core::object::ObjId;
 
@@ -97,6 +98,32 @@ pub(super) struct RowContext<'a> {
     /// field, so per-row re-asking would repeat a signature census per field
     /// and still say the same thing (R83 — know before you offer).
     pub fill_refusal: Option<&'static str>,
+    /// **The open document**, for the one row that has to ask it a question.
+    ///
+    /// ★★ `Option`, and the `None` is not defensive padding: this module's
+    /// tests build a `RowContext` to exercise labelling and blocking rules
+    /// without a document, and they must go on being able to. A row that needs
+    /// the document simply is not drawn without one — which is R9's rule
+    /// applied to a test harness rather than to an operator.
+    ///
+    /// ★ Only `panels::forms::button` uses it. Every other row is a pure
+    /// function of the `Field` it was handed, and that is a property worth
+    /// keeping: it is why this module's rules can be unit-tested at all.
+    pub doc: Option<&'a OpenDoc>,
+    /// Which button's action chooser is open, and what it is set to.
+    ///
+    /// Held by the panel across frames because a chooser the operator has
+    /// opened must not close when the panel repaints — and the panel repaints
+    /// on every frame.
+    pub button_draft: &'a mut Option<(String, crate::canvas::formfield::action::ButtonDoes)>,
+    /// Where a push button's action change is raised.
+    ///
+    /// ★ Separate from `out: &mut Vec<FormEdit>`, which carries **fills**.
+    /// Setting an action is not a fill — it is a structural change to the
+    /// field, in `FieldAction`'s vocabulary rather than `FormEdit`'s — and
+    /// giving it a `FormEdit` variant would have put a document-structure verb
+    /// in the enum whose whole subject is values.
+    pub actions: &'a mut Vec<crate::app::actions::Action>,
 }
 
 /// Draw one field's row, and push whatever the operator asked for.
@@ -112,7 +139,7 @@ pub(super) fn row(
     ui: &mut egui::Ui,
     field: &Field,
     index: usize,
-    ctx: &RowContext<'_>,
+    ctx: &mut RowContext<'_>,
     drafts: &mut BTreeMap<String, String>,
     out: &mut Vec<FormEdit>,
 ) {
@@ -127,6 +154,29 @@ pub(super) fn row(
     // field also happens to be a push button.
     if let Some(note) = ctx.fill_refusal.or_else(|| block_reason(field)) {
         blocked_row(ui, field, note);
+        // ★★★ …AND a push button gets its action row anyway — 2026-09-01.
+        //
+        // `block_reason` answers *"this field cannot be FILLED"*, and for a
+        // push button that is permanently true and always was: it runs an
+        // action rather than holding a value, which is exactly what the note
+        // above says. Until today that was the whole of what this shell had to
+        // say about one.
+        //
+        // ★★ Not fillable is not the same as not editable, and conflating them
+        // is what kept this row from existing. The distinction is now drawn
+        // where it belongs: the note explains why there is no value box, and
+        // the section below offers the thing a push button actually has.
+        //
+        // ★ Gated on the DOCUMENT-wide refusal being absent. A certified or
+        // encrypted document refuses `set_button_action` too, and offering a
+        // Change control that the engine would decline is the affordance-for-
+        // an-impossible-act shape R9 exists to prevent.
+        if ctx.fill_refusal.is_none()
+            && matches!(field.button_kind, Some(ButtonKind::Push))
+            && let Some(doc) = ctx.doc
+        {
+            crate::panels::forms::button::row(ui, doc, field, ctx.button_draft, ctx.actions);
+        }
         return;
     }
 

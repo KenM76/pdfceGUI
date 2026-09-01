@@ -108,6 +108,11 @@ const APPLIED: &str = "button-action-applied"; // ui-text-exempt: a trace event 
 const REFUSED: &str = "button-action-refused"; // ui-text-exempt: a trace event name, never displayed
 /// The page region, so a failure can say whether a sheet was drawn at all.
 const PAGE_REGION: &str = "page"; // ui-text-exempt: a trace region name, never displayed
+/// ★★★ The line `panels::forms::button` writes when it READS an existing
+/// button's action — the half that could not ship until `Pass 212.0`.
+const READ: &str = "button-action-read"; // ui-text-exempt: a trace event name
+/// The Forms panel's dock TAB — clicked to bring its body forward.
+const FORMS_TAB: &str = "dock.tab.view.panel_forms"; // ui-text-exempt: a trace region name
 
 /// The box dragged out for the button, as page fractions.
 const DRAG_FROM: (f64, f64) = (0.28, 0.58);
@@ -353,6 +358,81 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
             session.trace_path().display()
         )));
     }
-    report.note(format!("★★★ …and the engine wrote it: `{}`", applied.raw));
+    report.note(format!("★★ the engine wrote it: `{}`", applied.raw));
+
+    // --- E: and the FORMS PANEL can read it back ----------------------------
+    //
+    // ★★★ **The half that could not ship on the morning of 2026-09-01.**
+    //
+    // `set_button_action` could write and nothing could read, so a control over
+    // an EXISTING button had three possible shapes and all three were bad: show
+    // "Nothing" and lie about somebody else's script; invent a one-way "set
+    // this button to:" that no form editor has; or make the only way to read an
+    // action be to destroy it. The row was declined and the gap was filed.
+    //
+    // `Pass 212.0` answered it hours later. This step proves the answer reached
+    // the operator, and its oracle is deliberately the READ rather than the
+    // row's pixels: the sentence a reader sees is chosen from four states, and
+    // `state=` names which one — a screenshot reading "Clear the form" cannot
+    // distinguish a correct `Known` from a lucky default.
+    // ★★★ **BRING THE PANEL TO THE FRONT.** `view.panel_forms` puts the panel
+    // in the layout; it does not make it the ACTIVE TAB of its dock group, and
+    // a background tab draws no body at all.
+    //
+    // The first run of this step read `dock.tab.view.panel_forms` present and
+    // `dock.body.view.panel_forms` absent, and reported *"the Forms panel never
+    // drew a push-button row"* — true, and a statement about tab order rather
+    // than about the reader. A region absent because its tab is behind another
+    // looks exactly like one absent because the feature is missing, which is
+    // the third instance of that shape in this harness.
+    session.settle(20);
+    let trace = session.trace()?;
+    if let Some(tab) = declared(&trace, ui_rect, FORMS_TAB) {
+        driver.click_at(session.frame()?.declared_center(tab))?;
+        session.settle(35);
+    }
+
+    session.settle(20);
+    let trace = session.trace()?;
+    let read = trace
+        .events(READ)
+        .filter_map(|l| l.get("state").map(str::to_owned))
+        .last();
+    match read.as_deref() {
+        Some("known") => {
+            report.note("★★★ …and the Forms panel reads it back as a known action");
+        }
+        Some("none") => {
+            return Ok(Some(format!(
+                "★★★ THE PANEL READS THE BUTTON AS INERT: `{READ} … state=none`, on a button \
+                 this run has just given a Reset action to and watched the engine accept.\n\
+                 That is the exact falsehood the reader was requested to prevent — pdfce \
+                 asserting a fact about the operator's document that it did not check. Look at \
+                 `panels::forms::button::row` and at whether it asks for the same \
+                 fully-qualified name the author wrote. Trace: {}.",
+                session.trace_path().display()
+            )));
+        }
+        Some(other) => {
+            return Ok(Some(format!(
+                "★★ THE PANEL READS THE BUTTON AS `{other}`: this run authored a `ResetForm`, \
+                 which `Pass 212.0` states round-trips as `Known` — including `Only` vs \
+                 `Except`, the thing a reader most easily gets backwards. `unmodelled` here \
+                 would mean the engine wrote something it cannot decode; `foreign` would mean \
+                 it decoded something it will not author, on a button pdfce itself just \
+                 authored. Trace: {}.",
+                session.trace_path().display()
+            )));
+        }
+        None => {
+            return Err(Error::new(format!(
+                "no `{READ}` line, so the Forms panel never drew a push-button row — most \
+                 likely it is not on screen in this run's inherited layout. SKIPPED rather \
+                 than failed: that is a fact about the layout, not about the reader. \
+                 Trace: {}.",
+                session.trace_path().display()
+            )));
+        }
+    }
     Ok(None)
 }

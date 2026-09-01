@@ -166,6 +166,10 @@ pub mod rows;
 /// is a section rather than a panel, and why it offers no reorder affordance.
 pub mod tab_order;
 
+/// What an existing push button does, and how to change it. Its own module
+/// because the reader has four states and each one permits a different control.
+pub(crate) mod button;
+
 use crate::app::actions::forms::FieldAction;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -382,7 +386,7 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions:
     // protocol — and `FormEdit` has no variant that could carry it.
     groups::section(ui, doc, form, actions);
     ui.separator();
-    field_list(ui, doc, form, fill_refusal, &mut edits);
+    field_list(ui, doc, form, fill_refusal, &mut edits, actions);
 
     for e in edits {
         raise(actions, e);
@@ -821,6 +825,7 @@ fn field_list(
     form: &AcroForm,
     fill_refusal: Option<&'static str>,
     edits: &mut Vec<FormEdit>,
+    actions: &mut Vec<Action>,
 ) {
     // A page-object-id -> 1-based page number map, so a row can say WHICH page
     // its field is on. Built once per frame rather than per row: a 400-field
@@ -831,22 +836,33 @@ fn field_list(
         .enumerate()
         .map(|(i, p)| (p.id, i + 1))
         .collect();
-    let ctx = RowContext {
-        page_numbers: &page_numbers,
-        fill_refusal,
-    };
-
     let mut ui_state = FormsUi::load(ui, doc);
     ui_state.prune(form);
+
+    // ★ The draft is moved OUT of `ui_state` for the duration of the rows and
+    // put back afterwards, because `RowContext` borrows it mutably and
+    // `ui_state.drafts` is borrowed mutably at the same time. Two mutable
+    // borrows of one struct is the ordinary Rust shape here and the ordinary
+    // answer is to split them; taking and replacing keeps the state in one
+    // place, which is what makes `FormsUi::prune` able to reason about it.
+    let mut button_draft = ui_state.button_draft.take();
+    let mut ctx = RowContext {
+        page_numbers: &page_numbers,
+        fill_refusal,
+        doc: Some(doc),
+        button_draft: &mut button_draft,
+        actions,
+    };
 
     egui::ScrollArea::vertical()
         .id_salt("pdfce-forms-rows")
         .show(ui, |ui| {
             for (index, field) in form.fields.iter().enumerate() {
-                rows::row(ui, field, index, &ctx, &mut ui_state.drafts, edits);
+                rows::row(ui, field, index, &mut ctx, &mut ui_state.drafts, edits);
                 ui.separator();
             }
         });
+    ui_state.button_draft = button_draft;
 
     ui_state.store(ui);
 }
@@ -940,6 +956,16 @@ pub struct FormsUi {
     /// they share one draft, which is correct, and a positional key would give
     /// them two that could disagree.
     drafts: BTreeMap<String, String>,
+    /// **Which push button's action chooser is open, and what it is set to.**
+    ///
+    /// ★ Held here rather than in `egui`'s temp data for the reason every other
+    /// field of this struct is: it is keyed to a `(document, epoch)` pair and
+    /// pruned with the form. A chooser left open over a field that an edit has
+    /// removed would be a control editing something that is not there.
+    ///
+    /// One at a time, by construction. Two open choosers would let an operator
+    /// set one and lose the other without a word.
+    button_draft: Option<(String, crate::canvas::formfield::action::ButtonDoes)>,
 }
 
 impl FormsUi {
@@ -961,6 +987,7 @@ impl FormsUi {
             .unwrap_or_default();
         if state.key.as_ref() != Some(&key) {
             state = Self {
+                button_draft: None,
                 key: Some(key),
                 drafts: BTreeMap::new(),
             };
@@ -1171,6 +1198,7 @@ mod tests {
     fn a_revision_change_forgets_every_draft() {
         let path = PathBuf::from("form.pdf");
         let mut state = FormsUi {
+            button_draft: None,
             key: Some((path.clone(), 3)),
             drafts: BTreeMap::from([("Name".to_owned(), "Anna".to_owned())]),
         };
@@ -1191,6 +1219,7 @@ mod tests {
 
         // And the reset really empties it, rather than merely re-keying.
         state = FormsUi {
+            button_draft: None,
             key: Some((path, 4)),
             drafts: BTreeMap::new(),
         };
@@ -1220,6 +1249,7 @@ mod tests {
             inline_field_roots: 0,
         };
         let mut state = FormsUi {
+            button_draft: None,
             key: None,
             drafts: BTreeMap::from([("Gone".to_owned(), "typed".to_owned())]),
         };
