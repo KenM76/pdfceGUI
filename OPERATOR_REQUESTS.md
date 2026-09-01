@@ -108,7 +108,51 @@ candidates:
 | the Properties panel naming the missing step where the swatch would be | cheapest, and honest |
 | the greyed button saying *"sweep the text first"* on hover | R9's own rule, and it is not doing it today |
 
-### ⬜ Vector colour does not exist AT ALL — filed with the engine
+### ✅ Vector colour SHIPS — same day, and finding it turned up a real bug
+
+**Properties ▸ Colour**, with a selected line or shape: a **Fill** swatch and a
+**Line** swatch, each opening on that object's own colour.
+
+★★★ **A spot ink gets no swatch.** Where the colour is a named ink — a
+`/Separation`, the kind your printed drawings use — the panel names it instead:
+*"PANTONE 300 — a named ink. pdfce will not overwrite it with a screen colour,
+because that would look right here and change what prints."* A colour picker
+that opened on black over a spot ink would be one click from destroying a plate,
+and it would look completely normal while it happened.
+
+**One object at a time, for now.** The engine will recolour a whole selection;
+the control does not offer it yet, because when the objects disagree there is no
+honest colour to open on and picking the first one's would quietly propose
+flattening the rest to it.
+
+### ★★★ Asking for this found pdfce writing wrong colours into saved files
+
+Before writing the setter the engine went looking for *"what does pdfce think
+this path's colour is"* — and the answer was **nothing**. The object model
+tracked only the basic colour operators and had no handling at all for spot
+inks, `/DeviceN`, `/ICCBased`, `/Indexed` or `/Lab`. A path in any of those
+inherited **a stale colour from an unrelated earlier object.**
+
+⇒ **That was reaching your documents.** Copy a spot-coloured line, paste it, and
+pdfce invented an RGB colour from that stale value and **wrote it into the
+file**. Your own copy and paste, on your own drawings, on exactly the kind of
+file you work in. Fixed: a paste now emits no colour at all for an ink it cannot
+decode — visibly wrong and undoable, rather than invisibly wrong and permanent.
+
+★ It was found because a colour control has to *show* the current colour, and
+asking whether pdfce knew it audited everything else that thought it did.
+
+### ⬜ And one of their side-findings is your open "line won't select" report
+
+Their audit turned up that `/LW` line widths are read stale too, which feeds the
+click tolerance — *"the operator clicks a visible line and nothing selects."*
+**You have reported that.** We had put it down to box-selection geometry, which
+is a real cause and evidently not the only one. Recorded against that row as a
+second source.
+
+<details><summary>The original diagnosis</summary>
+
+### ⬜ Vector colour did not exist AT ALL — filed with the engine
 
 Measured rather than assumed. Every colour verb `pdfce-core` has works on an
 **annotation** or on **text**: markup style, ce-dimension style, redaction-mark
@@ -128,7 +172,10 @@ right on screen and destroy the plate on your drawings.
 ★ This is the half you will notice more. A drawing office recolours lines far
 more often than it recolours type.
 
-**Status:** ◑ **Text works and is unfindable; vectors are an engine gap, filed.**
+</details>
+
+**Status:** ◑ **Vectors SHIP. Text works and is still unfindable** — the route
+question above is undecided and is yours.
 
 ---
 

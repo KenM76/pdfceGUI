@@ -189,10 +189,13 @@ pub mod ocr;
 /// operator cannot see. Its header carries why a page paste is rule 4's
 /// sharpest case.
 pub mod pageclip;
+pub mod pages;
 /// Every string the Pages panel shows — the counts, the tile tooltip, the
 /// four sentences an *undrawn* thumbnail can say, and the preview control.
 /// Consumed by `crate::panels::pages`.
-pub mod pages;
+/// The object-colour control's words, including the sentence that stands where
+/// a swatch cannot honestly go.
+pub mod paint;
 /// Every string the dock's panel bodies show. Consumed by `crate::panels`.
 pub mod panels;
 /// ★ Every word the **selection filter** says — the status-bar control, the

@@ -1431,6 +1431,27 @@ pub enum Action {
     /// arm** in `app::actions::apply` — this file is 1,500 lines of one
     /// enum and R2 puts the reasoning next to the mechanism when it cannot
     /// have both.
+    /// **Recolour selected paths** (`pdfce-core` `Pass 218.0`/`219.0`).
+    ///
+    /// `OPERATOR_REQUESTS.md` O89's vector half. `None` on a channel leaves it
+    /// alone; the two are independent, and recolouring the fill of an object
+    /// whose stroke is a spot ink is not blocked by the channel nobody touched.
+    ///
+    /// ★ The full argument — including why an undecodable ink gets no swatch
+    /// rather than a black one — is on `panels::properties::paint`, where the
+    /// control is.
+    SetObjectPaint {
+        /// The page the objects are on.
+        page: usize,
+        /// Page-object indices. Leaves are not operands: a paint-order verb
+        /// writes to the page's content stream and a leaf's span indexes the
+        /// form's.
+        objects: Vec<usize>,
+        /// The new fill, or `None` to leave it.
+        fill: Option<[u8; 3]>,
+        /// The new stroke, or `None` to leave it.
+        stroke: Option<[u8; 3]>,
+    },
     SelectAllOnPage,
     Undo,
     /// **Re-apply the most recently undone change.**

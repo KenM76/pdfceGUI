@@ -1260,6 +1260,37 @@ impl PdfceApp {
             //    or out-of-page coordinates, which is exactly the case this
             //    command exists for. Nothing has to be special-cased for
             //    off-page geometry because nothing is bounded.
+            // ★★ The refusal list is DATA, not an error — the call succeeds
+            // with a partial result, which is what the request asked for:
+            // "nine changed", not "done".
+            Action::SetObjectPaint {
+                page,
+                objects,
+                fill,
+                stroke,
+            } => {
+                // 8-bit sRGB from the swatch back into PDF's own 0..1 units.
+                // The inverse of `panels::properties::paint::to_bytes`, and the
+                // pair is what keeps the operand in the engine's units rather
+                // than leaving a byte triple to be reinterpreted downstream.
+                let to_rgb = |c: [u8; 3]| pdfce_core::vector::Rgb {
+                    r: f32::from(c[0]) / 255.0,
+                    g: f32::from(c[1]) / 255.0,
+                    b: f32::from(c[2]) / 255.0,
+                };
+                super::apply::vector_edit(doc, "set-object-paint", page, objects.len(), |s| {
+                    s.set_object_paint(page, &objects, fill.map(to_rgb), stroke.map(to_rgb))
+                        .map(|outcome| {
+                            let changed = outcome.changed.len();
+                            let refused = outcome.refused.len();
+                            vec![if refused == 0 {
+                                crate::text::paint::recoloured(changed)
+                            } else {
+                                crate::text::paint::recoloured_partly(changed, refused)
+                            }]
+                        })
+                });
+            }
             Action::SelectAllOnPage => {
                 let page = doc.view.page_index;
                 // ★★★ A LARGE FINITE RECT, not `Rect::EVERYTHING`.

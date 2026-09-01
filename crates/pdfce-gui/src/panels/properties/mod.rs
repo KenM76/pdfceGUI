@@ -163,6 +163,8 @@ pub mod info;
 /// operator's own 2026-08-12 decision, quoted from `RIBBON_IA.md` §5.8) and why
 /// every control raises one action carrying one field.
 mod markup;
+/// The colour of a selected path. O89's vector half.
+mod paint;
 /// ★ The **selected text's** face, size, weight and colour — O37's Font
 /// controls, built panel-first as §5.8 says to.
 ///
@@ -349,6 +351,8 @@ fn body_sections(
     // "change how this looks" rows and above the read-only facts.
     let drew_text = text::section(ui, doc, state.text_style_mut(), actions);
     let drew_geometry = geometry::section(ui, doc, state.geometry_mut(), actions);
+    let drew_paint = paint::section(ui, doc, actions);
+    let _ = drew_paint;
     // ★★★ **BOUND, since 2026-08-31** — `OPERATOR_REQUESTS.md` O75.
     //
     // The operator: *"the Properties section is always showing the This
