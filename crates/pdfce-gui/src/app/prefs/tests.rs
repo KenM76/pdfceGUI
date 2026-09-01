@@ -24,6 +24,10 @@ fn every_preference_round_trips_through_the_file() {
     for quality in RenderQuality::ALL {
         for fit in OpeningFit::ALL {
             let original = Prefs {
+                // ★ Non-default, like every field here. O70: `false`, because
+                // the shipped default is `true` and a writer that emitted a
+                // constant would otherwise pass.
+                smart_select: false,
                 // ★ Non-default, like every field here — and this one is
                 // the only OPTIONAL key in the file, so a writer that emitted
                 // nothing for it would fail this round trip. `Facing` rather
@@ -478,6 +482,8 @@ fn the_writer_emits_no_key_the_parser_rejects() {
     // A non-default in every field, so no emitted value can coincide with
     // what a failed parse would have left behind.
     let prefs = Prefs {
+        // ★ Non-default, for this test's stated reason. O70.
+        smart_select: false,
         // ★ Non-default, and the only OPTIONAL key in the file. O80.
         default_page_display: Some(crate::viewer::PageDisplay::Facing),
         // ★ Non-default: the Acrobat order, so a writer emitting a constant

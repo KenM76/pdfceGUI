@@ -346,6 +346,17 @@ pub struct Prefs {
     /// **precedence**, not absence: per document beats global beats per mode.
     /// Three tiers with a stated order is one axis, not two.
     pub default_page_display: Option<crate::viewer::PageDisplay>,
+    /// **Whether a click selects a whole container or one line inside it** —
+    /// `OPERATOR_REQUESTS.md` **O70**, 2026-08-31.
+    ///
+    /// The persisted half of [`crate::canvas::smart`]. The live value lives in
+    /// `egui::Memory`, because the canvas reads it from places that have a
+    /// context and nothing else; this is where it survives a restart.
+    ///
+    /// ★ **`true` by default**, which is the same argument that module makes:
+    /// the checkbox exists so the behaviour can be turned OFF, and the
+    /// behaviour is what every drawing program in the class does.
+    pub smart_select: bool,
     /// **Which chord means which form-field paste** — `OPERATOR_REQUESTS.md`
     /// **O58**, operator ruling 2026-08-29.
     ///
@@ -487,6 +498,7 @@ impl Default for Prefs {
             // ★ `None` — "he has not said" — so a fresh profile keeps
             // `MODES_AND_PANELS.md`'s per-mode rule. See the field.
             default_page_display: None,
+            smart_select: true,
             chrome: PageChrome::default(),
             ui_scale: DEFAULT_UI_SCALE,
             chosen_standard: None,
@@ -804,6 +816,18 @@ impl Prefs {
                 // which field they land in, so the destination is picked first
                 // and the reading is written once. Three near-identical arms is
                 // how the fourth overlay gets a subtly different parser.
+                // O70. Its own arm rather than joining the three-key arm
+                // below, because it is not one of the three overlays and a
+                // reader meeting it inside that pattern would go looking for a
+                // fourth chrome field.
+                "smart_select" => match opening::bool_from_key(value) {
+                    Some(on) => prefs.smart_select = on,
+                    None => notes.push(PrefNote::BadValue {
+                        key: key.to_owned(),
+                        value: value.to_owned(),
+                        line,
+                    }),
+                },
                 "show_rulers" | "show_grid" | "show_guides" => {
                     let target = match key {
                         "show_rulers" => &mut prefs.chrome.rulers,
@@ -1007,6 +1031,19 @@ impl Prefs {
             out.push_str(display.id());
             out.push('\n');
         }
+        out.push_str(
+            "\n\
+             # smart_select: true | false. With this on, clicking a drawing\n\
+             # that was placed as one piece -- a title block, a stamped\n\
+             # detail -- selects the whole piece, and double-clicking goes\n\
+             # inside it. With it off a click selects the individual line\n\
+             # under the pointer, which is how pdfce behaved before\n\
+             # 2026-08-31.\n",
+        );
+        // ui-text-exempt: a file KEY, as above.
+        out.push_str("smart_select = ");
+        out.push_str(opening::bool_key(self.smart_select));
+        out.push('\n');
         out.push_str(
             "\n\
              # Which overlays are already switched on: true | false.\n\

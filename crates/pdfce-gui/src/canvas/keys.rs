@@ -685,6 +685,28 @@ pub(super) fn canvas_keys(
                     selection.len()
                 )
             });
+            // ★★★ **Claimant 6 — LEAVE THE CONTAINER**, and only when the rung
+            // above found nothing left to do. `OPERATOR_REQUESTS.md` O70.
+            //
+            // Below the selection rather than above it, which is the opposite
+            // of a first guess and follows this table's own rule: **retire the
+            // most transient thing first**. A selection inside a title block is
+            // made and remade by every click; the fact that the operator is
+            // WORKING inside that title block survives all of them, and is what
+            // they would be most annoyed to lose to a stray press.
+            //
+            // ⇒ So one Escape clears what is selected, and a second steps back
+            // out into the drawing. That is one rung per press — decision 025's
+            // L1 — with the scope as the outermost rung of the same ladder,
+            // rather than a sixth thing competing for the key.
+            if matches!(outcome, crate::canvas::selection::EscapeOutcome::Nothing)
+                && crate::canvas::smart::leave(ctx)
+            {
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed in the UI
+                    "canvas-escape outcome=LeftContainer".to_owned()
+                });
+            }
         }
     }
 

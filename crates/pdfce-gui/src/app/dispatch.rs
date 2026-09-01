@@ -66,6 +66,10 @@ pub(crate) mod images;
 /// before the move. Its header carries why the fallback is traced rather than
 /// silent.
 mod measure;
+/// **View ▸ Navigate** — the four canvas tools and the Smart-select switch.
+/// Extracted 2026-08-31 under R2; see its header for what makes them one
+/// subject rather than five arms that happened to be adjacent.
+pub(crate) mod navigate;
 /// ★★ **Cut, copy and paste of whole PAGES** — O59 item 2. Its header carries
 /// the decision that shapes it: these are named commands rather than `Ctrl+C`,
 /// because the `pages.*` operand rule always resolves and a chord rung reading
@@ -568,37 +572,7 @@ impl PdfceApp {
             id if crate::app::dispatch::zoom::handles(id) => {
                 crate::app::dispatch::zoom::dispatch(self, ctx, id, actions);
             }
-            // Toggles, and returns the tool now chosen — which is discarded
-            // here because the pressed state is published from `conditions`
-            // by asking `tool::selected`, not from a copy kept in the app.
-            "view.tool_hand" => {
-                let _ = crate::canvas::tool::toggle_hand(ctx);
-            }
-            // ★ **The text tool**, and it is the `tool_hand` arm's twin down to
-            // the discarded return value — the pressed state is published from
-            // `conditions` by asking `tool::selected`, never from a copy kept on
-            // the app, because a shadow copy is how a ribbon comes to say Text
-            // while the canvas marquees.
-            //
-            // ★ **No capability check, and the absence is the decision** rather
-            // than an oversight — which is worth saying here because every arm
-            // around it has one. `markup_for_command` declines on
-            // `author_markup`, `measure_for_command` on `author_measure`, and
-            // the obvious symmetry would be a third. There is nothing to put
-            // there: selecting text authors nothing, so `canvas::tool::
-            // retire_forbidden` permits this tool in every mode and a decline
-            // here would contradict it. The full argument is at that function's
-            // `Select | Hand | Text` arm; in one line, it is the operator's own
-            // *copying is not authoring* ruling of 2026-08-14, which already
-            // moved both text-copy verbs off the authoring tab.
-            //
-            // It therefore has no decline trace either, and that is consistent
-            // rather than lax: a trace line exists to say *which* nothing
-            // happened, and there is no state in which pressing this does
-            // nothing.
-            "view.tool_text" => {
-                let _ = crate::canvas::tool::toggle_text(ctx);
-            }
+
             // ★★ **The two text-EDITING verbs**, and they are the defect this
             // project was started for (`DEFECTS.md` D4).
             //
@@ -639,33 +613,16 @@ impl PdfceApp {
             // fork that decides which module answers.
             id if clipboard::handles(id) => clipboard::dispatch(self, ctx, id, actions),
             id if pageclip::handles(id) => pageclip::dispatch(self, ctx, id, actions),
-            "view.tool_select" => {
-                crate::canvas::tool::select(ctx, crate::canvas::tool::CanvasTool::Select);
-            }
-            "view.tool_node" => {
-                // Declines by name in a mode that cannot author, exactly as
-                // `edit.text` does below and for the identical reason: an anchor
-                // is selected in order to be dragged, and a mode that refuses
-                // the drag must refuse the tool rather than arm it and then say
-                // no to every gesture. `tool::retire_forbidden` closes the same
-                // gap from the other end when the mode changes underneath.
-                if self.capabilities().edit_content {
-                    crate::canvas::tool::select(ctx, crate::canvas::tool::CanvasTool::Node);
-                } else {
-                    crate::diag::trace(|| {
-                        // ui-text-exempt: diagnostic trace, never displayed.
-                        format!("command-declined id={id} reason=mode-cannot-edit-content")
-                    });
-                    // ★ …and SAY so, 2026-08-31 (O69). The trace above is for
-                    // a reader of a machine they cannot see; this is for the
-                    // operator in front of one. The ribbon item is withheld
-                    // outside Edit now, so the route that reaches here is the
-                    // bare `A` chord — and a chord that does nothing offers no
-                    // control to hover, which is why it is the case that most
-                    // needs a sentence.
-                    crate::app::status::decline::record_node_tool_needs_edit_mode();
-                }
-            }
+            // ★★ **The Navigate row — five controls, their own module.**
+            //
+            // Moved out of this file on 2026-08-31 under R2, when
+            // `view.smart_select` (`OPERATOR_REQUESTS.md` O70) made it 1,506
+            // lines. The seam was already there: four of the five arm a tool
+            // and the fifth changes what the first one selects, which is one
+            // subject — *what a press on the page means* — and it is the row
+            // the ribbon draws them in.
+            id if navigate::handles(id) => navigate::dispatch(self, ctx, id),
+
             // ★ **The markup shape tools — one arm for all four.**
             //
             // The same shape as the page-display radio below, for the same

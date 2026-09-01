@@ -371,6 +371,20 @@ pub const fn view_show_points() -> CommandText {
     )
 }
 
+/// `view.smart_select`
+///
+/// ★ The tooltip states what a **click** does and what a **double-click** does,
+/// because those are two halves of one rule and an operator told only the first
+/// concludes the second is not offered — the failure
+/// `panels::tool::armed`'s form-field instruction records.
+#[must_use]
+pub const fn view_smart_select() -> CommandText {
+    CommandText::new(
+        "Smart select",
+        "Click selects a whole thing — a title block, a stamped drawing, a symbol — instead of one line inside it. Double-click goes inside, as many times as it takes to reach the part you want. Escape steps back out.",
+    )
+}
+
 /// `view.rulers`
 ///
 /// The tooltip states the unit, because the unit is the thing an operator

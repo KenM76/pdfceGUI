@@ -961,6 +961,31 @@ impl SelectionState {
     /// so carrying a part or node index across would address an index in a
     /// different object's space.
     fn descend(&mut self, page: usize, hit: ClickHit) {
+        // ★★★ **Nothing is below a LEAF yet, and saying so here is what keeps
+        // the rung honest** — added 2026-08-31 with `canvas::smart` (O70).
+        //
+        // A double-click inside an entered container lands on a target in the
+        // form's own index space. The two deeper rungs are addressed by a PAGE
+        // paint-order index — `part_hits`, `part_bounds` and `nearest_node` all
+        // index `PageObjects::objects` — so a leaf has no part to descend to,
+        // and `canvas::input::probe` already answers `(None, None)` for one.
+        //
+        // Without this guard the descent would still happen: level `Part`, no
+        // subpath, nothing addressable. `canvas::painting` would decline to
+        // draw anchors (`leaf-in-form-xobject`) and `pressing::grabbable`
+        // withholds the outline below the Object rung — so the operator's
+        // second double-click would make the selection box VANISH and offer
+        // nothing in its place. Refusing to descend leaves the box where it is,
+        // which is the honest answer to *"there is no deeper here"*.
+        //
+        // ⇒ `pdfce-core` Pass 188.0 (2026-08-31) shipped the six verbs that
+        // would make this possible — `move_node_in_form`, `move_nodes_in_form`,
+        // `move_handle_in_form`, `move_subpath_in_form` — so what is missing is
+        // this shell's side: a leaf-indexed `part_hits`/`nearest_node` on
+        // `ObjectModelProvider`. When that lands, this guard is what to delete.
+        if hit.object.is_some_and(TargetId::is_leaf) {
+            return;
+        }
         let Some(object) = hit.object else {
             // A double-click is also a click, and a click on empty paper
             // leaves. Doing anything else here strands the operator.

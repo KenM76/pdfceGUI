@@ -307,6 +307,10 @@ pub mod scaling;
 // reservation it takes out of the viewport is a constant (R128).
 pub mod rulers;
 pub mod selection;
+/// **Smart-Selector** — a click selects a container, a double-click goes
+/// inside it. `OPERATOR_REQUESTS.md` O70, following Inkscape's group context,
+/// which is the convention the operator named.
+pub mod smart;
 // The GUI half of snapping: the zoom-invariant catch radius, the master/Alt
 // gates, the Tab cycle, the two-click confirm, and the indicator glyph.
 /// ★★★ **The shape itself, following your hand** — the live geometry preview

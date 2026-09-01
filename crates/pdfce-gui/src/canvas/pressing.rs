@@ -298,11 +298,12 @@ pub fn body_under(
     page_index: usize,
     point: Pos2,
     pick: crate::canvas::pick::PickFilter,
+    scope: crate::canvas::smart::Scope,
 ) -> bool {
     let page_point = map.to_page(point);
     doc.page_objects()
         .and_then(|provider| {
-            crate::canvas::input::topmost(&*provider, page_index, page_point, map, pick)
+            crate::canvas::input::topmost(&*provider, page_index, page_point, map, pick, scope)
         })
         .is_some_and(|hit| {
             selection
@@ -449,7 +450,19 @@ pub fn look(
         Some(Grip::Move)
             if content
                 && !origin.is_some_and(|p| {
-                    body_under(doc, selection, map, page_index, p, pick_for_body())
+                    body_under(
+                        doc,
+                        selection,
+                        map,
+                        page_index,
+                        p,
+                        pick_for_body(),
+                        // ★ The same scope the click path resolves in — O70.
+                        // Asking this question outside the operator's current
+                        // container would answer about a different object from
+                        // the one their next click will select.
+                        crate::canvas::smart::scope(ctx, page_index),
+                    )
                 }) =>
         {
             None

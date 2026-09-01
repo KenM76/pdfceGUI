@@ -239,6 +239,24 @@ pub(super) fn tab() -> Tab {
                     icon_only("view.tool_node").shown_when("mode.edit_content"),
                     icon_only("view.tool_text"),
                     icon_only("view.tool_hand"),
+                    // ★★★ **Smart select** — `OPERATOR_REQUESTS.md` O70, and
+                    // the operator asked for it here by name: *"we should have
+                    // a checkbox in navigate for a Smart-Selector option."*
+                    //
+                    // ★ It is a **toggle among tools**, and that is not a
+                    // category error: it changes what the arrow at the head of
+                    // this row selects when you click with it. Putting it in
+                    // View ▸ Display beside the chrome switches would file it
+                    // with things that change what is DRAWN, and this changes
+                    // what a gesture MEANS.
+                    //
+                    // `shown_when` for `view.tool_node`'s reason, verbatim:
+                    // greying is for the temporarily unavailable and "this mode
+                    // does not edit page content" is what the mode IS. The
+                    // command also carries `enabled_when("mode.edit_content")`
+                    // so a keyboard route cannot reach it where the item is
+                    // hidden.
+                    icon_only("view.smart_select").shown_when("mode.edit_content"),
                 ],
             ),
             // ---------------------------------------------------------------

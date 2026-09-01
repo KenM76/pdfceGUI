@@ -213,6 +213,10 @@ pub mod progressive;
 /// operator authorises one — asserted as a pair, because a build that showed
 /// the window and wrote the file anyway satisfies either half alone.
 pub mod signature_save;
+/// ★ **Smart-Selector** — a click selects the wrapped drawing, a double-click
+/// goes inside it (`OPERATOR_REQUESTS.md` O70). Reads `canvas-selection …
+/// first=`, the one field that tells the two index spaces apart.
+pub mod smart_select;
 pub mod unembed_fonts;
 pub mod widget_move;
 pub mod widget_rotate;
@@ -910,6 +914,11 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // dialog, and now a file dropped on the grid — and the one that has to
         // prove a POSITION was used rather than a default.
         Box::new(drop_onto_thumbnails::ADrawingDroppedOnTheThumbnails),
+        // `OPERATOR_REQUESTS.md` O70, 2026-08-31. It reads the same
+        // `canvas-selection` line the font-group check does and asks the one
+        // question that line was extended for: WHICH index space did the click
+        // land in? Both answers are `sel=1 level=Object`.
+        Box::new(smart_select::AClickSelectsTheWholeDrawing),
         // The Properties panel's document half, wired 2026-08-19 after a
         // recorded blocker — "`pdfce-core` exposes no /Info accessor" — turned
         // out to have cleared without the prose moving. Beside the page checks

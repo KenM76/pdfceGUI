@@ -83,6 +83,26 @@ pub(super) fn show(ui: &mut Ui, doc: &OpenDoc) {
     // showed something to be puzzled by.
     let targets = doc.selection.targets_on(page);
     let Some(&first) = targets.first() else {
+        // ★★★ **NOTHING SELECTED, BUT STILL INSIDE SOMETHING** —
+        // `OPERATOR_REQUESTS.md` O70, and it is the state that needs saying
+        // most.
+        //
+        // One Escape clears the selection and leaves the operator scoped to the
+        // container they entered, so their next click still resolves inside it.
+        // With no line here that state is completely invisible: nothing is
+        // outlined, nothing is armed, and the only evidence is that clicks
+        // behave differently from the same clicks a moment earlier — which
+        // reads as the program having gone wrong.
+        //
+        // ⇒ Rule 4 in its plainest form: the canvas is not marked, and the
+        // fact is stated off it. The sentence names the way out, because a
+        // scope with no visible exit is the stranding this whole arm was
+        // designed to make unrepresentable.
+        let slot = crate::pagedrag::active(ui.ctx()).unwrap_or_default().slot;
+        if crate::canvas::smart::entered(ui.ctx(), page, slot).is_some() {
+            let response = ui.label(t::inside_container());
+            crate::diag::ui_rect(REGION, response.rect);
+        }
         return;
     };
 

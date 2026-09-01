@@ -128,6 +128,22 @@ pub fn selection_one_in_form_unsized(kind: &str, nesting: usize) -> String {
     format!("Selected: {kind} · {}", inside_forms(nesting))
 }
 
+/// ★★ **You are working inside a container and nothing is selected.**
+///
+/// `OPERATOR_REQUESTS.md` O70. The one state in the Smart-Selector arm with no
+/// visible evidence anywhere else: no outline, no armed tool, nothing on the
+/// page — just clicks that resolve differently from how they resolved a moment
+/// ago.
+///
+/// ★ It names **Escape** for the reason `text::placing::armed_instruction`
+/// does: this is the only statement of the way out that the operator can read
+/// at the moment they need it, and a scope with no visible exit is exactly the
+/// stranding the design exists to prevent.
+#[must_use]
+pub fn inside_container() -> &'static str {
+    "Working inside a form — clicks select what is in it. Escape steps back out."
+}
+
 /// *"inside a form"* / *"inside 3 nested forms"* — the containment clause,
 /// in one place so the sized and unsized sentences cannot word it differently.
 fn inside_forms(nesting: usize) -> String {

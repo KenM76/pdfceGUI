@@ -130,6 +130,27 @@ pub trait CanvasTargetProvider {
         None
     }
 
+    /// **The outermost form XObject a target is painted inside**, as a page
+    /// object, or `None` for a target that is not inside one.
+    ///
+    /// ★★★ Why this is on the trait rather than only on the live provider
+    /// (2026-08-31, `OPERATOR_REQUESTS.md` O70): `canvas::smart` substitutes a
+    /// container for a leaf on the click path, which runs against
+    /// `&dyn CanvasTargetProvider`. Reaching past the trait to the concrete
+    /// provider there would put the one rule this feature has in a place the
+    /// test doubles cannot reach — and the rule is exactly the kind that needs
+    /// a stub to state it: *a click selects the container until you are inside
+    /// it.*
+    ///
+    /// A provided method answering `None`, like [`Self::object_class`], so a
+    /// double that has no forms is unaffected. `None` means *"nothing to
+    /// substitute"*, which is the honest answer for a page with no forms and
+    /// for a provider that does not model them.
+    fn containing_form(&self, page_index: usize, target: TargetId) -> Option<TargetId> {
+        let _ = (page_index, target);
+        None
+    }
+
     /// Every target **fully enclosed** by a canvas-space marquee rect.
     ///
     /// Fully-enclosed rather than touched is the shipped convention
@@ -298,6 +319,16 @@ impl CanvasTargetProvider for ObjectModelProvider {
         Self::hit_test_rect(self, page_index, rect)
     }
 
+    /// ★ `Self::containing_form`, spelled as the inherent call rather than as
+    /// `self.containing_form(..)`, which would be ambiguous to a reader for
+    /// the same reason the four lines above are spelled this way: the
+    /// provider has an inherent method of that name and this is the trait's.
+    /// Rust resolves the bare form to the inherent one, so it happens to be
+    /// correct and reads as a recursion.
+    fn containing_form(&self, page_index: usize, target: TargetId) -> Option<TargetId> {
+        Self::containing_form(self, page_index, target)
+    }
+
     /// The real classifier, guarded on the page for the same reason every
     /// other query here is: this provider decomposes exactly one page.
     ///
@@ -415,6 +446,12 @@ pub struct StubTargets {
     /// a stub that manufactured four corners for every object could not
     /// express the refusal at all.
     pub samples: std::collections::BTreeMap<usize, Vec<pdfce_core::vector::Point>>,
+    /// Which page object each leaf is painted inside, as `(leaf, object)`.
+    ///
+    /// Empty means *"these leaves have no container this stub knows about"*,
+    /// which is what the live provider answers for a target that is not in a
+    /// form — so a test that does not set it gets the no-substitution path.
+    pub containers: std::collections::BTreeMap<usize, usize>,
 }
 
 #[cfg(test)]
@@ -427,7 +464,15 @@ impl StubTargets {
             leaves: Vec::new(),
             parts: std::collections::BTreeMap::new(),
             samples: std::collections::BTreeMap::new(),
+            containers: std::collections::BTreeMap::new(),
         }
+    }
+
+    /// Say which page object each leaf lives inside, as `(leaf, object)`.
+    #[must_use]
+    pub fn with_containers(mut self, pairs: impl IntoIterator<Item = (usize, usize)>) -> Self {
+        self.containers = pairs.into_iter().collect();
+        self
     }
 
     /// Give the page some form-interior leaves, front-most last.
@@ -513,6 +558,16 @@ impl CanvasTargetProvider for StubTargets {
             return Vec::new();
         }
         self.samples.get(&index).cloned().unwrap_or_default()
+    }
+
+    fn containing_form(&self, page_index: usize, target: TargetId) -> Option<TargetId> {
+        if page_index != self.page {
+            return None;
+        }
+        let leaf = target.leaf_index()?;
+        self.containers
+            .get(&leaf)
+            .map(|object| TargetId::Object(*object as u64))
     }
 
     fn hit_test_rect(&self, page_index: usize, rect: Rect) -> Vec<TargetId> {

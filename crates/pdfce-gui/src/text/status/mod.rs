@@ -104,6 +104,7 @@ pub use waiting::page_catching_up;
 
 pub use selection::{
     TextStyleRefusal,
+    inside_container,
     selection_inside_form_declined,
     selection_many,
     selection_one,

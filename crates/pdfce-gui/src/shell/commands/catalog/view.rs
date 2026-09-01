@@ -312,6 +312,21 @@ pub(super) fn band() -> Vec<Command> {
         command("view.show_annotations", t::view_show_annotations(), 230)
             .with_icon("comment")
             .enabled_when("doc.pages"),
+        // ★★★ `OPERATOR_REQUESTS.md` O70 — *"we should have a checkbox in
+        // navigate for a Smart-Selector option"*. 258 is the next free token in
+        // the View band — 257 is `view.close_other_documents`, which is at the
+        // bottom of this file where a "next free" scan of the top of it does
+        // not look. The uniqueness test caught it in one run, which is what
+        // that test is for.
+        //
+        // ★ **`enabled_when("mode.edit_content")`, not `doc.pages`.** The
+        // substitution it controls only happens where content is selectable at
+        // all, so offering it in Read would be a control that reports a state
+        // it does not currently govern — and R9 reserves greying for the
+        // temporarily unavailable, which this is: it comes back in Edit.
+        command("view.smart_select", t::view_smart_select(), 258)
+            .with_icon("show-points")
+            .enabled_when("mode.edit_content"),
         command("view.show_points", t::view_show_points(), 231)
             .with_icon("show-points")
             .enabled_when("doc.pages"),

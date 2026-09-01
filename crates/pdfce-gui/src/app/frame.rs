@@ -359,6 +359,22 @@ impl eframe::App for PdfceApp {
             ctx.set_zoom_factor(ui_scale);
         }
 
+        // ★★ Step 0b² — **carry the persisted Smart-Selector answer into the
+        // canvas's live copy** — `OPERATOR_REQUESTS.md` O70.
+        //
+        // One direction only, and written every frame rather than seeded once:
+        // `Prefs` is where the answer survives a restart and `egui::Memory` is
+        // where the click path can read it, so this is a mirror rather than a
+        // second opinion. Writing it every frame means a change made anywhere
+        // that touches `Prefs` — the file on disk, a future Settings row —
+        // reaches the canvas on the next frame without that surface having to
+        // know this mechanism exists.
+        //
+        // ★ `sync`, not `set_enabled`: the latter also LEAVES whatever
+        // container the operator is inside, which is right for a deliberate
+        // press and wrong for a mirror that runs sixty times a second.
+        crate::canvas::smart::sync(&ctx, self.prefs.smart_select);
+
         // ★ Step 0c — clear any bitmap cursor, BEFORE anything draws.
         //
         // `egui::PlatformOutput::take` keeps `cursor_image` across frames —

@@ -773,7 +773,53 @@ Four separate defects in one paragraph, all of which are in scope:
 
 ---
 
-## O70 — ⬜ A Smart-Selector checkbox in Navigate, following Inkscape's descent convention
+## O70 — ◑ HALF BUILT AND DRIVEN 2026-08-31 — the container rung ships
+
+> **Clicking a wrapped drawing now selects the drawing.** On a CAD sheet whose
+> content was placed as one piece — a title block, a stamped detail, a symbol —
+> a click used to select one line inside it and there was no way to select the
+> piece at all except a Format-tab command you had to know existed. Now a click
+> selects the piece and a **double-click goes inside**, which is the Inkscape
+> convention you named.
+>
+> **The switch is in View ▸ Navigate**, beside the four pointer tools, on by
+> default, and it remembers itself across restarts. Escape steps back out —
+> once to drop the selection, again to leave — because losing the container you
+> are working inside to a stray deselect would be worse than the extra press.
+>
+> **Measured, driving the real binary:** click → the container; double-click →
+> `smart-enter` and the object inside it; Escape, Escape → out. The first
+> Escape must NOT leave, and the check asserts that too.
+>
+> ★★ **A fixture had to be built for it, and the reason is worth reading.**
+> Neither of your drawings could test this at the zoom they open at.
+> `SW41177.pdf` contains no wrapped content at all. The benchmark site plan
+> does — one container over 10,256 pieces — but pdfce's click tolerance is six
+> screen pixels, which on a sheet opened to fit is about fifteen points of
+> paper, and at that radius the big page-level objects win everywhere. So the
+> feature is reachable by you, zoomed in, and unreachable by a harness aiming
+> at a fitted page. That is a fact about the document, not the feature, and the
+> answer was a small purpose-made file.
+>
+> ### ⬜ Still owed on this row, and named rather than implied
+>
+> 1. **Going deeper than one level.** Inside a container, a further
+>    double-click does not yet reach a piece's points. The engine shipped the
+>    six verbs for it this afternoon (`pdfce-core` Pass 188.0); the shell side
+>    is a leaf-indexed hit test that does not exist yet. Today that double-click
+>    deliberately does **nothing** rather than half-descending into a state with
+>    no visible box — the guard is written where it can be deleted.
+> 2. **Editing what you selected inside a container** — moving it, deleting it.
+>    Same Pass, same shell-side gap.
+> 3. **Double-clicking a text box to edit the text.** Today it descends to the
+>    text run rather than opening the caret.
+>
+> **Verified:** driven —
+> `a_click_selects_the_whole_drawing_and_a_double_click_goes_inside`.
+
+<details><summary>The row as filed</summary>
+
+### ⬜ A Smart-Selector checkbox in Navigate, following Inkscape's descent convention
 
 **Asked:** 2026-08-31.
 
@@ -795,6 +841,8 @@ This row and O69 and O17 (the selection filter) are the same subject seen from
 three angles. They should be designed together and shipped together.
 
 **Status:** not investigated.
+
+</details>
 
 ---
 

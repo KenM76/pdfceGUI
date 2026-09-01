@@ -67,6 +67,10 @@ const GESTURE_MEMORY_KEY: &str = "pdfce-canvas-gesture"; // ui-text-exempt: inte
 /// When nothing is entered yet, the subject is the object under the pointer —
 /// which is what a double-click needs, since it descends into whatever it
 /// landed on.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "eight independent facts about one click — the provider, the selection, the page, the point, the mapping, the filter, the cycling depth and the container scope. Grouping any subset would be grouping by arity rather than by meaning, and the resulting type would have no name that was true." // ui-text-exempt: a lint justification, never displayed
+)]
 pub(super) fn probe(
     targets: &dyn CanvasTargetProvider,
     selection: &SelectionState,
@@ -75,6 +79,7 @@ pub(super) fn probe(
     map: &PageMapping,
     filter: PickFilter,
     depth: usize,
+    scope: crate::canvas::smart::Scope,
 ) -> ClickHit {
     // ONE tolerance, converted once, in page units. Passing
     // `SELECT_SCREEN_TOLERANCE_PX` here would compile, run, and merely drift
@@ -94,7 +99,7 @@ pub(super) fn probe(
     // the answer to *"what did I click?"* everywhere in order to make one
     // rung easier, which is the trade this refuses.
     let node_tolerance = map.node_tolerance();
-    let object = nth_allowed(targets, page_index, point, tolerance, filter, depth);
+    let object = nth_allowed(targets, page_index, point, tolerance, filter, depth, scope);
 
     // ★ The part and node rungs are addressed by a **page** paint-order
     // index — `part_hits`, `part_bounds` and `nearest_node` all index
@@ -170,15 +175,36 @@ fn allowed_candidates(
     point: Pos2,
     tolerance: f64,
     filter: PickFilter,
+    scope: crate::canvas::smart::Scope,
 ) -> Vec<TargetId> {
-    targets
-        .hit_test_all(page_index, point, tolerance)
-        .into_iter()
-        .filter(|target| match targets.object_class(page_index, *target) {
+    let mut out: Vec<TargetId> = Vec::new();
+    for target in targets.hit_test_all(page_index, point, tolerance) {
+        // ★★★ **The Smart-Selector substitution happens HERE**, before the
+        // filter and before anything downstream sees a candidate —
+        // `OPERATOR_REQUESTS.md` O70.
+        //
+        // Here rather than at each call site because this is the one function
+        // every picking question funnels through, and the press and the click
+        // that follows it MUST agree about what is under the pointer: a drag
+        // that began on a container and a click that selected a leaf would be
+        // one gesture acting on two different objects.
+        let target = scope.resolve(targets, page_index, target);
+        let allowed = match targets.object_class(page_index, target) {
             Some(class) => filter.allows(class),
             None => true,
-        })
-        .collect()
+        };
+        // ★★ **Deduplicated, and that is not tidiness.** Ten leaves of one
+        // title block under one point all resolve to the same container, so
+        // without this an `Alt`-cycle through the stack would offer the same
+        // object ten times and read as a control that has stopped responding.
+        // The class is asked of the RESOLVED target, so switching form
+        // XObjects off in the pick filter switches off the containers this
+        // substitution produces rather than the leaves it produced them from.
+        if allowed && !out.contains(&target) {
+            out.push(target);
+        }
+    }
+    out
 }
 
 /// ★★★ **Which of the candidates under the pointer this click means**, given
@@ -219,8 +245,9 @@ fn nth_allowed(
     tolerance: f64,
     filter: PickFilter,
     depth: usize,
+    scope: crate::canvas::smart::Scope,
 ) -> Option<TargetId> {
-    let candidates = allowed_candidates(targets, page_index, point, tolerance, filter);
+    let candidates = allowed_candidates(targets, page_index, point, tolerance, filter, scope);
     if candidates.is_empty() {
         return None;
     }
@@ -244,8 +271,17 @@ pub(super) fn topmost(
     point: Pos2,
     map: &PageMapping,
     filter: PickFilter,
+    scope: crate::canvas::smart::Scope,
 ) -> Option<TargetId> {
-    nth_allowed(targets, page_index, point, map.tolerance(), filter, 0)
+    nth_allowed(
+        targets,
+        page_index,
+        point,
+        map.tolerance(),
+        filter,
+        0,
+        scope,
+    )
 }
 
 /// How many objects the pointer is over, after the pick filter.
@@ -260,8 +296,9 @@ pub(super) fn candidate_count(
     point: Pos2,
     tolerance: f64,
     filter: PickFilter,
+    scope: crate::canvas::smart::Scope,
 ) -> usize {
-    allowed_candidates(targets, page_index, point, tolerance, filter).len()
+    allowed_candidates(targets, page_index, point, tolerance, filter, scope).len()
 }
 
 /// Read the in-flight pointer gesture.

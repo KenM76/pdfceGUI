@@ -46,6 +46,11 @@
 use crate::app::PdfceApp;
 use crate::app::state::Status;
 
+/// **Which control renders pressed.** Split out 2026-08-31 under R2; see its
+/// header for why the pressed conditions are a different subject from the
+/// enable conditions above them.
+mod armed;
+
 impl PdfceApp {
     /// The conditions the ribbon evaluates its predicates against.
     ///
@@ -580,133 +585,17 @@ impl PdfceApp {
         if self.capabilities().edit_content {
             set.set("mode.edit_content");
         }
-        // ★ **The two toggles whose state lives in `egui::Memory`.**
+        // ★★ **Every pressed state, in one place** — `app::conditions::armed`,
+        // split out 2026-08-31 under R2.
         //
-        // These were the last controls in the ribbon with no pressed state,
-        // and the reason was structural rather than an oversight: this
-        // function took `&self` and no `egui::Context`, so a toggle whose
-        // state is in egui's own memory had no route here at all. Three
-        // separate pieces of work recorded the gap and declined to invent a
-        // second mechanism for it, which was right — the fix is to hand this
-        // function the context, not to keep a shadow copy of the tool on
-        // `PdfceApp` that the canvas would then have to remember to update.
-        //
-        // A shadow copy is worth naming as the road not taken, because it is
-        // the obvious one: it would put the truth about which tool is armed in
-        // two places, and the failure mode is a ribbon that says Hand while
-        // the canvas selects — a disagreement no test would catch, because
-        // each half would be self-consistent.
-        //
-        // **Outside the `Status::Open` arm on purpose.** The armed tool and
-        // the armed zoom survive closing a document, so a ribbon that forgot
-        // which tool you were in the moment you closed a file would be
-        // reporting something untrue about its own state. The commands
-        // themselves are gated on `doc.pages`, so they still grey out with
-        // nothing open — greyed and pressed is exactly right for "this is the
-        // tool you are in, and there is nothing to use it on".
-        if crate::canvas::tool::selected(ctx) == crate::canvas::tool::CanvasTool::Hand {
-            set.set(egui_shell::ribbon::selected_condition("view.tool_hand"));
-        }
-        // ★ **The text tool's pressed state**, published exactly as the hand's
-        // is, from the same `egui::Memory`-backed value and outside the
-        // `Status::Open` arm for the same reason.
-        //
-        // # This is the step that was forgotten once, and the reason it has a
-        // test of its own
-        //
-        // Phase 7 shipped `CanvasTool::Measure`, `arm_measure`, `measure_command`
-        // and a dispatch arm using its inverse — every one with a passing unit
-        // test — and did **not** publish the condition here, so Measure ▸ Linear
-        // armed the tool, placed a dimension the engine accepted, and the button
-        // never lit up. `ui-verify` found it in a running window, because the
-        // missing link was a *call site*.
-        //
-        // The text tool is more exposed to that failure than either family
-        // before it, and the reason is worth stating: arming it changes the
-        // **cursor and nothing else**. A markup tool at least draws a band the
-        // moment you use it; an armed text tool that did not light its control
-        // would leave an operator with no on-screen evidence of the mode they are
-        // in at all — and a captured window does not carry the pointer, so not
-        // even a screenshot would show it.
-        //
-        // `selected` rather than `active`, matching the hand: a held space bar
-        // borrows the hand for as long as it is down, and a control that
-        // un-pressed itself under the operator's thumb every time they panned
-        // would be reporting a tool they did not choose.
-        if crate::canvas::tool::selected(ctx).is_text() {
-            set.set(egui_shell::ribbon::selected_condition("view.tool_text"));
-        }
-        // ★ **The two View ▸ Window toggles' pressed state.**
-        //
-        // Outside the `Status::Open` arm, and more obviously so than the armed
-        // tools above: these describe the **application's own shape**, which has
-        // nothing to do with whether a document is loaded. A ribbon that
-        // un-pressed Full screen because the operator closed a file would be
-        // reporting something untrue about the window it is drawn in.
-        //
-        // The two read their state from different places and that asymmetry is
-        // argued in `crate::app::window` §3, not here. In one sentence: read
-        // mode is created by nothing but its own command, so `egui::Memory` is
-        // its home and the same route the armed tool takes; full screen has an
-        // owner **outside this program** — a window manager can grant or revoke
-        // it unasked — so it is read back off the viewport rather than shadowed
-        // on `PdfceApp`, where the two would drift and the control would render
-        // pressed over a windowed application.
-        //
-        // ★ Note what that costs, so it is not mistaken for a defect: the
-        // full-screen control lights up on the frame **after** the press,
-        // because a viewport command is answered by the backend. That is the
-        // honest lag — the alternative is a control that reports a request as a
-        // fact, which is wrong precisely when the backend refuses.
-        if crate::app::window::read_mode(ctx) {
-            set.set(egui_shell::ribbon::selected_condition("view.read_mode"));
-        }
-        if crate::app::window::fullscreen(ctx) {
-            set.set(egui_shell::ribbon::selected_condition("view.fullscreen"));
-        }
-        if crate::canvas::zoom::region_zoom_armed(ctx) {
-            set.set(egui_shell::ribbon::selected_condition("view.zoom_region"));
-        }
-        // ★ The armed markup tool, published the same way and outside the
-        // `Status::Open` arm for the same reason as the two above.
-        //
-        // **At most one**, because `CanvasTool::Markup` carries the kind
-        // rather than there being one variant per shape — so the four
-        // controls behave as a radio without anything having to enforce it.
-        // That is the payoff of the enum shape the canvas chose: a tool that
-        // could be two kinds at once is unrepresentable, so a ribbon showing
-        // two pressed shape buttons is unrepresentable too.
-        if let Some(kind) = crate::canvas::tool::selected(ctx).markup_kind() {
-            set.set(egui_shell::ribbon::selected_condition(
-                crate::shell::commands::markup_command(kind),
-            ));
-        }
-        // ★ …and the armed **measure** tool, for the identical reason.
-        //
-        // # This arm was missing, and `ui-verify` is what found it
-        //
-        // Phase 7 shipped `CanvasTool::Measure(MeasureKind)`, `arm_measure`,
-        // `measure_command` — the exact twin of `markup_command` — and a
-        // dispatch arm that uses its inverse. Every one of those has a passing
-        // unit test. What nothing tested is that *this function* hands the
-        // second to the first, because that is a property of a **call site**,
-        // and a call site's effect is observable only in a running window.
-        //
-        // So Measure ▸ Linear armed the tool, placed a dimension the engine
-        // accepted, and **the button never lit up**. That is `HANDOFF.md`
-        // defect 2's shape one layer up: the thing works, and the surface the
-        // operator looks at does not say so. It was found by
-        // `ui_verify::checks::measure_linear`, which compares the control's fill
-        // against its sibling's *in one capture* — a differential nothing that
-        // happens to both controls can satisfy.
-        //
-        // The lesson worth keeping: adding a tool is not four changes, it is
-        // five, and the fifth is the one with no unit test to remind you.
-        if let Some(kind) = crate::canvas::tool::selected(ctx).measure_kind() {
-            set.set(egui_shell::ribbon::selected_condition(
-                crate::shell::commands::measure_command(kind),
-            ));
-        }
+        // It answers a different question from everything above it: not *"may
+        // this control be pressed?"* but *"is it already in the state it
+        // names?"* — a different source (`egui::Context` rather than `&self`),
+        // a different scope (outside `Status::Open`, because an armed tool
+        // survives closing a file) and a different shape. Its header carries
+        // the argument, and the defect it is the home of: adding a tool is five
+        // changes and the fifth has no unit test to remind you.
+        self.armed_conditions(ctx, &mut set);
 
         set
     }

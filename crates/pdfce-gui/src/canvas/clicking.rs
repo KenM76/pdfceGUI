@@ -238,6 +238,15 @@ pub fn click(
         triple,
     } = frame;
 
+    // ★★★ **This frame's Smart-Selector scope**, read once — O70.
+    //
+    // Once, and passed down, because every picking question below must resolve
+    // identically: a press that grabbed a container and a click that selected
+    // a leaf would be one gesture acting on two objects. `canvas::smart::Scope`
+    // carries the argument for why the pick helpers take a value rather than
+    // reading the context themselves.
+    let scope = crate::canvas::smart::scope(ctx, page_index);
+
     // ★★ The annotation under the pointer, resolved BEFORE the ladder.
     //
     // Ahead of it rather than inside it because the arm that consumes
@@ -338,7 +347,7 @@ pub fn click(
             // Depth 0: the Node tool addresses anchors within an object it
             // has already entered, so "the object underneath" is not a
             // question it asks.
-            .map(|t| probe(t, selection, page_index, point, map, pick, 0))
+            .map(|t| probe(t, selection, page_index, point, map, pick, 0, scope))
             .unwrap_or_default();
         selection.click_direct(page_index, hit, shift);
         crate::diag::trace(|| {
@@ -606,7 +615,7 @@ pub fn click(
         let alt = ctx.input(|i| i.modifiers.alt);
         let depth = cycle_depth(ctx, point, alt);
         let hit = targets
-            .map(|t| probe(t, selection, page_index, point, map, pick, depth))
+            .map(|t| probe(t, selection, page_index, point, map, pick, depth, scope))
             .unwrap_or_default();
         // ★ How many there were, so the status line can say *"2 of 5 here"*
         // rather than leaving the operator to discover a stack by cycling into
@@ -616,9 +625,88 @@ pub fn click(
         let under = targets
             .filter(|_| hit.object.is_some())
             .map(|t| {
-                crate::canvas::input::candidate_count(t, page_index, point, map.tolerance(), pick)
+                crate::canvas::input::candidate_count(
+                    t,
+                    page_index,
+                    point,
+                    map.tolerance(),
+                    pick,
+                    scope,
+                )
             })
             .unwrap_or(0);
+        // ★★★ **A DOUBLE-CLICK ON A CONTAINER GOES INSIDE IT** —
+        // `OPERATOR_REQUESTS.md` O70, and Inkscape's group context, which is
+        // the convention the operator named.
+        //
+        // Placed before `selection.click` rather than inside it because the act
+        // is not a selection change at all: it changes the SCOPE that the next
+        // click resolves in, and then makes an ordinary selection under the new
+        // scope. `SelectionState` has no business knowing what a form XObject
+        // is, and `canvas::smart`'s header carries the argument for why the
+        // container is a scope rather than a fourth `SelectionLevel`.
+        //
+        // ★ Re-probed with the entered scope rather than reusing `hit`, which
+        // resolved to the container by construction. One rule, applied twice,
+        // instead of a second path that reaches inside a form its own way.
+        if double
+            && scope.enabled
+            && let Some(t) = targets
+            && let Some(object) = hit.object
+            && object.page_object_index().is_some()
+            && scope.entered != Some(object.raw())
+            && crate::canvas::target::CanvasTargetProvider::object_class(t, page_index, object)
+                == Some(crate::canvas::pick::PickClass::FormXObject)
+        {
+            let slot = crate::pagedrag::active(ctx).unwrap_or_default().slot;
+            crate::canvas::smart::enter(
+                ctx,
+                crate::canvas::smart::Entered {
+                    page: page_index,
+                    form: object.raw(),
+                    slot,
+                },
+            );
+            let inside = crate::canvas::smart::Scope {
+                enabled: true,
+                entered: Some(object.raw()),
+            };
+            let hit = probe(t, selection, page_index, point, map, pick, 0, inside);
+            // ★ `false` for `double`: the operator's double-click was spent on
+            // ENTERING. Passing it on would descend into whatever is inside on
+            // the same gesture, which is two rungs for one act and is not what
+            // Inkscape does either.
+            selection.click(page_index, hit, shift, false);
+            super::trace::selection_event(selection, "enter-form", true);
+            return;
+        }
+        // ★★ **A CLICK OUTSIDE THE CONTAINER LEAVES IT** — O70, and Inkscape's
+        // other way out.
+        //
+        // "Outside" is answered by the substitution that has already happened:
+        // with a scope in force, anything inside the entered container resolves
+        // to ITSELF and anything inside a different one resolves to that other
+        // container. So a hit that is neither the entered form nor one of its
+        // leaves is, by construction, elsewhere — and a click on blank paper
+        // (no hit at all) is elsewhere too.
+        //
+        // ★ Written as a question about the RESOLVED target rather than as a
+        // bounds test against the form's rectangle. A title block is usually a
+        // hollow shape spanning the sheet, so "inside its bounding box" is true
+        // of most of the drawing and would trap the operator in a container
+        // they had visibly clicked out of.
+        if let Some(form) = scope.entered {
+            let inside = hit.object.is_some_and(|object| {
+                object.raw() == form && !object.is_leaf()
+                    || targets.is_some_and(|t| {
+                        t.containing_form(page_index, object)
+                            == Some(crate::panels::objects::provider::TargetId::Object(form))
+                    })
+            });
+            if !inside {
+                crate::canvas::smart::leave(ctx);
+            }
+        }
         selection.click(page_index, hit, shift, double);
         // ★ Recorded WITH the object it is about, so it cannot be claimed for
         // a selection that arrived some other way — see `canvas::depth::taken`.

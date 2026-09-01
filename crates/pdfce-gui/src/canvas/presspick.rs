@@ -109,7 +109,14 @@ pub(super) fn at_press(
     {
         let point = map.to_page(origin);
         let hit = doc.page_objects().and_then(|provider| {
-            crate::canvas::input::topmost(&*provider, page_index, point, map, pick)
+            crate::canvas::input::topmost(
+                &*provider,
+                page_index,
+                point,
+                map,
+                pick,
+                crate::canvas::smart::scope(ctx, page_index),
+            )
         });
         if let Some(object) = hit {
             selection.select_only(page_index, object, "press");
@@ -378,5 +385,7 @@ fn covers(
             page_index,
             point,
             crate::canvas::pick::PickFilter::all(),
+            // ★ As in `pressing::look`: the same scope the click resolves in.
+            crate::canvas::smart::scope(ctx, page_index),
         )
 }

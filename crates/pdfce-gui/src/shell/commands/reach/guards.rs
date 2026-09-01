@@ -140,6 +140,20 @@ pub(crate) fn guard_claiming(id: &str) -> Option<&'static str> {
     if crate::app::dispatch::batch::handles(id) {
         return Some("handles");
     }
+    // ★ `dispatch::navigate`, split out 2026-08-31 when `view.smart_select`
+    // (`OPERATOR_REQUESTS.md` O70) took `dispatch.rs` past 1,500 lines for the
+    // seventh time. It carries the five controls of View ▸ Navigate.
+    //
+    // ★★ **Written in the same edit as the module**, per the paragraph above —
+    // and this one still went red first, because the arms were MOVED before
+    // this line was added. Five commands that had worked for weeks reported as
+    // unreachable in one run, which is precisely the loud-and-total failure
+    // that makes a hand-kept list survivable here. It is not a list of what
+    // exists; it is a list of what has been noticed, and the test is what does
+    // the noticing.
+    if crate::app::dispatch::navigate::handles(id) {
+        return Some("handles");
+    }
     // ★ The Settings commands, in `app::dispatch::settings` since 2026-08-28,
     // when this file crossed 1,500 lines for the third time in one session.
     //

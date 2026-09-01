@@ -299,7 +299,11 @@ mod tests {
         // greying is for the temporarily unavailable, and "the dialog was
         // never written" is not temporary. The two splits come back together
         // when the boundary chooser exists.
-        assert_eq!(registry().len(), 126);
+        // ★ 126 → 127 on 2026-08-31: `view.smart_select` REGISTERED —
+        // `OPERATOR_REQUESTS.md` O70. Ken: *"we should have a checkbox in
+        // navigate for a Smart-Selector option."* The count moves WITH the
+        // list, in the same commit, which is this file's standing rule.
+        assert_eq!(registry().len(), 127);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -379,7 +383,13 @@ mod tests {
         // named a glyph (`split` twice, `sidebar` once). The assets stay in
         // the directory — `icons/assets/PROVENANCE.md` makes them the
         // operator's own work — but no command claims them.
-        assert_eq!(named, 106, "commands naming an icon");
+        // ★ 106 → 107 on 2026-08-31: `view.smart_select` names the
+        // `show-points` glyph (O70). Deliberately a REUSE rather than a new
+        // asset: the two controls are about the same subject — how deep a
+        // click reaches — and `icons/assets/PROVENANCE.md` makes that
+        // directory the operator's own drawing, so inventing art for a control
+        // he asked for this afternoon would be putting a machine's hand in it.
+        assert_eq!(named, 107, "commands naming an icon");
         // ★ 12 → 17 on 2026-08-27: the Format ▸ Font group's five commands
         // all refuse a glyph, and they refuse it for one reason argued once at
         // their registration. Word draws `B` and `I` as glyphs; this build has
@@ -592,6 +602,18 @@ mod tests {
             // runs an action — and until then the ribbon needs no special case
             // and no `#[cfg]`.
             "forms.push_button_runnable",
+            // ★ Published by `app::conditions` for the ribbon's Font group and
+            // the Points tool since 2026-08-17, and named here for the first
+            // time on 2026-08-31 when `view.smart_select` became the third
+            // control to wait on it (`OPERATOR_REQUESTS.md` O70).
+            //
+            // It was a *shown_when* predicate on the manifest side until now,
+            // and manifest predicates are not registry `Enable` values — which
+            // is why a condition that has been live for two weeks was not in
+            // this list. That is worth noticing rather than quietly adding: the
+            // list asserts what a COMMAND may wait on, and this is the first
+            // command to wait on it.
+            "mode.edit_content",
         ];
         for command in registry().iter() {
             if let egui_shell::commands::Enable::When(name) = &command.enable {
