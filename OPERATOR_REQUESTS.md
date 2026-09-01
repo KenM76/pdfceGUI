@@ -1719,7 +1719,52 @@ the machine, first job next session.
 
 ---
 
-## O61 — ✅ pdfce now tells you when a document phones home · ⬜ buttons still cannot be given actions
+## O61 — ✅ pdfce tells you when a document phones home · ✅ AND buttons can now be given actions
+
+> ### ★★★ CLOSED 2026-09-01 — you can make a button do something, seven ways
+>
+> **Draw a button and pdfce asks what pressing it should do.** Seven answers:
+>
+> | | reaches |
+> |---|---|
+> | Nothing | — |
+> | Clear the form | nothing outside the document |
+> | Go to a page | nothing outside the document |
+> | Move through the pages (next / previous / first / last) | nothing outside the document |
+> | Show or hide fields | nothing outside the document |
+> | Open a web address | writes an address; pdfce never opens it |
+> | Send the form's data | writes an address and a declaration; pdfce sends nothing and has no way to |
+>
+> Every one of the seven says which of those it is, in a sentence under the
+> chooser — including the five that reach nothing, so the two that do are not
+> the only ones carrying a line. A disclosure that appears only on the risky
+> choice is one people learn to skip.
+>
+> **The submit says four things nobody can guess**, and Acrobat says none of
+> them: hidden fields are sent, fields whose characters are masked are sent as
+> plain text, a field that names a file on your computer sends that file's
+> contents, and the message carries this document's own location on disk.
+>
+> ★ **No web address is blocked.** An unencrypted one is *said* to be
+> unencrypted and you decide. Blocking it would be pdfce inventing a rule the
+> standard does not state.
+>
+> ★★ **And nothing is marked on the page.** A button that submits looks exactly
+> like one that does nothing, because that is how the saved file will look.
+> What it does is said off the canvas, never on it.
+>
+> ### The part worth your attention, because it is a process failure rather than a feature
+>
+> **The engine shipped this on 2026-08-30 and this shell did not notice for two
+> days.** The reply even said *"please check your own copy — your surface is now
+> saying something untrue."* It was read, filed and answered, and the Button
+> tool stayed greyed anyway, because nothing here failed when the capability
+> landed.
+>
+> That is fixed rather than apologised for: a new build gate now fails whenever
+> pdfce gains something this shell neither uses nor has written a sentence
+> about. On its first run it found five more.
+
 
 **Ken, 2026-08-30:** *"I think pdfce added support for several button features
 and protections for outgoing submits. implement everything available."*
@@ -1789,7 +1834,18 @@ actions remain an engine policy decision, filed, unanswered.**
 
 ---
 
-## O60 — ✅ Redact by selecting on the canvas · ⬜ Push buttons that actually do something
+## O60 — ✅ Redact by selecting on the canvas · ✅ AND push buttons that actually do something
+
+> ### ★★★ THE SECOND HALF CLOSED 2026-09-01
+>
+> *"do push buttons work for some features and can we now add them?"* — **yes to
+> both, and the answer to the first half was always yes.** Buttons in somebody
+> else's form have always kept working when pdfce saves the file; it recognises
+> every action type it meets and preserves all of them. Only pdfce's **own**
+> buttons were inert, and they are not any more.
+>
+> The full account is on **O61**, which is the row that asked for it.
+
 
 **Ken, 2026-08-30:** *"the redaction tool — am I able to select objects on the
 canvas and redact them that way yet? I only tried it when it only worked with
