@@ -184,6 +184,25 @@ run "check-suite-name-absent" python "$ROOT/tools/check-suite-name-absent.py"
 # to be traced after the funnel's, so `.last()` returned the right one by luck.
 run "check-trace-names" python "$HERE/check-trace-names.py"
 
+# `check-verb-coverage` fails when `pdfce-core` has a verb this shell names
+# nowhere AND `EDITABLE_SURFACES.md` says nothing about it either.
+#
+# The two days that bought it: `EditSession::set_button_action` shipped
+# 2026-08-30, in answer to this shell's own request, with a reply that said in
+# as many words *"please check your own copy."* It was consumed 2026-09-01, and
+# only because `tools/verb-coverage.py` was run for an unrelated reason. In
+# between, the Button tool stayed greyed and its dialog told the operator that
+# pdfce "cannot give a button something to do yet" -- false, on a capability
+# two open operator rows were waiting for.
+#
+# The instrument existed. Nobody ran it. That is the whole lesson, and it is
+# the same one `check-string-gaps` learned: a convention held by memory fails,
+# and the replacement is never a note.
+#
+# It found five more the moment it worked -- three attachment-clipboard verbs
+# and two cut verbs -- none of which had a sentence anywhere.
+run "check-verb-coverage" bash "$HERE/check-verb-coverage.sh"
+
 # --- 2. cargo fmt / clippy --------------------------------------------------
 #
 # Both are wrapped in a workspace-loadability probe. If a member crate listed

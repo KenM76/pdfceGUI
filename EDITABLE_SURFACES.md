@@ -144,6 +144,27 @@ operator's machine.
 | `dirty_set` | What the writer would emit as an incremental update. The shell never needs to know before saving; the writer asks it. |
 | `dimension_rects` | Hit-testing ce dimensions from their `/Rect`s. This shell hit-tests through the **decomposition**, which resolves the object under the pointer for every kind at once. Two hit tests would be two answers to one question. |
 
+### ★★★ The five the GATE found, 2026-09-01 — three cut verbs and the attachment clipboard
+
+`tools/gates/check-verb-coverage.sh` is new on this date, and it exists because
+`set_button_action` shipped on 2026-08-30 and was consumed on 2026-09-01: the
+instrument existed and nobody ran it. **A tool that must be remembered is a tool
+that will be forgotten.** The gate now fails the build when a verb is named
+neither in the shell nor in this file — and on its first honest run it named
+these five, all of which had been silently uncovered.
+
+| Verb | Why nothing calls it |
+|---|---|
+| `cut_objects` (context) / `cut_annotations` | ⛔ **Deliberate, argued in code.** `canvas::clipboard::cut` is copy-then-`DeleteSelection`, and the reason is in its own comment: routing the delete through the shell's funnel means it lands one `EditSession` command and one undo entry *by the same mechanism as every other edit*, and it leaves `canvas::clipboard` changing no document — which is what lets its refusals be unit-tested without one. The engine's ordering property (copy first, so a selection that cannot be carried is refused with nothing deleted) is honoured by the `?` on the copy. |
+| `cut_field` | ◑ **A workaround, and it costs one undo entry too many.** `canvas::fieldclip::cut` is copy + `FieldAction::DeleteWidget`, and `DeleteWidget` is deliberate rather than incidental: the operator pointed at **a box**, and `cut_field` removes the whole *field* — on a field with three widgets that is not what was asked. So the two verbs are genuinely different acts. What is *not* deliberate is the undo cost, and it has the same cause as the button-action one filed the same day: `EditSession::coalesce_last` is private, so a shell cannot fold two commands into one. See `request_placing_a_button_with_an_action_costs_two_undos.md`. |
+| `copy_attachment` / `cut_attachment` / `paste_attachment` | ⬜ **A real gap, dated and open.** The Attachments panel attaches and detaches (`attach_file` / `detach_file`, shipped 2026-08-28) and has **no clipboard at all** — so an attachment cannot be moved between two open documents, which multi-document pdfce makes an obvious thing to want. Not started. The engine verbs exist and are `28b982c`-current. |
+
+⇒ ★★ Note what the three attachment verbs have in common with the button
+action: **the engine shipped them and this shell said nothing about them
+either way.** That is precisely the silence the gate exists to break — a verb
+nobody has written a sentence about is indistinguishable from a verb nobody
+noticed.
+
 ### Not gaps — alternate spellings of a verb the shell already calls
 
 | Verb | What the shell calls instead |
