@@ -187,7 +187,6 @@ mod ink;
 pub mod pageepoch;
 
 pub use identity::{Origin, SelectedField};
-
 /// One open document and everything the shell knows about looking at it.
 pub struct OpenDoc {
     /// ★ **The operator's configuration, as this document's derived data was
@@ -462,6 +461,9 @@ pub struct OpenDoc {
     /// wheel anchor armed a frame earlier describes a position the fit has
     /// just superseded. See the offset-decision chain in `canvas::show`.
     pub fit_placement: Option<crate::viewer::FitMode>,
+    /// **Where a bookmark asked the view to land.** A one-shot, parked on
+    /// `fit_placement`'s pattern; see `canvas::destination`.
+    pub pending_destination: Option<crate::canvas::destination::PendingDestination>,
     /// **The viewport the active fit was last placed against**, so a resize
     /// can re-place the page and nothing else can — `OPERATOR_REQUESTS.md`
     /// O55.
@@ -982,6 +984,7 @@ impl OpenDoc {
             zoom_commanded: false,
             zoom_anchor: None,
             fit_placement: None,
+            pending_destination: None,
             view_viewport: None,
             // Nothing to reveal on a document nobody has searched yet — and,
             // like every other field here, fresh by construction rather than

@@ -569,8 +569,11 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, actions: 
             crate::app::actions::bookmarks::BookmarkAction::SetOpen { item, open },
         ));
     }
-    if let Some(page) = harvest.go {
-        actions.push(Action::GoToPage(page));
+    if let Some((page, view)) = harvest.go {
+        // ★★ One place turns a destination into moves, so the bookmarks panel
+        // and anything else that navigates to one cannot disagree about what
+        // `/XYZ` means. See `app::actions::destination`.
+        crate::app::actions::destination::actions_for(page, &view, actions);
     }
 }
 
@@ -594,7 +597,11 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, state: &mut PanelsState, actions: 
 #[derive(Default)]
 struct Harvest {
     /// The page a click asked to go to, 0-based.
-    go: Option<usize>,
+    /// The page a click asked for, **with the view that came with it**.
+    ///
+    /// ★ A pair rather than a page, since 2026-09-01. Carrying only the page
+    /// is what made every bookmark on a drawing sheet arrive in the same place.
+    go: Option<(usize, pdfce_core::outline::DestView)>,
     /// ★ The row that was clicked, recorded as well as navigated to. A bookmark
     /// click means "take me there" first and always; making it ALSO mean "and
     /// this is the parent for the next one" is free, because both are true of
@@ -683,12 +690,25 @@ fn rows(
         // The page a click would reach, if any. Only a resolved page
         // destination is navigable — a named destination pdfce could not
         // look up, or a remote file, is shown and not offered.
+        // ★★★ **The view comes with the page** — 2026-09-01.
+        //
+        // This read `Some(Destination::Page { page_index, .. })`, and that `..`
+        // is where the operator's zoom went: *"it just jumps us to the correct
+        // page, but doesn't send us to the spot on the page the bookmark
+        // actually points to."*
+        //
+        // On a drawing package every bookmark names a DETAIL — `/XYZ` or
+        // `/FitR` on a shared sheet — so discarding the view reduced the whole
+        // outline to a page list, and several bookmarks pointing at different
+        // details all arrived in the same place.
         let target = match &it.destination {
-            Some(Destination::Page { page_index, .. }) => Some(*page_index),
+            Some(Destination::Page {
+                page_index, view, ..
+            }) => Some((*page_index, view.clone())),
             _ => None,
         };
-        let (enabled, tip) = match (&it.destination, target) {
-            (_, Some(p)) => (true, t::bookmark_row_tooltip(p + 1)),
+        let (enabled, tip) = match (&it.destination, &target) {
+            (_, Some((p, _))) => (true, t::bookmark_row_tooltip(p + 1)),
             (None, _) => (false, t::bookmark_row_heading_tooltip().to_owned()),
             (Some(_), None) => (false, t::bookmark_row_unresolved_tooltip().to_owned()),
         };
@@ -773,7 +793,7 @@ fn rows(
                 it.id.num,
                 it.level,
                 it.title,
-                target.map(|p| p + 1),
+                target.as_ref().map(|(p, _)| p + 1),
                 u8::from(it.open),
                 it.children.len(),
                 resp.rect,
@@ -787,7 +807,7 @@ fn rows(
             // aspirational until the row stopped being a disabled widget; see
             // this function's header.
             harvest.picked = Some(it.id);
-            if let Some(p) = target {
+            if let Some(p) = target.clone() {
                 harvest.go = Some(p);
             }
         }

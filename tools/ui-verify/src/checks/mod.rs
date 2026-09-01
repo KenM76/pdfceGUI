@@ -575,6 +575,7 @@ pub mod bookmark_add;
 /// shipped in `Pass 156.0` and this drives both through the one block that
 /// carries them. Its header carries why the delete oracle asserts the count
 /// EXACTLY rather than "fewer than before".
+pub mod bookmark_dest;
 pub mod bookmark_edit;
 /// ★★★ **The Bookmarks panel could not REORGANISE** — `Pass 161.0` shipped
 /// `move_outline_item` and `set_outline_open`, and this drives both through the
@@ -924,6 +925,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // guarantee `pdfce-core` holds up on its side with a test.
         Box::new(attachment_clip::AnAttachmentMovesBetweenTwoOpenDocuments),
         Box::new(marquee_table::AMarqueeOverATableTakesItsTextAsWellAsItsLines),
+        Box::new(bookmark_dest::ABookmarkLandsOnTheDetailItNames),
         Box::new(ocr_text_select::TextOnAScanCanStillBeSweptOverTheImage),
         Box::new(save_after_edit::CtrlSAfterAnEditSavesAndTheProgramIsStillRunning),
         Box::new(button_action::APlacedButtonCanBeGivenSomethingToDo),

@@ -738,3 +738,62 @@ pub fn zoom_anchor_offset(
 /// See `canvas/geometry/tests.rs` — moved out under R2 on 2026-08-31.
 #[cfg(test)]
 mod tests;
+
+/// **A PDF-space rectangle as a canvas-space one**, for a `/FitR` destination.
+///
+/// ★ Both corners go through [`crate::viewer::pdf_space_to_canvas`], the one
+/// bridge between the two spaces, rather than through a local flip. PDF is
+/// y-up and canvas is y-down, so a hand-rolled conversion mirrors the
+/// rectangle about the page centre when it is wrong — and a mirrored
+/// destination lands plausibly on the wrong half of the sheet, which reads as
+/// "the bookmark is broken" rather than as an arithmetic error.
+///
+/// `None` on a page whose device geometry will not invert, which is the same
+/// condition every other coordinate hop here declines on.
+#[must_use]
+pub fn pdf_rect_to_canvas(
+    rect: (f64, f64, f64, f64),
+    page: &pdfce_core::page_tree::Page,
+) -> Option<egui::Rect> {
+    let (left, bottom, right, top) = rect;
+    let a = crate::viewer::pdf_space_to_canvas(egui::pos2(left as f32, bottom as f32), page)?;
+    let b = crate::viewer::pdf_space_to_canvas(egui::pos2(right as f32, top as f32), page)?;
+    // `from_two_pos` rather than `from_min_max`: the y flip means the corner
+    // that was the bottom is now the larger y, and a rect built from a min that
+    // is not minimal is empty rather than wrong-looking.
+    Some(egui::Rect::from_two_pos(a, b))
+}
+
+/// **How much paper to show around a point destination**, in PDF points.
+///
+/// ★★ A `/XYZ` destination names a single coordinate, and framing a point has
+/// no answer — a zoom onto zero area is either everything or nothing. Acrobat
+/// puts the point at the top-left and keeps the current magnification when the
+/// destination's zoom is null; this shell frames a region around it instead,
+/// because its one framing solver takes a rectangle and adding a second
+/// "scroll to a point" solver would be two answers to one question.
+///
+/// 150 pt is about 5 cm of paper each way — enough that a detail on a drawing
+/// arrives with its surroundings rather than magnified onto a coordinate, and
+/// small enough that it is recognisably a destination rather than a page fit.
+pub const DESTINATION_CONTEXT_PT: f64 = 150.0;
+
+/// **A PDF-space point as the canvas-space region to frame around it.**
+///
+/// A missing axis falls back to the page's own extent on that axis, which is
+/// §12.3.2.2's *"leave this one as it is"* expressed as a framing: the axis
+/// that was not specified ends up showing the whole page rather than an
+/// invented position.
+#[must_use]
+pub fn pdf_point_to_canvas_region(
+    left: Option<f64>,
+    top: Option<f64>,
+    page: &pdfce_core::page_tree::Page,
+) -> Option<egui::Rect> {
+    let (w, h) = crate::viewer::page_extent_pts(page);
+    let l = left.unwrap_or(0.0);
+    let t = top.unwrap_or(f64::from(h));
+    let r = (l + DESTINATION_CONTEXT_PT).min(f64::from(w));
+    let b = (t - DESTINATION_CONTEXT_PT).max(0.0);
+    pdf_rect_to_canvas((l, b, r, t), page)
+}

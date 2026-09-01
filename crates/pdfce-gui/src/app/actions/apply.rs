@@ -357,28 +357,21 @@ impl PdfceApp {
             Action::ZoomBy(factor) => doc.view.zoom_by(factor, max_zoom),
             Action::ZoomIn => doc.view.zoom_in(max_zoom),
             Action::ZoomOut => doc.view.zoom_out(max_zoom),
-            // ★ A fit sets the scale AND asks for the view to be placed --
-            // `OPERATOR_REQUESTS.md` O28. The placement cannot happen here:
-            // the re-fitted zoom is computed by `ViewState::apply_fit` from a
-            // viewport this code cannot see, so the page's new drawn size is
-            // not known until the canvas next runs. So the request is
-            // recorded and the canvas spends it, exactly as a discrete zoom
-            // records an anchor and the canvas solves it a frame later.
+            // ★★ **The seven view verbs**, in one arm and one function.
             //
-            // `pinned_axes` returns `None` for `FitMode::None`, which changes
-            // no zoom and therefore has no new extent to place against --
-            // moving the view for it would be a jump for a command that did
-            // nothing.
-            Action::Fit(mode) => {
-                doc.view.set_fit(mode);
-                if mode.pinned_axes().is_some() {
-                    doc.fit_placement = Some(mode);
-                }
+            // Fit, zoom, the three page steps and a bookmark destination
+            // are one subject — *where the operator is looking* — and none
+            // of them touches the document. Split under R2 on 2026-09-01,
+            // and the seam is a real one rather than a line count: every
+            // other arm in this match changes a PDF.
+            Action::Fit(_)
+            | Action::ZoomTo(_)
+            | Action::NextPage
+            | Action::PrevPage
+            | Action::GoToPage(_)
+            | Action::GoToDestination(_) => {
+                super::view::apply(doc, action, page_count, max_zoom);
             }
-            Action::ZoomTo(zoom) => doc.view.set_zoom(zoom, max_zoom),
-            Action::NextPage => doc.view.next_page(page_count),
-            Action::PrevPage => doc.view.prev_page(page_count),
-            Action::GoToPage(index) => doc.view.go_to_page(index, page_count),
             // ★ Every geometry verb, routed. The body is in
             // [`super::vector`], beside the enum, which is the pattern
             // [`super::dimensions`] already sets one arm below — and it is R2's

@@ -1301,6 +1301,13 @@ pub(super) fn interact(
         let _ = zoom::zoom_to_rect(&ctx, doc, rect, CANVAS_MARGIN, *max_zoom_percent, actions);
     }
 
+    // ---- 7c. a bookmark's destination ------------------------------------
+    //
+    // One call, because the whole subject lives in `canvas::destination` —
+    // including why it drains through the same framing the zoom marquee uses
+    // and why it is a one-shot.
+    crate::canvas::destination::arrive(&ctx, doc, *max_zoom_percent, actions);
+
     // ---- 8. draw --------------------------------------------------------
     //
     // ★ Lifted to `canvas::painting` on 2026-08-19 — see that module's header

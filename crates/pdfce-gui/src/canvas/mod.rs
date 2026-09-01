@@ -193,6 +193,9 @@ pub mod constrain;
 /// from the cheap side. Its header carries why it mirrors their rule instead of
 /// calling it, and why the mirror is deliberately permissive.
 pub mod cutgate;
+/// Arriving where a bookmark points, once the viewport is known. Split from
+/// `interact` under R2: landing on a destination is its own subject.
+pub mod destination;
 pub mod dimdrag;
 /// Which of the three move verbs one drag reaches. Split out of `interact`
 /// under R2; its header carries the argument that a fork whose branches can

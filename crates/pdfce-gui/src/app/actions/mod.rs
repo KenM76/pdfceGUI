@@ -16,12 +16,17 @@
 //! does not ask that it be in a `.rs` file.
 #![doc = include_str!("OVERVIEW.md")]
 
+pub mod destination;
 /// The sentences one edit owed, and the epoch rule that keeps them honest.
 /// Split out of this file under R2 when annotation selection needed the room;
 /// its own header carries the seam.
 /// The verbs that change an annotation — delete today, the Format tab's
 /// restyles next. Split out of `apply` under R2; its header carries the seam
 /// and the ce-dimension routing obligation every future verb here inherits.
+/// Turning a bookmark's destination into the moves that arrive at it.
+/// The verbs that move the operator rather than the document.
+mod view;
+
 mod annots;
 /// What applying an [`Action`] does — the interpreter half of this module.
 ///

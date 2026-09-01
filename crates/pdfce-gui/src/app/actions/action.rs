@@ -1452,6 +1452,13 @@ pub enum Action {
         /// The new stroke, or `None` to leave it.
         stroke: Option<[u8; 3]>,
     },
+    /// **Go to a bookmark's destination** — the position half of `/XYZ`,
+    /// `/FitH` and `/FitV`, and the whole of `/FitR`.
+    ///
+    /// ★ ONE variant for both shapes, carrying the type `canvas::destination`
+    /// already defines. Two actions would have been two spellings of one
+    /// concept, and the module that owns the subject owns the vocabulary.
+    GoToDestination(crate::canvas::destination::PendingDestination),
     SelectAllOnPage,
     Undo,
     /// **Re-apply the most recently undone change.**
