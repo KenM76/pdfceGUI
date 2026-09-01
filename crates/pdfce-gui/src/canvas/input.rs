@@ -101,18 +101,20 @@ pub(super) fn probe(
     let node_tolerance = map.node_tolerance();
     let object = nth_allowed(targets, page_index, point, tolerance, filter, depth, scope);
 
-    // ★ The part and node rungs are addressed by a **page** paint-order
-    // index — `part_hits`, `part_bounds` and `nearest_node` all index
-    // `PageObjects::objects`. A target inside a form XObject has no such
-    // index, so `page_object_index` answers `None` and the two deeper rungs
-    // are simply not offered for it. That is the ladder stopping at the
-    // Object rung for a leaf, expressed where the address space runs out
-    // rather than as a rule somewhere else that has to agree with this one.
-    let subject = selection
-        .entered_object()
-        .map(|e| e.object)
-        .or(object)
-        .and_then(TargetId::page_object_index);
+    // ★★★ **BOTH INDEX SPACES, as of 2026-09-01** — `OPERATOR_REQUESTS.md` O70.
+    //
+    // This read `.and_then(TargetId::page_object_index)`, with a comment saying
+    // the deeper rungs *"are simply not offered"* for a target inside a form
+    // XObject — *"the ladder stopping at the Object rung for a leaf, expressed
+    // where the address space runs out"*. That was true and is the clearest
+    // kind of limitation: structural, stated, and impossible to forget.
+    //
+    // The address space stopped running out. `part_hits_of` and
+    // `nearest_node_of` take the `TargetId` itself, and `provider::geometry`
+    // answers both from whichever list it names — so the subject is the target,
+    // not a page index, and the ladder goes as deep inside a container as it
+    // does outside one.
+    let subject = selection.entered_object().map(|e| e.object).or(object);
     // ★ The two deeper rungs are gated by the SAME filter, and switching a
     // rung off is not the same act as switching an object class off — it
     // changes how deep a click may go rather than what it may reach. With
@@ -126,15 +128,17 @@ pub(super) fn probe(
     // state the address space cannot express, so it resolves the only way it
     // can — no part, therefore no node.
     let (part, node) = match subject {
-        Some(index) if filter.allows(PickClass::Part) => {
+        Some(target) if filter.allows(PickClass::Part) => {
             let part = targets
-                .part_hits(page_index, index, point, tolerance)
+                .part_hits_of(page_index, target, point, tolerance)
                 .first()
                 .copied();
             let node = part
                 .filter(|_| filter.allows(PickClass::Node))
                 // ★ The wider radius, here and nowhere else. See its binding above.
-                .and_then(|p| targets.nearest_node(page_index, index, p, point, node_tolerance));
+                .and_then(|p| {
+                    targets.nearest_node_of(page_index, target, p, point, node_tolerance)
+                });
             (part, node)
         }
         _ => (None, None),

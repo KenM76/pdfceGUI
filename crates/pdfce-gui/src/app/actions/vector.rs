@@ -154,6 +154,47 @@ pub enum VectorAction {
         /// Leaf indices, ascending and unique.
         leaves: Vec<usize>,
     },
+    /// ★★ Displace one **subpath of an object inside a form XObject** —
+    /// `EditSession::move_subpath_in_form`. `OPERATOR_REQUESTS.md` O70.
+    MoveSubpathInForm {
+        /// The 0-based page.
+        page: usize,
+        /// The enclosing object, by **leaf** index.
+        leaf: usize,
+        /// The subpath, in decomposition order.
+        subpath: usize,
+        /// Horizontal displacement, PDF user-space points.
+        dx: f64,
+        /// Vertical displacement, PDF user-space points (Y is up).
+        dy: f64,
+    },
+    /// ★★ Move one **anchor of an object inside a form XObject** to an
+    /// absolute page-space point — `EditSession::move_node_in_form`.
+    ///
+    /// Absolute rather than a delta, exactly as [`Self::MoveNode`]: the operand
+    /// being rewritten is a coordinate pair, and expressing the drag as *"where
+    /// the point ends up"* is what makes a refusal leave the document
+    /// untouched rather than half-moved.
+    MoveNodeInForm {
+        /// The 0-based page.
+        page: usize,
+        /// The enclosing object, by **leaf** index.
+        leaf: usize,
+        /// The anchor, object-scoped.
+        node: usize,
+        /// Where it lands, in PDF user space.
+        to: pdfce_core::vector::Point,
+    },
+    /// ★★ Move **several anchors** of an object inside a form XObject, as one
+    /// command — `EditSession::move_nodes_in_form`.
+    MoveNodesInForm {
+        /// The 0-based page.
+        page: usize,
+        /// The enclosing object, by **leaf** index.
+        leaf: usize,
+        /// Each anchor and where it lands, object-scoped indices.
+        moves: Vec<(usize, pdfce_core::vector::Point)>,
+    },
     /// ★★★ Displace every selected object **inside a form XObject** by a
     /// page-space delta — `EditSession::move_objects_in_form`.
     ///
@@ -505,6 +546,42 @@ pub(super) fn apply(doc: &mut crate::app::state::OpenDoc, action: VectorAction) 
                     },
                 );
             }
+        }
+        VectorAction::MoveSubpathInForm {
+            page,
+            leaf,
+            subpath,
+            dx,
+            dy,
+        } => {
+            vector_edit_on_page(doc, "move-subpath-in-form", page, 1, |session| {
+                session
+                    .move_subpath_in_form(page, leaf, subpath, dx, dy)
+                    .map(|outcome| outcome.disclosures)
+            });
+        }
+        VectorAction::MoveNodeInForm {
+            page,
+            leaf,
+            node,
+            to,
+        } => {
+            vector_edit_on_page(doc, "move-node-in-form", page, 1, |session| {
+                session
+                    .move_node_in_form(page, leaf, node, to)
+                    .map(|outcome| outcome.disclosures)
+            });
+        }
+        VectorAction::MoveNodesInForm { page, leaf, moves } => {
+            // ★ The count is the number of ANCHORS, which is what the funnel's
+            // trace reports as the operand size — one object, many points, and
+            // the number a reader comparing a trace against a drag wants.
+            let n = moves.len();
+            vector_edit_on_page(doc, "move-nodes-in-form", page, n, |session| {
+                session
+                    .move_nodes_in_form(page, leaf, &moves)
+                    .map(|outcome| outcome.disclosures)
+            });
         }
         VectorAction::MoveLeavesInForm {
             page,

@@ -812,13 +812,20 @@ fn draw_anchors(
     if entered.page != page_index {
         return declined("other-page");
     }
-    // ★ `None` for a target inside a form XObject. Anchor dots are grab
-    // targets for a node drag, and a leaf's geometry cannot be written, so
-    // drawing them would offer a gesture that must then refuse — the
-    // "placeholder" failure R9 forbids, in its most misleading form.
-    let Some(object) = entered.object.page_object_index() else {
-        return declined("leaf-in-form-xobject");
-    };
+    // ★★★ **A target inside a form XObject draws its anchors too, as of
+    // 2026-09-01** — `OPERATOR_REQUESTS.md` O70.
+    //
+    // This declined with `leaf-in-form-xobject`, and the reason was exactly
+    // right at the time: *"anchor dots are grab targets for a node drag, and a
+    // leaf's geometry cannot be written, so drawing them would offer a gesture
+    // that must then refuse — the placeholder failure R9 forbids, in its most
+    // misleading form."*
+    //
+    // Both halves of that changed together, which is the only order in which
+    // either should have: `pdfce-core` Pass 188.0 shipped the node verbs for a
+    // leaf, and `provider::geometry` answers where its anchors are. The dots
+    // are now grab targets for a gesture that commits.
+    let subject = entered.object;
     let Some(page) = doc.pages.get(page_index) else {
         return declined("no-page");
     };
@@ -850,13 +857,13 @@ fn draw_anchors(
     // Converted to canvas space HERE, by the one function entitled to do it,
     // and the `Ref` is dropped before anything is painted.
     let anchors = match entered.subpath {
-        Some(subpath) => provider.subpath_node_points(object, subpath),
+        Some(subpath) => provider.subpath_node_points_of(subject, subpath),
         // No part entered yet — the Node rung is unreachable from here, and the
         // object's whole anchor list is the honest answer to "what could you
         // descend into". The cap still applies and still fires on a CAD object,
         // which is correct: at the Part rung the operator's subject is the
         // subpath, and five thousand dots would be noise rather than an answer.
-        None => provider.object_node_points(object),
+        None => provider.object_node_points_of(subject),
     };
     // ★★ **The cap is disclosed when it fires, since 2026-08-28.**
     //

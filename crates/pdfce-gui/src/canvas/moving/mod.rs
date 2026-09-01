@@ -220,6 +220,37 @@ pub enum MoveSubject {
         /// refuses the whole batch.
         leaves: Vec<usize>,
     },
+    /// ★★ The Part rung **inside a form XObject**: `move_subpath_in_form`.
+    ///
+    /// Its own variant beside [`Self::Subpath`] for [`Self::LeavesInForm`]'s
+    /// reason: the enclosing object is a leaf index, and the two spaces must
+    /// not share a field.
+    SubpathInForm {
+        /// The page.
+        page: usize,
+        /// The enclosing object, by **leaf** index.
+        leaf: usize,
+        /// The subpath, in decomposition order.
+        subpath: usize,
+    },
+    /// ★★ The Node rung inside a form, one anchor: `move_node_in_form`.
+    NodeInForm {
+        /// The page.
+        page: usize,
+        /// The enclosing object, by **leaf** index.
+        leaf: usize,
+        /// The anchor, object-scoped.
+        node: usize,
+    },
+    /// ★★ The Node rung inside a form, several anchors: `move_nodes_in_form`.
+    NodesInForm {
+        /// The page.
+        page: usize,
+        /// The enclosing object, by **leaf** index.
+        leaf: usize,
+        /// The anchors, object-scoped, ascending and unique.
+        nodes: Vec<usize>,
+    },
     /// The Part rung of a **path** object: `move_subpath`.
     Subpath {
         /// The page.
@@ -499,8 +530,30 @@ pub fn eligible(
             }
         }
         SelectionLevel::Part => {
-            let (object, entry) = entered(selection, page)?;
+            let entry = entered_entry(selection, page)?;
             let subpath = entry.subpath.ok_or(Refusal::NoPartEntered)?;
+            // ★★★ **Inside a form, the same rung reaches a different verb** —
+            // `OPERATOR_REQUESTS.md` O70, 2026-09-01. Asked before the kind
+            // match because the address space decides which family of verbs
+            // exists, and the kind decides which member of it.
+            if let Some(leaf) = entry.object.leaf_index() {
+                return match ctx.part_kind {
+                    Some(PartKind::Subpath) => Ok(MoveSubject::SubpathInForm {
+                        page,
+                        leaf,
+                        subpath,
+                    }),
+                    // A text run inside a form has no move verb either — the
+                    // engine's six are node and object verbs — so it declines
+                    // by the same name it would on the page.
+                    Some(other) => Err(Refusal::NoVerbForPart(other)),
+                    None => Err(Refusal::InsideForm),
+                };
+            }
+            let object = entry
+                .object
+                .page_object_index()
+                .ok_or(Refusal::UnaddressableObject)?;
             match ctx.part_kind {
                 Some(PartKind::Subpath) => Ok(MoveSubject::Subpath {
                     page,
@@ -516,8 +569,24 @@ pub fn eligible(
             }
         }
         SelectionLevel::Node => {
-            let (object, entry) = entered(selection, page)?;
+            let entry = entered_entry(selection, page)?;
             let node = entry.node.ok_or(Refusal::NoNodeEntered)?;
+            // ★★★ …and the Node rung, for the Part rung's reason.
+            if let Some(leaf) = entry.object.leaf_index() {
+                let nodes = selection.selected_nodes_on(page, entry.object);
+                return match ctx.part_kind {
+                    Some(PartKind::Subpath) if nodes.len() > 1 => {
+                        Ok(MoveSubject::NodesInForm { page, leaf, nodes })
+                    }
+                    Some(PartKind::Subpath) => Ok(MoveSubject::NodeInForm { page, leaf, node }),
+                    Some(other) => Err(Refusal::NoVerbForPart(other)),
+                    None => Err(Refusal::InsideForm),
+                };
+            }
+            let object = entry
+                .object
+                .page_object_index()
+                .ok_or(Refusal::UnaddressableObject)?;
             // ★★ **Every selected anchor on the entered object, not just the
             // entered one.** `SelectionState::pick_within` has always added a
             // Shift-clicked anchor as its own entry — the model could hold a
@@ -546,16 +615,22 @@ pub fn eligible(
     }
 }
 
-/// The entered object of a deeper rung, as a `usize` index plus its entry.
+/// The entered entry of a deeper rung, **whichever index space it names**.
 ///
 /// Refuses an entry that belongs to a different page rather than addressing
 /// page A's index space with page B's number — the same class of error the
 /// [`TargetId`](crate::canvas::target::TargetId) newtype exists to prevent,
 /// and one comparison to rule out.
-fn entered(
+///
+/// ★ It stopped resolving the index on 2026-09-01 (O70). It used to answer
+/// `(usize, Selection)` and refuse a leaf with `Refusal::InsideForm` on the
+/// way — which was right while no verb could address one, and is now a
+/// decision the CALLER makes, because the two arms above route to two families
+/// of verb rather than to one.
+fn entered_entry(
     selection: &SelectionState,
     page: usize,
-) -> Result<(usize, crate::canvas::selection::Selection), Refusal> {
+) -> Result<crate::canvas::selection::Selection, Refusal> {
     let entry = selection
         .entered_object()
         .ok_or(Refusal::NothingSelected)
@@ -564,19 +639,7 @@ fn entered(
                 .then_some(e)
                 .ok_or(Refusal::NothingSelected)
         })?;
-    // ★ Two different `None`s, told apart rather than merged. A leaf has no
-    // page paint-order index *by construction*; a `u64` too large for `usize`
-    // is the structurally-unreachable overflow the newtype has always
-    // refused. Reporting the second for the first would send the operator
-    // looking for a bug in a program that is behaving correctly.
-    let object = entry.object.page_object_index().ok_or({
-        if entry.object.is_leaf() {
-            Refusal::InsideForm
-        } else {
-            Refusal::UnaddressableObject
-        }
-    })?;
-    Ok((object, entry))
+    Ok(entry)
 }
 
 /// The ONE action a completed move drag becomes.
@@ -615,6 +678,48 @@ pub fn action(
             dy: delta.dy,
         }
         .into()),
+        MoveSubject::SubpathInForm {
+            page,
+            leaf,
+            subpath,
+        } => Ok(VectorAction::MoveSubpathInForm {
+            page,
+            leaf,
+            subpath,
+            dx: delta.dx,
+            dy: delta.dy,
+        }
+        .into()),
+        MoveSubject::NodeInForm { page, leaf, node } => {
+            // ★ Absolute, exactly as the page-level arm below: the verb takes
+            // where the point IS GOING, not how far it moved, because the
+            // operand it rewrites is a coordinate pair. `node_at` is the
+            // anchor's current page-space position and comes from the same
+            // provider the ghost was drawn from.
+            let from = node_at.ok_or(Refusal::NodeNotFound(node))?;
+            Ok(VectorAction::MoveNodeInForm {
+                page,
+                leaf,
+                node,
+                to: Point::new(from.x + delta.dx, from.y + delta.dy),
+            }
+            .into())
+        }
+        MoveSubject::NodesInForm { page, leaf, nodes } => {
+            // ★ A selected anchor the current decomposition does not have
+            // refuses the WHOLE drag, for the page-level arm's reason: a
+            // partial application reads as a rendering fault rather than as a
+            // refusal, and the operator cannot tell which anchor was dropped.
+            let mut moves = Vec::with_capacity(nodes.len());
+            for node in nodes {
+                let from = points
+                    .iter()
+                    .find_map(|(i, p)| (*i == node).then_some(*p))
+                    .ok_or(Refusal::NodeNotFound(node))?;
+                moves.push((node, Point::new(from.x + delta.dx, from.y + delta.dy)));
+            }
+            Ok(VectorAction::MoveNodesInForm { page, leaf, moves }.into())
+        }
         MoveSubject::LeavesInForm { page, leaves } => Ok(VectorAction::MoveLeavesInForm {
             page,
             leaves,
@@ -691,17 +796,26 @@ fn context(
     provider: Option<&ObjectModelProvider>,
 ) -> Option<MoveContext> {
     let provider = provider?;
-    // `None` for a leaf — a form-interior target has no page paint-order
-    // index, so there is no `part_kind` to ask about.
-    let entered = selection
-        .entered_object()
-        .and_then(|e| e.object.page_object_index());
+    // ★★★ **Asked of the TARGET, not of a page index** — O70, 2026-09-01.
+    //
+    // This read `.and_then(|e| e.object.page_object_index())`, with a comment
+    // saying a form-interior target *"has no `part_kind` to ask about"*. It had
+    // one; nothing could answer. `provider::geometry::part_kind_of` can, and
+    // the consequence of the old line was subtle enough to be worth recording:
+    // `eligible`'s Part arm reached its `None` branch and declined
+    // `InsideForm` **after** the descent had already succeeded, so the operator
+    // could enter the rung, watch the anchors draw, drag, and be refused.
+    //
+    // Found by driving it — `the_ladder_goes_as_deep_inside_a_container_as_
+    // outside_one` reported `canvas-move-declined level=Part reason=InsideForm`
+    // with every other line in the trace looking correct.
+    let entered = selection.entered_object().map(|e| e.object);
     Some(MoveContext {
         non_path: selection
             .object_indices_on(page)
             .into_iter()
             .find(|&i| provider.part_kind(i) != Some(PartKind::Subpath)),
-        part_kind: entered.and_then(|i| provider.part_kind(i)),
+        part_kind: entered.and_then(|target| provider.part_kind_of(target)),
     })
 }
 

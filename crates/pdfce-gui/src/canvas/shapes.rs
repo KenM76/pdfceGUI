@@ -408,7 +408,21 @@ pub fn for_move_subject(
         // `provider::leaf_subpaths` — and it belongs with the Part/Node rungs
         // for leaves, which are the same missing accessor seen from the other
         // side.
-        MoveSubject::LeavesInForm { .. } => None,
+        MoveSubject::LeavesInForm { .. }
+        // ★★ The three deeper in-form rungs join it, and for the same reason:
+        // `with_nodes_moved` and `transformed` both read `PageObjects::objects`
+        // by paint-order index. The GEOMETRY for a leaf now exists
+        // (`provider::geometry`) and threading it through the preview is a
+        // second edit to two helpers that are shared with the page path — done
+        // separately, so a preview change cannot break the page's live shapes
+        // in the same commit as the in-form rungs land.
+        //
+        // ⇒ Until then the drag shows the outline ghost, which is what every
+        // gesture showed before O63. The row says so rather than leaving the
+        // operator to notice.
+        | MoveSubject::SubpathInForm { .. }
+        | MoveSubject::NodeInForm { .. }
+        | MoveSubject::NodesInForm { .. } => None,
     }
 }
 

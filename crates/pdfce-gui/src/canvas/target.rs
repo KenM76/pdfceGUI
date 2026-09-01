@@ -232,6 +232,62 @@ pub trait CanvasTargetProvider {
         Vec::new()
     }
 
+    // ===================================================================
+    // ★★★ THE SAME THREE QUESTIONS, FOR EITHER INDEX SPACE
+    // ===================================================================
+    //
+    // `OPERATOR_REQUESTS.md` O70, 2026-09-01. The three above take a page
+    // paint-order index, which is the only address the Part and Node rungs
+    // have ever had — so those rungs were structurally unavailable for
+    // anything painted inside a form XObject. `canvas::input::probe` said so
+    // in a comment: *"the ladder stopping at the Object rung for a leaf,
+    // expressed where the address space runs out."*
+    //
+    // These take a `TargetId` and are the ones `probe` now asks. The
+    // page-index forms stay for the callers that legitimately hold one, and
+    // the default implementations here delegate to them so a test double that
+    // has no leaves is unaffected.
+
+    /// [`Self::part_hits`], for either index space.
+    fn part_hits_of(
+        &self,
+        page_index: usize,
+        target: TargetId,
+        point: Pos2,
+        tolerance: f64,
+    ) -> Vec<usize> {
+        match target.page_object_index() {
+            Some(object) => self.part_hits(page_index, object, point, tolerance),
+            // ★ A double that does not model leaves answers "no parts" rather
+            // than pretending — the same shape `object_class` uses for "I
+            // cannot say", and the honest answer for a provider with one list.
+            None => Vec::new(),
+        }
+    }
+
+    /// [`Self::part_bounds`], for either index space.
+    fn part_bounds_of(&self, page_index: usize, target: TargetId, part: usize) -> Option<Rect> {
+        self.part_bounds(page_index, target.page_object_index()?, part)
+    }
+
+    /// [`Self::nearest_node`], for either index space.
+    fn nearest_node_of(
+        &self,
+        page_index: usize,
+        target: TargetId,
+        part: usize,
+        point: Pos2,
+        tolerance: f64,
+    ) -> Option<usize> {
+        self.nearest_node(
+            page_index,
+            target.page_object_index()?,
+            part,
+            point,
+            tolerance,
+        )
+    }
+
     fn part_hits(
         &self,
         page_index: usize,
@@ -327,6 +383,52 @@ impl CanvasTargetProvider for ObjectModelProvider {
     /// correct and reads as a recursion.
     fn containing_form(&self, page_index: usize, target: TargetId) -> Option<TargetId> {
         Self::containing_form(self, page_index, target)
+    }
+
+    // ★ The three `_of` overrides, which is where a leaf's Part and Node rungs
+    // actually come from — the trait's defaults answer only for a page object.
+    // `provider::geometry` holds the implementations and its header carries why
+    // none of it needed an engine request.
+    fn part_hits_of(
+        &self,
+        page_index: usize,
+        target: TargetId,
+        point: Pos2,
+        tolerance: f64,
+    ) -> Vec<usize> {
+        if page_index != self.page_index() {
+            return Vec::new();
+        }
+        match self.part_kind_of(target) {
+            Some(crate::panels::objects::provider::PartKind::Subpath) => {
+                self.subpath_hits_of(target, point, tolerance)
+            }
+            // ★ A text run inside a form has no leaf-indexed hit test yet, so
+            // it answers "no parts" rather than the page-object list — which
+            // would be another object's runs entirely. Named here rather than
+            // left as a fall-through: it is the next thing to build, not an
+            // oversight.
+            _ => Vec::new(),
+        }
+    }
+
+    fn part_bounds_of(&self, page_index: usize, target: TargetId, part: usize) -> Option<Rect> {
+        (page_index == self.page_index())
+            .then(|| self.subpath_bounds_canvas_of(target, part))
+            .flatten()
+    }
+
+    fn nearest_node_of(
+        &self,
+        page_index: usize,
+        target: TargetId,
+        part: usize,
+        point: Pos2,
+        tolerance: f64,
+    ) -> Option<usize> {
+        (page_index == self.page_index())
+            .then(|| Self::nearest_node_of(self, target, part, point, tolerance))
+            .flatten()
     }
 
     /// The real classifier, guarded on the page for the same reason every

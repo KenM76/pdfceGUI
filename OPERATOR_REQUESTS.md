@@ -810,16 +810,33 @@ Four separate defects in one paragraph, all of which are in scope:
 > inside a wrapped drawing and not move it, which is worse than not reaching
 > it: the selection outline is a promise the gesture then breaks.
 >
-> ### ⬜ Still owed on this row, and named rather than implied
+> ### ✅ …and the chain now runs all the way down — 2026-09-01
 >
-> 1. **Going deeper than one level.** Inside a container, a further
->    double-click does not yet reach a piece's individual points. The engine
->    has the verbs; the shell needs one accessor that can ask a leaf for its
->    subpaths. Today that double-click deliberately does **nothing** rather
->    than half-descending into a state with no visible box.
-> 2. **The live shape preview while dragging inside a container.** The
->    selection box follows your pointer; the geometry does not, yet. Same
->    missing accessor as (1) seen from the other side.
+> Double-click again inside a container and you reach the piece's parts, with
+> its points drawn, and dragging one commits. The ladder goes exactly as deep
+> inside a wrapped drawing as outside one, which is what *"until a double click
+> reaches the bottom"* asked for.
+>
+> ★★ Four things had to become true in the same commit, and any one alone would
+> have made it worse: the hit test had to ask about the piece rather than a
+> page position, the descent guard had to go, the points had to be drawn, and
+> the drag had to reach a verb. Descending without the other three would have
+> made the selection box **vanish** and offer nothing in its place.
+>
+> ★ And driving it caught the fifth thing. Everything above was right and the
+> drag still refused — one line was still asking *"what kind of parts does this
+> page object have?"* about something that is not a page object, so the answer
+> was "none" and the refusal arrived after the operator had already entered the
+> rung and seen the points.
+>
+> ### ⬜ Still owed on this row
+>
+> 1. **The live shape preview while dragging inside a container.** The
+>    selection box follows your pointer; the geometry does not, yet. It shows
+>    the outline ghost — what every drag showed before that preview existed.
+> 2. **Bézier handles inside a container.** The curve handles are drawn for a
+>    page object and not yet for a piece inside one. Nothing is offered and
+>    nothing refuses, which is the honest half-state.
 > 3. **Double-clicking a text box to edit the text.** Today it descends to the
 >    text run rather than opening the caret.
 >
