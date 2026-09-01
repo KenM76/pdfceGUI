@@ -80,6 +80,57 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## Q3 — ⬜ TWO THINGS THE ENGINE SHIPPED TODAY THAT ONLY YOU CAN SCOPE
+
+**Not a request of yours — a question to you**, filed here rather than asked in
+conversation because that is what this file is for. `pdfce` released **0.18.0**
+on 2026-09-01 and two of its headline capabilities have **no GUI surface and no
+plan for one**, because whether they should is a product decision rather than an
+engineering one.
+
+Both work today from the command line. Neither costs anything to leave alone.
+
+### Q3a — *"You can now see inside a PDF"*
+
+`dump-object`, `dump-structure` and `list-objects` show the object graph, where
+each object physically lives, what references it, and the file's own layout.
+Objects hidden inside compressed streams — invisible to any text search — are
+reachable for the first time. **Acrobat has no machine-readable equivalent at
+all.**
+
+> **The question:** is that a *pdfce* feature or a *diagnostic tool* feature?
+>
+> My instinct is the second, and the engine agrees — its own note says no GUI
+> surface is planned. It has already been useful **to me**: the last four defect
+> reports I filed against the engine each needed a reproduction I built by hand,
+> and two would have been sharper with this.
+>
+> ⇒ **Say the word and it becomes a panel**; otherwise it stays a thing I use to
+> diagnose your files when something looks wrong, and you never see it.
+
+### Q3b — *"You can edit a PDF's internals in a text editor and compile it back"*
+
+`export-structure` writes a readable PDF with the compression removed; you edit
+it in Notepad and `import-structure` appends **only what you changed**, leaving
+the original bytes untouched — so a signature over an untouched part survives.
+**qpdf's own issue tracker lists that capability as unimplemented.**
+
+> **The question:** what would *"edit the internals"* mean as a button?
+>
+> This is genuinely powerful and genuinely sharp. The signature-preservation
+> property is the interesting half. But a menu item called *Edit internals* that
+> opens 40 MB of PDF syntax in Notepad is not a feature, it is a trap — and I do
+> not know what the safe shape is without knowing what you would use it for.
+>
+> ⇒ **If you have a case in mind, tell me the case** and I will design to it. If
+> not, it stays on the command line, where the people who want it can find it.
+
+★ **Neither is blocked and neither is waiting on the engine.** Both are waiting
+on you, and both are fine left alone indefinitely.
+
+---
+
+
 ## ★★★ THE DRIVEN SWEEP, 2026-08-31 — 67 / 0 / 52 on your machine
 
 **Everything below that says BUILT has now been driven**, on `SW41177.pdf` at
