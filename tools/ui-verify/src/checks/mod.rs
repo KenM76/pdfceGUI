@@ -557,6 +557,7 @@ pub mod about;
 pub mod add_text;
 /// Insert a form's pages to make orphaned widgets, then register one back.
 pub mod adopt_widget;
+pub mod attachment_clip;
 /// ★★★ **The attachments round trip** — attach a file, read it back out, and
 /// compare the BYTES. Its header carries why a trace line is not enough here:
 /// an embedded file changes no pixel, so a truncated stream has no visible
@@ -918,6 +919,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // that matters: the promised resolution and the reported one are the
         // same number, which is the shell's half of a single-derivation
         // guarantee `pdfce-core` holds up on its side with a test.
+        Box::new(attachment_clip::AnAttachmentMovesBetweenTwoOpenDocuments),
         Box::new(button_action::APlacedButtonCanBeGivenSomethingToDo),
         Box::new(insert_image::InsertImagePlacesAPicture),
         // `OPERATOR_REQUESTS.md` O66, 2026-08-31. Immediately after its

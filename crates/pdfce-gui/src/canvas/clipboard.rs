@@ -305,6 +305,25 @@ pub enum Clipped {
     /// respectively, so boxing keeps the variants the same order of size and
     /// stops `clippy::large_enum_variant` from being right.
     FormField(Box<crate::canvas::fieldclip::ClippedField>),
+    /// **An embedded file** — its name, its decoded bytes and its description.
+    ///
+    /// `OPERATOR_REQUESTS.md` O59's family, and the one the verb-coverage gate
+    /// found on 2026-09-01: `copy_attachment` / `cut_attachment` /
+    /// `paste_attachment` shipped in `Pass 173.0` and this shell named none of
+    /// them, so an attachment could not be moved between two open documents —
+    /// odd, now that pdfce is multi-document.
+    ///
+    /// ★★ **Carries the DECODED bytes**, which is the engine's choice and worth
+    /// restating: `AttachmentClip` holds what `extract-attachment` would give
+    /// you and what `attach_file` expects on the way back in. Carrying the raw
+    /// stream instead would carry its filter chain with it, and a paste would
+    /// have to re-derive whether that chain still applied in the destination.
+    ///
+    /// ★ It carries **no page**, unlike every other variant here. A
+    /// document-level embedded file does not live on a sheet, so there is no
+    /// same-page/different-page question and no paste offset — which is why the
+    /// paste is in the Attachments panel rather than on the canvas.
+    Attachment(Box<pdfce_core::attachments::AttachmentClip>),
     /// ★★★ **Whole pages** — `OPERATOR_REQUESTS.md` O59, 2026-08-29.
     ///
     /// # ★★ The bytes ARE a PDF, and that is not an implementation detail
@@ -645,7 +664,8 @@ fn copy_content(ctx: &egui::Context, doc: &OpenDoc) -> Result<Clipped, Refusal> 
             Clipped::Markup { .. }
             | Clipped::FormField(_)
             | Clipped::Pages { .. }
-            | Clipped::Outline { .. } => 0,
+            | Clipped::Outline { .. }
+            | Clipped::Attachment(_) => 0,
         };
         format!(
             "clipboard-copy kind=content page={page} objects={} bytes={bytes}",
@@ -821,6 +841,19 @@ pub fn cut(
                 "a form field cut must route to canvas::fieldclip::cut; app::dispatch::clipboard owns that fork"
             );
         }
+        // ★ An attachment cut is `panels::attachments::clip`, which raises
+        // `AttachmentAction::Detach` -- an embedded file is addressed by its
+        // `/EmbeddedFiles` name-tree KEY, which is neither a page nor an
+        // `ObjId` on one, so this arm's vocabulary cannot express it. Fourth
+        // tripwire, same shape as the three above, and they have collectively
+        // fired twice during development.
+        (Clipped::Attachment(_), _) => {
+            debug_assert!(
+                false,
+                // ui-text-exempt: a debug_assert message for a developer; never rendered.
+                "an attachment cut must route to panels::attachments::clip; the canvas clipboard has no name-tree vocabulary"
+            );
+        }
     }
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
@@ -832,6 +865,7 @@ pub fn cut(
                 Clipped::FormField(_) => "form-field",
                 Clipped::Pages { .. } => "pages",
                 Clipped::Outline { .. } => "outline",
+                Clipped::Attachment(_) => "attachment",
             }
         )
     });
@@ -897,6 +931,14 @@ pub fn paste(
                 false,
                 // ui-text-exempt: a debug_assert message for a developer; never rendered.
                 "a form field paste must route to canvas::fieldclip::paste; app::dispatch::clipboard owns that fork"
+            );
+            return Err(Refusal::NothingCopied);
+        }
+        Some(Clipped::Attachment(_)) => {
+            debug_assert!(
+                false,
+                // ui-text-exempt: a debug_assert message for a developer; never rendered.
+                "an attachment paste must route to panels::attachments::clip; an embedded file does not live on a page and this function pastes onto one"
             );
             return Err(Refusal::NothingCopied);
         }

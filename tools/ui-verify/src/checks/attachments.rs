@@ -96,7 +96,24 @@ use crate::report::CheckReport;
 /// ★ The convention this now follows is `properties_metadata`'s, cited by
 /// `bookmark_add` and `dimension_groups` before it: **ask whether the surface is
 /// already drawing, and only press the toggle if it is not.**
-const INVOKE: &str = "mode.edit";
+/// ★★★ **AND the panel, through the seam — corrected 2026-09-01.**
+///
+/// This was `"mode.edit"` alone, on the reasoning recorded above: ask whether
+/// the panel is already drawing, and press the ribbon toggle only if it is not.
+/// The asking is right and it is kept. What was wrong is the fallback: the
+/// ribbon shows **one tab at a time**, so `ribbon.item.edit.attachments` is not
+/// declared unless the Edit tab happens to be the one showing — and when it is
+/// not, the toggle cannot be pressed and this check SKIPPED.
+///
+/// It had been skipping. A driven check that skips has stopped working and
+/// nothing will tell you; that is a rule this project already had, filed to
+/// `D:/dev/rag/egui/a_driven_check_that_skips_has_stopped_working_and_nothing_will_tell_you.md`,
+/// and it went on being true here for however long the saved Edit layout has
+/// not had this panel showing.
+///
+/// ⇒ The seam reaches the command wherever it lives. The ask-then-toggle logic
+/// below is untouched and is now the SECOND route rather than the only one.
+const INVOKE: &str = "mode.edit,edit.attachments";
 /// The ribbon control that toggles the panel, for the case where Edit's saved
 /// arrangement does not have it showing.
 const PANEL_ITEM: &str = "ribbon.item.edit.attachments";

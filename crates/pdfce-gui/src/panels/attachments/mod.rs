@@ -103,6 +103,10 @@
 //! handful of entries on any real document — and `MAX_ATTACHMENTS` bounds even
 //! a hostile one.
 
+/// Copy, cut and paste an embedded file. Its own module because the paste
+/// carries a disclosure obligation the rest of this panel does not.
+pub(crate) mod clip;
+
 use egui::Ui;
 use pdfce_core::attachments::{Attachment, AttachmentKind, NameSource};
 
@@ -219,6 +223,25 @@ pub fn body(ui: &mut Ui, doc: &OpenDoc, state: &mut PanelsState, actions: &mut V
 
     ui.separator();
     attach::show(ui, state.attachments_mut(), actions);
+
+    // ★★★ The Paste control, ABOVE the list and BELOW the attach row.
+    //
+    // Above the list because the list can be long and a control at the bottom
+    // of a scrolled one is a control the operator hunts for. Below the attach
+    // row because the two are the same act from different sources -- one takes
+    // a file from disk, the other from another open document -- and putting
+    // them together says so without a word of copy.
+    //
+    // ★ Drawn only when the clipboard holds an attachment, which is R9: an
+    // unavailable capability renders NOTHING. It is not greyed, because greying
+    // is reserved for the temporarily unavailable and an operator with an empty
+    // clipboard is not waiting for anything.
+    //
+    // It takes the names ALREADY LISTED, because the paste has to say whether
+    // it will replace one -- `attach_file` retains-then-pushes, so a same-named
+    // attachment is displaced silently. See `clip`'s header.
+    let existing: Vec<String> = listed.iter().map(|a| a.name.clone()).collect();
+    clip::paste_control(ui, &existing, actions);
     ui.separator();
 
     if listed.is_empty() {
@@ -229,8 +252,37 @@ pub fn body(ui: &mut Ui, doc: &OpenDoc, state: &mut PanelsState, actions: &mut V
     egui::ScrollArea::vertical()
         .id_salt("attachment-rows")
         .show(ui, |ui| {
-            rows(ui, &listed, actions);
+            rows(ui, doc, &listed, actions);
         });
+}
+
+/// **Which of this panel's row controls have already published a rectangle.**
+///
+/// # ★★ Why a struct rather than four `&mut bool`s
+///
+/// It began as two, grew to four when the clipboard arrived, and tripped
+/// clippy's seven-argument limit — which was the right complaint about the
+/// wrong symptom. The four flags are **one fact**: *"the first visible row has
+/// been drawn"*, asked separately per control because a control that is absent
+/// on the first row (Remove, on a page-level attachment) must not consume the
+/// flag for the row that does have one.
+///
+/// ★ A region name is a key in a **flat** namespace. Publishing
+/// `attachments.save` from every row would emit one rectangle per row under one
+/// key, and a driven check would click whichever was written last — not the row
+/// it meant, and not stable between runs. These rows also live in a
+/// `ScrollArea`, where a control scrolled out of view still reports a rect, so
+/// the publish goes through [`crate::diag::ui_rect_visible`] as well.
+#[derive(Debug, Default)]
+struct Published {
+    /// `attachments.save`.
+    save: bool,
+    /// `attachments.remove`.
+    remove: bool,
+    /// `attachments.copy`.
+    copy: bool,
+    /// `attachments.cut`.
+    cut: bool,
 }
 
 /// Draw one row per attachment.
@@ -246,17 +298,10 @@ pub fn body(ui: &mut Ui, doc: &OpenDoc, state: &mut PanelsState, actions: &mut V
 /// harness clicking a coordinate that is behind the scroll edge clicks whatever
 /// IS there, which fails as something else entirely."* Hence
 /// [`crate::diag::ui_rect_visible`] rather than `ui_rect`.
-fn rows(ui: &mut Ui, listed: &[Attachment], actions: &mut Vec<Action>) {
-    let mut save_published = false;
-    let mut remove_published = false;
+fn rows(ui: &mut Ui, doc: &OpenDoc, listed: &[Attachment], actions: &mut Vec<Action>) {
+    let mut published = Published::default();
     for attachment in listed {
-        row(
-            ui,
-            attachment,
-            actions,
-            &mut save_published,
-            &mut remove_published,
-        );
+        row(ui, doc, attachment, actions, &mut published);
         ui.separator();
     }
 }
@@ -265,10 +310,10 @@ fn rows(ui: &mut Ui, listed: &[Attachment], actions: &mut Vec<Action>) {
 /// done with it.
 fn row(
     ui: &mut Ui,
+    doc: &OpenDoc,
     attachment: &Attachment,
     actions: &mut Vec<Action>,
-    save_published: &mut bool,
-    remove_published: &mut bool,
+    published: &mut Published,
 ) {
     // The name, RAW. `Attachment::name` is what the document says, and this
     // panel's job is to report that — see the module header's third required
@@ -276,6 +321,40 @@ fn row(
     // hands this string to the filesystem.
     let name = display_name(attachment);
     ui.label(name.clone());
+
+    // ★★★ **THE VERBS COME SECOND, before the metadata — 2026-09-01, and a
+    // measurement moved them.**
+    //
+    // They were last, after the name, the location, the description, the size,
+    // the dates, the claimed type and two possible caveats about the name. On a
+    // default Edit layout the Attachments panel body is about **182 pt tall**,
+    // and the attach row above the list ends at roughly two thirds of it — so
+    // with **one** attachment listed, not one of its buttons was on screen.
+    //
+    // Measured, not guessed: a driven check reported that `attachments.save`,
+    // `attachments.remove` and both new clipboard controls declared no
+    // rectangle at all, while `attachments.attach` and `attachments.description`
+    // (which are ABOVE the list) declared theirs. `ui_rect_visible` suppresses a
+    // clipped rect, so "no rectangle" is precisely "off the bottom of the
+    // panel".
+    //
+    // ⇒ An operator with a single attached file had to scroll a panel that
+    // looked complete in order to find any verb at all. That is the shape of
+    // defect this project keeps finding — a control that exists, is correct, and
+    // is unreachable — and it is invisible to every test that does not render.
+    //
+    // ★ The order now matches what the controls are FOR. The name says which
+    // file; the buttons say what can be done with it; everything below is
+    // detail an operator reads when they want it. Acrobat's own attachments
+    // pane puts its verbs on a strip above the list for the same reason, and
+    // this is the per-row form of that.
+    //
+    // ★★ The caveats about the name are the one thing that arguably belongs
+    // above the buttons, and they stay below deliberately: they qualify the
+    // NAME, they are drawn in small weak text, and hoisting a conditional block
+    // above the verbs would make the buttons move up and down as the operator
+    // scrolls a list of mixed rows -- which is worse than reading them second.
+    controls(ui, doc, attachment, &name, actions, published);
 
     if let Some(said) = where_it_lives(&attachment.kind) {
         ui.label(egui::RichText::new(said).small().weak());
@@ -312,15 +391,6 @@ fn row(
                 .weak(),
         );
     }
-
-    controls(
-        ui,
-        attachment,
-        &name,
-        actions,
-        save_published,
-        remove_published,
-    );
 }
 
 /// The row's verbs, and the sentences that stand where a verb cannot.
@@ -339,11 +409,11 @@ fn row(
 /// not be — and none of these will ever become available by waiting.
 fn controls(
     ui: &mut Ui,
+    doc: &OpenDoc,
     attachment: &Attachment,
     name: &str,
     actions: &mut Vec<Action>,
-    save_published: &mut bool,
-    remove_published: &mut bool,
+    published: &mut Published,
 ) {
     // ★ `stream_id` is `None` for BOTH the legal external reference and the
     // damaged dangling one, so the two are told apart by the size check, which
@@ -363,9 +433,9 @@ fn controls(
             && let Some(at) = addressable(&attachment.kind)
         {
             let save = ui.button(t::save_button()).on_hover_text(t::save_tooltip());
-            if !*save_published {
+            if !published.save {
                 crate::diag::ui_rect_visible(REGION_SAVE, save.rect, ui.clip_rect());
-                *save_published = true;
+                published.save = true;
             }
             if save.clicked() {
                 actions.push(Action::Attachment(AttachmentAction::SaveCopy {
@@ -375,14 +445,31 @@ fn controls(
             }
         }
 
+        // ★★ Copy and Cut, in the same row as Save and Remove. Offered only
+        // for a DOCUMENT-LEVEL attachment, because `copy_attachment` addresses
+        // one by its `/EmbeddedFiles` name-tree key and a page-level one has
+        // none — `addressable` says the same thing for Save, and this is the
+        // same fact wearing a different verb.
+        //
+        // ★ Cut is gated a second time inside `clip::row_controls`, on the same
+        // predicate Remove uses. Two gates for one rule reads like belt and
+        // braces and is not: the outer one decides whether a KEY exists, the
+        // inner whether a DELETE is possible, and a page-level attachment fails
+        // both for different reasons.
+        if let AttachmentKind::DocumentLevel { tree_key } = &attachment.kind {
+            super::attachments::clip::row_controls(
+                ui, doc, tree_key, name, true, published, actions,
+            );
+        }
+
         match &attachment.kind {
             AttachmentKind::DocumentLevel { tree_key } => {
                 let remove = ui
                     .button(t::remove_button())
                     .on_hover_text(t::remove_tooltip());
-                if !*remove_published {
+                if !published.remove {
                     crate::diag::ui_rect_visible(REGION_REMOVE, remove.rect, ui.clip_rect());
-                    *remove_published = true;
+                    published.remove = true;
                 }
                 if remove.clicked() {
                     actions.push(Action::Attachment(AttachmentAction::Detach {

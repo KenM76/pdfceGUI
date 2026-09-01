@@ -69,10 +69,13 @@
 //! directory, because six panel bodies' worth of copy is more than one file
 //! should hold and the 1,500-line ceiling is not raised for catalogs.
 
+pub mod about;
 /// Every word the About dialog shows, plus the structured attribution catalog
 /// naming the third-party material this binary redistributes. Consumed by
 /// `crate::dialogs::about`.
-pub mod about;
+/// The attachment clipboard's words, including the one question a paste must
+/// ask before the press: the engine REPLACES a same-named attachment.
+pub mod attachclip;
 /// ★★★ **What a push button DOES** — every word the placement dialog's action
 /// chooser says, including the submit disclosure. Its own module because two of
 /// the seven choices write an address into the document that some other program

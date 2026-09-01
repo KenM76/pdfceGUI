@@ -183,6 +183,27 @@ pub enum AttachmentAction {
         /// here, or `None` for no `/Desc` at all.
         description: Option<String>,
     },
+    /// **Attach the clipboard's file to this document.**
+    ///
+    /// # ★★★ `replacing` is carried, and it is not a convenience
+    ///
+    /// `attach_file` does `entries.retain(|(k, _)| k != &name_bytes)` before
+    /// inserting, so a same-named attachment is **replaced** — silently, with
+    /// the old bytes recoverable only from the earlier revision. The panel says
+    /// so before the press; this field is how the sentence *after* the press
+    /// can say it too.
+    ///
+    /// It is computed **before** the write, because afterwards the answer has
+    /// changed: the document now has exactly one file of that name either way,
+    /// so asking then cannot distinguish the two outcomes. That is the same
+    /// reasoning `FormEdit::Recompute` records for carrying its plan.
+    Paste {
+        /// The clip, carried whole. See `panels::attachments::clip` for why it
+        /// travels with the action rather than being re-read at apply time.
+        clip: Box<pdfce_core::attachments::AttachmentClip>,
+        /// Whether a file of this name is already listed in the destination.
+        replacing: bool,
+    },
     /// ★★★ **Remove one document-level attachment** — the index entry, the file
     /// specification and the bytes, as ONE undo entry.
     ///
@@ -293,7 +314,29 @@ pub(super) fn apply(doc: &mut OpenDoc, action: AttachmentAction) {
         AttachmentAction::Attach { description } => attach(doc, description.as_deref()),
         AttachmentAction::Detach { key, name } => detach(doc, &key, &name),
         AttachmentAction::SaveCopy { at, name } => save_copy(doc, &at, &name),
+        AttachmentAction::Paste { clip, replacing } => paste(doc, &clip, replacing),
     }
+}
+
+/// **Attach the clipboard's file**, disclosing a replacement if there was one.
+fn paste(doc: &mut OpenDoc, clip: &pdfce_core::attachments::AttachmentClip, replacing: bool) {
+    let name = clip.name.clone();
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed
+        format!(
+            "paste-attachment-requested name={name:?} bytes={} replacing={replacing}",
+            clip.bytes.len()
+        )
+    });
+    super::apply::vector_edit(doc, "paste-attachment", 0, 1, |session| {
+        session.paste_attachment(clip).map(|_| {
+            vec![if replacing {
+                crate::text::attachclip::pasted_over(&name)
+            } else {
+                crate::text::attachclip::pasted(&name)
+            }]
+        })
+    });
 }
 
 /// **Embed a file**, as one undoable command, disclosing what the page cannot
