@@ -583,7 +583,41 @@ the next dialog that needs it costs three lines.
 
 ---
 
-## O67 — ⬜ Drag and drop a PDF onto the thumbnails panel to import its pages
+## O67 — ✅ BUILT AND DRIVEN 2026-08-31
+
+> **Drop a drawing onto the thumbnails and its pages go in where you pointed.**
+> The caret shows the gap while the file is still in the air, exactly as it
+> does when you drag a page from another open document, and dropping several
+> files at once stacks them in the order you dragged them.
+>
+> **Measured:** a 4-page file dropped on the left half of the second thumbnail
+> of a 36-page drawing → 40 pages, inserted before page 2.
+>
+> ★★★ **The position does not exist in the toolkit and had to be asked of
+> Windows.** `winit` receives the drop point from the operating system and
+> throws it away — twice, once for the hover and once for the drop — and no
+> mouse-move messages arrive during a drag either, so the toolkit's idea of
+> where the pointer is was stale from before the drag started. Without that
+> one syscall, *"drop it on the thumbnails"* and *"drop it anywhere"* are the
+> same event and this could not have been built at all.
+>
+> **What a drop that is not a drawing still does:** exactly what it did
+> before. An image goes to the placement window, an unreadable file opens so
+> the parser can say what is wrong with it, and a drop anywhere else opens in
+> a tab. Every refusal is a fall-through rather than a message, so the failure
+> mode is *"it opened instead of importing"* — visible and undoable — and
+> never a file that vanished.
+>
+> **Not driven, and said plainly:** the caret drawn while a file HOVERS. A
+> harness cannot originate a drag from Explorer — that is a protocol between
+> two processes — so the check holds a simulated drop back, parks the real
+> cursor on a real thumbnail, and lets the application read the real position.
+> The drop path is therefore driven end to end; the hover feedback that
+> precedes it is not.
+>
+> **Verified:** driven — `a_drawing_dropped_on_the_thumbnails_becomes_pages`,
+> and falsified: a build that ignores the pointer reports `gap=36` and the
+> check names it as the position-blind case.
 
 **Asked:** 2026-08-31.
 
@@ -592,8 +626,10 @@ the next dialog that needs it costs three lines.
 
 Page drag *between two open documents* already ships (S5). This is the same
 gesture sourced from the **operating system** — a file dropped from Explorer.
+It reuses that gesture's geometry rather than growing a second copy: one
+nearer-edge rule, one caret, one `InsertPosition`.
 
-**Status:** not investigated.
+**Status:** built, gates green, driven.
 
 ---
 

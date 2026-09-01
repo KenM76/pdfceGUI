@@ -50,7 +50,23 @@
 //! drop on the ribbon or on a dock panel would be missed, and the operator would
 //! learn that the program accepts drops *sometimes*, which is worse than never.
 //!
-//! This runs once per frame, at the top, before anything is drawn.
+//! ## ★★ What changed on 2026-08-31, and what deliberately did not
+//!
+//! `OPERATOR_REQUESTS.md` O67 asked for a drop onto the **thumbnails** to
+//! import pages, which needs the one thing the paragraph above says does not
+//! exist: a position. [`crate::app::filedrag`] supplies it — from the
+//! operating system, because the toolkit discards it — and lets a surface
+//! **claim** a drop that landed on it.
+//!
+//! This module is what happens to a drop that **nobody claimed**, and it is
+//! unchanged in every respect except where the paths come from: it no longer
+//! reads `egui`'s input itself, it is handed the files. That inversion is the
+//! safety property. The fallback is unconditional, so a surface that forgets
+//! to claim costs a feature and never a file — the failure is *"it opened in a
+//! tab instead of inserting"*, which the operator can see and undo.
+//!
+//! It now runs at the END of the frame, after every surface has had its
+//! chance, rather than at the top.
 //!
 //! ## What is deliberately NOT here
 //!
@@ -94,23 +110,6 @@ pub enum Dropped {
 /// `image_import` reads but the picker does not advertise).
 const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "bmp", "tif", "tiff"];
 
-/// The environment variable a harness uses to simulate one drop.
-///
-/// See [`take`] for why this feature needs a seam where a picker-based one
-/// merely benefits from it: a drop cannot be synthesised by moving a mouse.
-const DIAG_DROP_PATH: &str = "PDFCE_DIAG_DROP_PATH"; // ui-text-exempt: an environment variable name, never displayed
-
-thread_local! {
-    /// Whether [`DIAG_DROP_PATH`] has already been honoured.
-    ///
-    /// ★ A `Cell` in thread-local storage rather than a field on `PdfceApp`,
-    /// matching `canvas::markup::ink`'s trail and `app::actions::disclosure`'s
-    /// note channel: this is a property of the *process*, not of the document,
-    /// and threading it through `ui()` would put a diagnostic-only flag into the
-    /// application's own state where a future reader would wonder what it meant.
-    static DROPPED_ONCE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-}
-
 /// Classify one dropped path by its extension.
 ///
 /// # ★ Why the extension and not the bytes
@@ -140,7 +139,8 @@ pub fn classify(path: &Path) -> Dropped {
     }
 }
 
-/// Read this frame's drops and raise what they mean.
+/// **What a drop means when no surface claimed it**: open it, insert it, or
+/// explain the refusal.
 ///
 /// `has_document` decides whether an image can be placed at all; the caller
 /// knows it and this module does not need the whole `OpenDoc` to find out.
@@ -148,46 +148,15 @@ pub fn classify(path: &Path) -> Dropped {
 /// Returns the image to insert, if one was dropped and can be — the caller owns
 /// the picker-and-dialog path and this module deliberately does not reach into
 /// it.
-pub fn take(ctx: &egui::Context, has_document: bool, actions: &mut Vec<Action>) -> Option<PathBuf> {
-    let mut files: Vec<PathBuf> = ctx.input(|i| {
-        i.raw
-            .dropped_files
-            .iter()
-            .filter_map(|f| f.path.clone())
-            .collect()
-    });
-
-    // ★★ **The diagnostic seam, and this feature needed one more than any
-    // other.** A drop originates in Explorer and is delivered by the window
-    // manager; `ui-verify` drives a mouse and a keyboard and **cannot make
-    // one**. So without this, drag-and-drop would be the one feature in this
-    // shell that R1 could not reach — implemented, unit-tested, and never once
-    // exercised in a running window, which is exactly the state R1 exists to
-    // forbid.
-    //
-    // Same shape as `PDFCE_DIAG_OPEN_PATH` and `PDFCE_DIAG_INSERT_PATH` in
-    // `app::files`, and separate from both for the reason that module's header
-    // gives: a shared variable would mean a check that set it to drive Open
-    // silently answered every insert picker too, so a run that meant to test one
-    // would quietly be testing both.
-    //
-    // ★ Consumed ONCE. `DROPPED_ONCE` is the guard, and without it the variable
-    // would re-fire on every frame — opening the same document sixty times a
-    // second, which is not a test of anything and would look like a hang.
-    if files.is_empty()
-        && !DROPPED_ONCE.with(|c| c.replace(true))
-        && let Some(v) = std::env::var_os(DIAG_DROP_PATH)
-    {
-        {
-            let path = PathBuf::from(v);
-            crate::diag::trace(|| {
-                // ui-text-exempt: diagnostic trace, never displayed.
-                format!("dropped source=env path={path:?}")
-            });
-            files.push(path);
-        }
-    }
-
+///
+/// ★ It is handed the files rather than reading them. See the header: the
+/// position-aware half of the feature has to read the input first, and two
+/// readers of one `dropped_files` would each see it and each act.
+pub fn resolve(
+    files: &[PathBuf],
+    has_document: bool,
+    actions: &mut Vec<Action>,
+) -> Option<PathBuf> {
     let first = files.first().cloned()?;
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.

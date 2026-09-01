@@ -85,6 +85,14 @@ pub mod dispatch;
 /// and a drop that is ignored teaches an operator that the program does not
 /// accept drops, which is a conclusion they will not revisit.
 pub mod dropped;
+/// **Where on the window a file was dropped**, which the toolkit discards.
+///
+/// The position half of drag-and-drop: `winit` throws the OLE drop point away
+/// and no mouse-move arrives during a drag, so the point is asked of the
+/// operating system. Lets a surface CLAIM a drop that landed on it — the Pages
+/// panel claims a document dropped onto its thumbnails — with an
+/// unconditional fallback to [`dropped`] for everything else.
+pub mod filedrag;
 pub mod files;
 /// The three Format ▸ Font controls the ribbon cannot draw itself — a face
 /// chooser, a size field and a colour swatch. See its header for why the

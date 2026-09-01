@@ -126,6 +126,11 @@
 //! | the **picks**, after a reorder | **remapped**, through [`select::PageSelection::remap`]: the permutation states where each sheet went, so the arrows stay usable twice in a row |
 //! | the **picks**, after anything else | [`select::PageSelection::retain_below`] on the next frame, which is belt to all of the above |
 
+/// **A drawing dropped on the thumbnails becomes pages in this one** —
+/// `OPERATOR_REQUESTS.md` O67. The panel's half of `app::filedrag`'s claim
+/// protocol; every refusal in it is a fall-through to the ordinary meaning of
+/// a drop rather than a message.
+pub mod import;
 pub mod ops;
 pub mod select;
 pub mod thumbnails;
@@ -371,6 +376,23 @@ pub fn body(
         );
     }
     settle_drag(ui, doc, pages, drop.as_ref(), &here, actions);
+
+    // ★★ **A file dropped on this panel imports its pages** —
+    // `OPERATOR_REQUESTS.md` O67. Immediately after the page drag settles,
+    // because the two are the same gesture with different operands and a
+    // reader comparing them should find them together.
+    //
+    // The gap comes from whatever the grid resolved this frame, which for a
+    // file drag was resolved from `app::filedrag`'s pointer rather than the
+    // toolkit's — see `tile`. `None` means the pointer was on the panel but
+    // over no tile, and `import::claim` reads that as the end of the document.
+    import::claim(
+        ui.ctx(),
+        ui.min_rect(),
+        drop.as_ref().map(|d| d.gap),
+        page_count,
+        actions,
+    );
 
     // The two named regions a pixel check aims at. The panel's own rect comes
     // from the `Ui` rather than from a response, because the body is a column
@@ -994,12 +1016,43 @@ fn tile(
     // While a drag is in flight, every tile the pointer is over offers itself
     // as a landing boundary. The nearer vertical edge wins, which is what makes
     // a caret feel like it snaps to a gap rather than to a tile.
-    if let Some(drag) = crate::pagedrag::current(ui.ctx())
-        && let Some(pointer) = ui.ctx().pointer_latest_pos()
+    // ★★ **TWO drags reach this block, and they resolve the same geometry.**
+    //
+    // A page drag from a thumbnail (possibly in another document), and — added
+    // 2026-08-31 for `OPERATOR_REQUESTS.md` O67 — **a FILE dragged in from
+    // Explorer**. They differ in where the pointer comes from and in whether a
+    // gap can be a no-op; they do not differ in what a gap *is*, so they share
+    // this code rather than growing a second copy of the nearer-edge rule.
+    //
+    // ★ The file drag's pointer comes from `crate::app::filedrag` because the
+    // toolkit does not have one: `winit` discards the OLE drop point and no
+    // mouse-move message arrives during a drag, so `pointer_latest_pos` is
+    // stale from before the drag began. Its header carries the citation.
+    let dragging: Option<(egui::Pos2, Option<crate::pagedrag::PageDrag>)> =
+        match crate::pagedrag::current(ui.ctx()) {
+            Some(drag) => ui.ctx().pointer_latest_pos().map(|p| (p, Some(drag))),
+            // A file drag: still hovering, or landed this frame and not yet
+            // claimed. Both use the same point, which is what stops the caret
+            // an operator watched from being a promise the drop does not keep.
+            None => (crate::app::filedrag::hovering(ui.ctx())
+                || crate::app::filedrag::landed(ui.ctx()).is_some())
+            .then(|| crate::app::filedrag::aim(ui.ctx()))
+            .flatten()
+            .map(|p| (p, None)),
+        };
+
+    if let Some((pointer, drag)) = dragging
         && rect.expand(SELECTION_MAT_PTS).contains(pointer)
     {
         let after = pointer.x > rect.center().x;
         let gap = if after { page_index + 1 } else { page_index };
+        // ★ ONE spelling of the nearer-edge rule above, and one of the
+        // no-op rule here. The file drag has no operands of its own in this
+        // document, so every gap accepts it.
+        let lands = drag.is_none_or(|d| {
+            d.source_slot != here.slot
+                || !ops::drag_is_a_no_op(&d.pages.iter().copied().collect(), gap)
+        });
         let caret_x = if after { rect.right() } else { rect.left() };
         *drop = Some(DropTarget {
             gap,
@@ -1011,27 +1064,27 @@ fn tile(
                 egui::pos2(caret_x, rect.bottom() + SELECTION_MAT_PTS),
             ),
             // ★ Two different questions, because a drop from ELSEWHERE is a
-            // different verb from a drop from here.
+            // different verb from a drop from here — resolved above, where the
+            // pointer is, because the answer depends on which drag this is.
             //
             // Within one document the drag is a reorder, and a reorder onto a
             // boundary inside its own operand run moves nothing —
             // `ops::drag_is_a_no_op` is the one place that rule lives.
             //
-            // From another document it is a copy, and a copy always lands:
-            // every gap is a legal place to put a sheet that is not there yet,
-            // including the boundaries either side of a page that happens to
-            // share an index with one of the operands. Asking the no-op
-            // question of a cross-document drag would dim the caret over
-            // exactly the pages the operator was aiming between.
+            // From another document, or from Explorer, it is a copy, and a
+            // copy always lands: every gap is a legal place to put a sheet that
+            // is not there yet, including the boundaries either side of a page
+            // that happens to share an index with one of the operands. Asking
+            // the no-op question of a cross-document drag would dim the caret
+            // over exactly the pages the operator was aiming between.
             //
             // ★ The set is built from the drag's own captured operands rather
-            // than from `pages.selection`, which is what this line used to
-            // read. They agree today — a drag starts by selecting the tile it
-            // began on — and they would stop agreeing the moment a drag could
-            // cross a document, because activating another tab clears the
-            // selection and the caret would go dim over every gap.
-            lands: drag.source_slot != here.slot
-                || !ops::drag_is_a_no_op(&drag.pages.iter().copied().collect(), gap),
+            // than from `pages.selection`. They agree today — a drag starts by
+            // selecting the tile it began on — and they would stop agreeing the
+            // moment a drag could cross a document, because activating another
+            // tab clears the selection and the caret would go dim over every
+            // gap.
+            lands,
         });
     }
 

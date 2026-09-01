@@ -287,8 +287,33 @@ pub fn cursor_position() -> Result<(i32, i32)> {
 }
 
 /// Move the pointer.
+///
+/// # ★★ Why it tries twice, measured 2026-08-31
+///
+/// `SetCursorPos` failed once, at a coordinate that was demonstrably on screen
+/// and inside the target window, and succeeded at that same coordinate on the
+/// very next run of the same check. The cause is a **transient**: the previous
+/// session’s window had just been killed, and for a few milliseconds after a
+/// process holding a pointer capture dies, the platform declines to move the
+/// cursor at all.
+///
+/// ⇒ The cost of not retrying is a check reporting SKIP — *"unable to
+/// begin"* — for a reason that has nothing to do with the application. This
+/// harness exists to turn "told you nothing" into something, and a suite whose
+/// members randomly do not run is that same failure wearing another colour.
+///
+/// ★ **One retry, not a loop.** A genuinely bad coordinate — off every
+/// monitor, which is an arithmetic error in the calling check — must still
+/// fail, and fail quickly, with the message that names it. A loop would turn a
+/// check’s own mistake into a slow timeout.
 pub fn set_cursor_position(x: i32, y: i32) -> Result<()> {
     // SAFETY: no pointers involved; fails by returning false.
+    if unsafe { SetCursorPos(x, y) } != 0 {
+        return Ok(());
+    }
+    // ★ One retry, 120 ms later. See the doc comment.
+    std::thread::sleep(std::time::Duration::from_millis(120));
+    // SAFETY: as above.
     if unsafe { SetCursorPos(x, y) } == 0 {
         return Err(Error::new(format!(
             "SetCursorPos({x}, {y}) failed — the coordinate may be off every monitor, or \

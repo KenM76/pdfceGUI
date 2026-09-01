@@ -78,7 +78,19 @@
 mod win32;
 
 #[cfg(windows)]
-pub use win32::own_window;
+pub use win32::{cursor_position, own_window};
+
+/// **Where the pointer is, in physical desktop pixels.** `None` off Windows.
+///
+/// See [`win32::cursor_position`] for why this is asked of the operating
+/// system rather than of the toolkit. Answering `None` rather than a position
+/// is what makes a caller on another platform fall back to its
+/// position-blind behaviour instead of acting on a fabricated point.
+#[cfg(not(windows))]
+#[must_use]
+pub fn cursor_position() -> Option<(i32, i32)> {
+    None
+}
 
 /// **Make the window titled `title` owned by `owner`.** No-op off Windows.
 ///

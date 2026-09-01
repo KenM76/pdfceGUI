@@ -452,18 +452,17 @@ impl eframe::App for PdfceApp {
         // pdf"* — was entirely true, and it made a WORKING Insert-image button
         // look broken, because both were tried in the same minute and only one
         // of them told him anything.
-        if let Some(dropped_image) =
-            crate::app::dropped::take(&ctx, page_count.is_some(), &mut actions)
-        {
-            // The image goes straight into the placement window — the same one
-            // `edit.insert_image` opens, through the same import. See
-            // `dispatch::images::insert_path` for why that split exists.
-            crate::app::dispatch::images::insert_path(
-                &mut self.dialogs,
-                &self.status,
-                &dropped_image,
-            );
-        }
+        //
+        // ★★ **Read here, ACTED ON at the end of the frame** — changed
+        // 2026-08-31 for `OPERATOR_REQUESTS.md` O67.
+        //
+        // `crate::app::filedrag` records the drop and the point it landed on,
+        // and any surface drawn later this frame may CLAIM it: the Pages panel
+        // claims a document dropped onto its thumbnails and inserts the pages
+        // at the gap under the pointer. Whatever nobody claims falls through to
+        // `dropped::resolve` below, unchanged — which is why the reading and
+        // the acting are now at opposite ends of the frame.
+        crate::app::filedrag::poll(&ctx);
 
         // Step 1a — the chords the MANIFEST binds.
         //
@@ -932,6 +931,28 @@ impl eframe::App for PdfceApp {
         // has to be readable at the TOP of the frame where the theme is
         // installed. See `crate::dialogs::settings`' header.
         self.settings_window(&ctx);
+
+        // ★★ Step 2b½ — **the drop nobody claimed**, which is every drop that
+        // is not a document landing on the thumbnails.
+        //
+        // Last among the surfaces on purpose: a claim is a statement that some
+        // surface knows what this file means *there*, and it can only be made
+        // once that surface has laid itself out. The fallback is
+        // unconditional, so a surface that forgets to claim costs a feature
+        // and never a file.
+        if let Some(landing) = crate::app::filedrag::unclaimed(&ctx)
+            && let Some(dropped_image) =
+                crate::app::dropped::resolve(&landing.paths, page_count.is_some(), &mut actions)
+        {
+            // The image goes straight into the placement window — the same one
+            // `edit.insert_image` opens, through the same import. See
+            // `dispatch::images::insert_path` for why that split exists.
+            crate::app::dispatch::images::insert_path(
+                &mut self.dialogs,
+                &self.status,
+                &dropped_image,
+            );
+        }
 
         // Step 2c — give every pending zoom an anchor, in ONE place.
         //

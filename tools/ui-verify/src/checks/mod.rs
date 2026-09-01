@@ -137,6 +137,12 @@ pub mod delete_key;
 /// group comes back joinable.
 pub mod dimension_groups;
 pub mod driving;
+/// ★ **A drawing dragged in from Explorer and dropped on the page thumbnails**
+/// — `OPERATOR_REQUESTS.md` O67. The only check in this suite whose subject is
+/// a coordinate the toolkit throws away: `winit` discards the OLE drop point,
+/// so the application asks the operating system, and this drives the real
+/// cursor onto a real tile to prove the answer is used.
+pub mod drop_onto_thumbnails;
 pub mod embed_bundled;
 pub mod embed_fonts;
 pub mod export_dxf;
@@ -890,6 +896,11 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // back afterwards. Its real subject is the JOIN; every part of the
         // placement arm is unit-tested and each part passes alone.
         Box::new(insert_image_place::TheInsertWindowStepsAside),
+        // `OPERATOR_REQUESTS.md` O67, 2026-08-31. Beside the insert checks
+        // because it is the third route to the same verb — the picker, the
+        // dialog, and now a file dropped on the grid — and the one that has to
+        // prove a POSITION was used rather than a default.
+        Box::new(drop_onto_thumbnails::ADrawingDroppedOnTheThumbnails),
         // The Properties panel's document half, wired 2026-08-19 after a
         // recorded blocker — "`pdfce-core` exposes no /Info accessor" — turned
         // out to have cleared without the prose moving. Beside the page checks
