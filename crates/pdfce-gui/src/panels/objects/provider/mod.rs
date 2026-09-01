@@ -105,6 +105,12 @@
 //! No arithmetic, no tolerance rule, no hit ordering and no index
 //! convention changed.
 
+/// **The same questions, asked of either index space** — the `_of` family that
+/// lets the Part and Node rungs be offered for something painted inside a form
+/// XObject (`OPERATOR_REQUESTS.md` O70). Split out 2026-09-01 under R2; its
+/// header carries why that is a seam rather than an arbitrary cut.
+mod geometry;
+
 use egui::{Pos2, Rect};
 use pdfce_core::page_tree::Page;
 use pdfce_core::vector::{

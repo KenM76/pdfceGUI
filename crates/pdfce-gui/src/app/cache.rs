@@ -424,29 +424,59 @@ impl OpenDoc {
     /// form set is kept beside the key because it is an **output** of the
     /// decomposition, and this accessor digests the key alone.
     ///
-    /// ⇒ So [`Self::form_edits`] is added to the key. It is bumped by this
-    /// shell at every call site of the six `*_in_form` verbs, filed to the
-    /// engine as a workaround per decision 058
-    /// (`request_the_generation_cannot_see_a_form_rewrite.md`), and it has a
-    /// deletion tripwire: the test above asserts the limitation, so the day the
-    /// engine closes it the test goes red and names this counter.
+    /// ⇒ **That was true for four hours.** It was filed as a boundary finding
+    /// per decision 058 rather than absorbed, the reproduction test asserted
+    /// the limitation so it would go red when the engine closed it, and the
+    /// engine closed it the same night (`6e2b69e`): the digest now folds in
+    /// the descended-form set. The shell-side counter that carried the gap has
+    /// been **deleted**, which is what the tripwire existed to trigger.
+    ///
+    /// ★ The third time in two days this shape has paid out. A test that
+    /// asserts a limitation is a request that files its own closure.
     ///
     /// ★ **The fallback is the epoch**, not a constant. If the generation
     /// cannot be read — a page index the session does not have, a document
     /// mid-close — this returns the epoch, which rebuilds on every edit exactly
     /// as before. Slow is the safe direction; a constant would freeze the model.
     fn page_objects_revision(&self) -> u64 {
-        self.session
-            .page_content_generation(self.view.page_index)
-            .map_or(self.edit_epoch, |generation| {
-                // ★ Mixed rather than tupled so the key stays two words wide
-                // and `Cell<Option<(usize, u64)>>` is unchanged. XOR with a
-                // multiplied counter: `form_edits` is small and monotonic, so
-                // multiplying by an odd constant before mixing keeps successive
-                // bumps from cancelling against a generation that differs in
-                // the same low bits.
-                generation ^ self.form_edits.wrapping_mul(0x9E37_79B9_7F4A_7C15)
-            })
+        match self.content_generation.get() {
+            // ★★★ The digest, but ONLY while the epoch it was measured at is
+            // still current. See `OpenDoc::content_generation`: a measurement
+            // can be missed (the render worker holds the other `Arc` handle),
+            // and a digest taken before an edit describes a page that has
+            // since changed. The epoch stamp turns that from a silent
+            // wrong-index edit into an extra rebuild.
+            Some((page, epoch, generation))
+                if page == self.view.page_index && epoch == self.edit_epoch =>
+            {
+                generation
+            }
+            _ => self.edit_epoch,
+        }
+    }
+
+    /// **Measure the engine's content digest for the current page**, on a frame
+    /// where this shell holds the session exclusively.
+    ///
+    /// Called once per frame from `app::frame`, before anything draws. Silent
+    /// when the session is shared — a render in flight holds the second handle
+    /// — and that silence is safe by construction: the stamp stored with the
+    /// digest is compared against the live epoch before it is trusted.
+    ///
+    /// ★ It is `&mut self` because the engine's accessor is, and the engine's
+    /// accessor is because *"which forms a page paints is an OUTPUT of the
+    /// decomposition"* — this shell's own sentence, quoted back at it in the
+    /// reply that shipped the fix. There is no way to fold the form set into
+    /// the digest without walking, and walking populates a memo.
+    pub(in crate::app) fn refresh_content_generation(&mut self) {
+        let page = self.view.page_index;
+        let epoch = self.edit_epoch;
+        let Some(session) = std::sync::Arc::get_mut(&mut self.session) else {
+            return;
+        };
+        if let Ok(generation) = session.page_content_generation(page) {
+            self.content_generation.set(Some((page, epoch, generation)));
+        }
     }
 
     /// Decompose the current page if the cache does not already describe it.
@@ -873,15 +903,24 @@ mod tests {
     #[test]
     fn a_documents_decomposition_cannot_outlive_the_document() {
         let mut doc = open_fixture(FOUR_PAGES);
+        // ★★ The frame's own first step, performed here because this test is
+        // about the KEY and the key's second half is measured there.
+        //
+        // `page_objects_revision` reads a digest that `app::frame` takes once
+        // per frame at the one `&mut` point it has — a unit test that skipped
+        // it would exercise the epoch fallback and assert nothing about the
+        // digest, which is what this assertion is for.
+        doc.refresh_content_generation();
         assert_eq!(doc.page_objects().expect("page 0").page_index(), 0);
         // ★ The page, not the whole key: the second half is a content digest
-        // as of 2026-08-31 and is a different number per fixture, which is
-        // exactly what this test is about — that the key does not carry over
-        // to another document.
+        // and is a different number per fixture, which is exactly what this
+        // test is about — that the key does not carry over to another
+        // document.
         let first = doc.page_objects.built_for.get();
         assert_eq!(first.map(|(page, _)| page), Some(0));
 
         doc = open_fixture(PAINTED_LAYERS);
+        doc.refresh_content_generation();
         assert_eq!(
             doc.page_objects().expect("the layer fixture").page_index(),
             0

@@ -515,31 +515,34 @@ pub struct OpenDoc {
     /// line, which is why the bump belongs in the funnel every mutation is
     /// already required to pass through rather than at each verb.
     pub edit_epoch: u64,
-    /// **How many edits this session has made INSIDE a form XObject** — a
-    /// workaround with a filed request behind it and a test that will name its
-    /// deletion.
+    /// **The engine's content digest for one page, measured on a frame when
+    /// this shell held the session exclusively.**
     ///
-    /// # Why it exists
+    /// `(page, edit_epoch_at_the_time, generation)`.
     ///
-    /// `crate::app::cache::OpenDoc::page_objects_revision` keys the page's
-    /// decomposition on `EditSession::page_content_generation`, which is what
-    /// stops a 469 ms rebuild after every annotation edit. Measured
-    /// 2026-08-31 (`crates/pdfce-gui/tests/page_generation_covers.rs`), that
-    /// digest does **not** move when an edit rewrites a form's stream — the
-    /// engine keeps the descended-form set beside its memo key rather than in
-    /// it, and the accessor digests the key alone.
+    /// # ★★★ Why all three, and why the middle one is the safety property
     ///
-    /// So this counter carries the one class the digest cannot see. It is
-    /// bumped at the shell's call sites for the six `*_in_form` verbs, and is
-    /// `0` until those are wired (`OPERATOR_REQUESTS.md` O70's next slice).
+    /// `EditSession::page_content_generation` became `&mut self` on 2026-09-01
+    /// — unavoidably, and for the reason this shell itself gave the engine:
+    /// the number has to walk the page to know which forms it descends into,
+    /// and walking populates a memo. But `crate::app::cache`'s decomposition is
+    /// built from `&self`, behind an `Arc` the render worker also holds, so the
+    /// read cannot happen there.
     ///
-    /// ★ Filed rather than absorbed: `pdfce`'s decision 058 says anything a
-    /// shell has to work around is a finding about the crate boundary, and the
-    /// request is `request_the_generation_cannot_see_a_form_rewrite.md`.
-    /// `an_edit_inside_a_form_does_not_move_the_generation` asserts the
-    /// limitation, so the day it is closed that test goes red and names this
-    /// field.
-    pub form_edits: u64,
+    /// ⇒ So it is measured once per frame at a `&mut` point and read from here.
+    /// `Arc::get_mut` can fail — a render in flight holds a second handle — so
+    /// the measurement can be **missed**, and a missed measurement after an
+    /// edit would leave a stale digest describing a page that has changed.
+    /// `PageObjects` addresses content by index, so serving a model built from
+    /// it would edit whatever that index names in the wrong model.
+    ///
+    /// **The epoch stamp is what makes that unrepresentable.** The digest is
+    /// used only while the epoch it was measured at is still the current one;
+    /// any edit bumps the epoch, so a digest taken before it is ignored and the
+    /// key falls back to the epoch — which rebuilds, exactly as this shell did
+    /// before any of this existed. Slow is the safe direction, and it is the
+    /// only direction reachable when the measurement is missed.
+    pub content_generation: std::cell::Cell<Option<(usize, u64, u64)>>,
     /// ★ **The same question, asked per page** — `OPERATOR_REQUESTS.md` O74.
     ///
     /// [`edit_epoch`](Self::edit_epoch) above says *something changed*; this
@@ -985,7 +988,7 @@ impl OpenDoc {
             // by a reset somebody has to call.
             find_reveal: None,
             edit_epoch: 0,
-            form_edits: 0,
+            content_generation: std::cell::Cell::new(None),
             objects_traced_for: None,
             last_scroll_offset: egui::Vec2::ZERO,
             // Whole page until the canvas says otherwise.

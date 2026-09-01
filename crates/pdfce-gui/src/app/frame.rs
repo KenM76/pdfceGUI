@@ -375,6 +375,23 @@ impl eframe::App for PdfceApp {
         // press and wrong for a mirror that runs sixty times a second.
         crate::canvas::smart::sync(&ctx, self.prefs.smart_select);
 
+        // ★★ Step 0b² bis — **measure the page's content digest**, on the one
+        // frame-level `&mut` this shell has.
+        //
+        // `app::cache::OpenDoc::page_objects_revision` keys the decomposition
+        // on it, which is what stops a 469 ms rebuild after every annotation
+        // edit. The accessor is `&mut self` (2026-09-01, `pdfce-core`
+        // `6e2b69e`), and the cache that reads it is `&self` behind an `Arc`
+        // the render worker shares — so the measurement happens here and the
+        // reader takes the number.
+        //
+        // ★ Silent when a render is in flight and the `Arc` is shared. That is
+        // safe rather than lucky: the digest is stored with the epoch it was
+        // measured at, and is ignored once that epoch is stale.
+        if let Status::Open(doc) = &mut self.status {
+            doc.refresh_content_generation();
+        }
+
         // ★ Step 0b³ — **publish whether this mode edits page content**, for
         // the canvas helpers that have no `Capabilities` to hand (O71).
         //

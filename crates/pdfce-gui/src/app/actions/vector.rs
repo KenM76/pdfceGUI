@@ -489,11 +489,10 @@ pub(super) fn apply(doc: &mut crate::app::state::OpenDoc, action: VectorAction) 
         }
         VectorAction::DeleteLeavesInForm { page, leaves } => {
             if !leaves.is_empty() {
-                // Bumped for `MoveLeavesInForm`'s reason, which its arm states
-                // in full: the engine's content digest does not move for a
-                // form-stream rewrite, so the shell's decomposition cache
-                // needs telling.
-                doc.form_edits = doc.form_edits.wrapping_add(1);
+                // ★ No shell-side invalidation here either — see
+                // `MoveLeavesInForm`'s arm for the counter that stood in both
+                // places for four hours and the engine commit that removed the
+                // need for it.
                 vector_edit_on_page(
                     doc,
                     "delete-leaves-in-form",
@@ -514,24 +513,16 @@ pub(super) fn apply(doc: &mut crate::app::state::OpenDoc, action: VectorAction) 
             dy,
         } => {
             if !leaves.is_empty() {
-                // ★★ **The form-edit counter is bumped with the edit**, and it
-                // has to be here rather than at the gesture: this is the one
-                // place that knows the edit actually reached the engine.
+                // ★★ **A shell-side invalidation counter stood here for four
+                // hours**, on 2026-09-01, because the engine's content digest
+                // did not move for a form-stream rewrite — measured in
+                // `tests/page_generation_covers.rs` and filed rather than
+                // absorbed.
                 //
-                // `crate::app::cache::OpenDoc::page_objects_revision` keys the
-                // decomposition on the engine's content digest, and that digest
-                // does NOT move for a form-stream rewrite — measured in
-                // `tests/page_generation_covers.rs`, filed to the engine as
-                // `request_the_generation_cannot_see_a_form_rewrite.md`. So
-                // without this line the model the next click hit-tests would be
-                // the pre-move one, and `PageObjects` addresses content by
-                // index: the following drag would move whatever that index
-                // names in the stale model.
-                //
-                // ⇒ It is a workaround with a filed request and a test that
-                // names its own deletion. Bump first, so a panic in the verb
-                // cannot leave the counter behind the document.
-                doc.form_edits = doc.form_edits.wrapping_add(1);
+                // `pdfce-core` `6e2b69e` folded the descended-form set into the
+                // digest the same night, so the invalidation is computed on the
+                // inside, where this shell said it belonged. The counter is
+                // gone; nothing replaces it.
                 vector_edit_on_page(doc, "move-leaves-in-form", page, leaves.len(), |session| {
                     session
                         .move_objects_in_form(page, &leaves, dx, dy)

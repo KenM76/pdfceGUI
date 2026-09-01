@@ -103,37 +103,28 @@ fn a_content_edit_moves_the_generation() {
     );
 }
 
-/// ★★★ **AN EDIT INSIDE A FORM DOES NOT MOVE IT — measured 2026-08-31, and
-/// this test is the tripwire on that.**
+/// ★★★ **AN EDIT INSIDE A FORM MOVES IT — and this test was red for four
+/// hours between the two facts.**
 ///
-/// Asked as *"does the generation cover a form-stream rewrite?"* and answered
-/// **no**: `move_node_in_form` succeeded, rewrote one invocation, and the
-/// digest was identical either side —
+/// ## The whole exchange, because the shape is worth keeping
 ///
-/// ```text
-/// before 9733417638757333672
-/// after  9733417638757333672
-/// ```
+/// | when | what |
+/// |---|---|
+/// | 23:30 | measured here: `move_node_in_form` succeeded and the digest was identical, `9733417638757333672` either side |
+/// | 23:36 | filed as `request_the_generation_cannot_see_a_form_rewrite.md`, with this file named as the reproduction |
+/// | 23:36 | the shell took a workaround — its own counter, bumped at the six `*_in_form` call sites — and **this test was written INVERTED**, asserting the limitation so it would go red the day it stopped being true |
+/// | 01:4x | `pdfce-core` `6e2b69e`: the digest folds in the descended-form set. This test went red on the first build after `cargo update`, naming the counter to delete |
 ///
-/// which is consistent with the engine's own account of its memo: the
-/// descended-form set is kept **beside** the key *"because which forms a page
-/// paints is an OUTPUT of the decomposition, not an input to it"*, and
-/// `page_content_generation` digests the key alone.
+/// ★★ That is the third time in two days a test written to assert a
+/// *limitation* has closed its own request. The alternative — a comment saying
+/// "this does not work yet" — is not executed, so it survives the fix and
+/// misleads the next reader instead of catching them.
 ///
-/// ## What this shell does about it
-///
-/// 1. Keys its decomposition cache on the generation **and** a counter of its
-///    own that the in-form verbs bump — a workaround, filed as one, per
-///    decision 058.
-/// 2. Writes this test **inverted**: it asserts the limitation, so the day the
-///    engine closes it the test goes red and says what to delete.
-///    `engine_overlay_skew` is the precedent — three tripwires, all three fired
-///    within a day of the fix, and inverting them took minutes.
-///
-/// ★ What it does NOT do is weaken to *"the generation may or may not move"*.
-/// A test that accepts both answers has stopped being a measurement.
+/// ⇒ The assertion is now the ordinary one: an edit that rewrites a form's
+/// stream must move the page's content digest, because this shell keys its
+/// decomposition on that number and `PageObjects` addresses content by index.
 #[test]
-fn an_edit_inside_a_form_does_not_move_the_generation() {
+fn an_edit_inside_a_form_moves_the_generation() {
     let mut session = EditSession::new(form_fixture());
     let model = session.page_objects(0).expect("page 0 decomposes");
     let leaves = model.leaves.len();
@@ -170,11 +161,14 @@ fn an_edit_inside_a_form_does_not_move_the_generation() {
     let after = session
         .page_content_generation(0)
         .expect("page 0 still has a generation");
-    assert_eq!(
+    assert_ne!(
         before, after,
-        "★★★ THE ENGINE HAS FIXED IT — the generation now moves for an edit inside a form XObject.
-         Do three things: invert this assertion to `assert_ne!`; delete the shell-side counter that exists only because this was true (grep `form_edits`); and close the request in the channel, saying it was measured here.
-         Until then this IS the limitation, stated as a test rather than as a comment, because only one of the two is executed."
+        "★★★ THE LIMITATION IS BACK: an edit inside a form XObject left the page content \
+         digest unchanged. This shell keys its decomposition cache on that number, and \
+         `PageObjects` addresses content by INDEX — so a stale model makes the next drag \
+         edit whatever that index names in the wrong model, which the engine itself calls \
+         silent corruption reported as success. Closed by `pdfce-core` `6e2b69e`; if this \
+         fails, that is what regressed."
     );
 }
 
