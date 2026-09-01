@@ -125,6 +125,10 @@
 pub mod annot_delete_gate;
 pub mod annot_rotate;
 pub mod blend_space;
+/// A check box dragged larger must be REDRAWN, not stretched —
+/// `OPERATOR_REQUESTS.md` O76. Reads `regenerated=` because the two outcomes
+/// are the same pixels.
+pub mod checkbox_resize;
 /// Export to DXF: the file reaches disk, and its contents agree with the
 /// counts the shell reported.
 /// ★★ **Press Export form data and a file appears on disk with the form's
@@ -762,6 +766,11 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // either gesture.
         Box::new(annot_rotate::RotatingAMarkupTurnsIt),
         Box::new(widget_move::DraggingAFormFieldMovesIt),
+        // `OPERATOR_REQUESTS.md` O76, 2026-08-31. Beside the move check
+        // because they are the same gesture family on the same operand and
+        // differ in one field of one trace line — which is exactly the
+        // distinction a reader comparing them needs to see.
+        Box::new(checkbox_resize::AResizedCheckBoxIsRedrawn),
         // ★ Beside the other form checks. It reuses `widget_move`'s first two
         // steps verbatim in shape, so a failure in EITHER of them here should
         // be read against that check's result first.

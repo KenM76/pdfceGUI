@@ -391,12 +391,25 @@ fn geometry_rows(
                 // the standard has an answer for. Building the rect any other
                 // way would either refuse a legal input or author a
                 // denormalised box.
-                edit: WidgetEdit::new().with_rect(Rect::from_corners(
-                    draft.x,
-                    draft.y,
-                    draft.x + draft.w,
-                    draft.y + draft.h,
-                )),
+                // ★★★ **AND THE SAME SCALE ANSWERS THE DRAG CARRIES** —
+                // `OPERATOR_REQUESTS.md` O76, wired 2026-08-31 when
+                // `pdfce-core` Pass 187.0 taught `WidgetEdit` to carry them.
+                //
+                // Read from the SAME store the Tool row writes and the grip
+                // drag reads (`canvas::scaling::read`), not from a second
+                // setting of this panel's own. The operator answered the
+                // question once; a typed resize and a dragged one are two
+                // routes to one act, and a route that quietly used a different
+                // answer would be the *"adding a second route is an audit of
+                // the capability"* finding arriving as a defect instead.
+                edit: WidgetEdit::new()
+                    .with_rect(Rect::from_corners(
+                        draft.x,
+                        draft.y,
+                        draft.x + draft.w,
+                        draft.y + draft.h,
+                    ))
+                    .with_resize(crate::canvas::scaling::read(ui.ctx()).to_options()),
                 // ui-text-exempt: a control name carried for a refusal message.
                 touched: "the box",
             }

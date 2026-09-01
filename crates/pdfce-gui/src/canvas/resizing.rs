@@ -669,7 +669,29 @@ pub fn drag(
             crate::app::actions::forms::FieldAction::EditWidget {
                 field: selected.field,
                 widget: selected.widget,
-                edit: pdfce_core::edit::WidgetEdit::new().with_rect(pdf_rect),
+                // ★★★ **AND THE OPERATOR'S SWITCHES, as of 2026-08-31** —
+                // `OPERATOR_REQUESTS.md` O76, the row that began *"Form shape
+                // outlines of checkboxes and such scale when I drag them
+                // larger."*
+                //
+                // For the life of that row this line read `.with_rect(..)` and
+                // nothing else, and it could not read otherwise: `WidgetEdit`
+                // had no way to carry a scale answer, so the three switches on
+                // the Tool row reached an annotation and stopped at a form
+                // field. That gap was filed rather than worked around, and
+                // `pdfce-core` Pass 187.0 answered it by **reusing the same
+                // type** the annotation path takes rather than mirroring three
+                // fields — so the two destinations of this one gesture now
+                // differ in their verb and not in what the operator said.
+                //
+                // ★ `to_options()` is the same call `annots::resize` makes,
+                // from the same `modifiers` value captured on the same frame.
+                // Deriving them separately is exactly how the two paths would
+                // drift, and `canvas::scaling`'s header records what that cost
+                // the last time it happened.
+                edit: pdfce_core::edit::WidgetEdit::new()
+                    .with_rect(pdf_rect)
+                    .with_resize(modifiers.to_options()),
                 // ui-text-exempt: a control name carried for a refusal message.
                 touched: "the box",
             },

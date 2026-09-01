@@ -432,10 +432,35 @@ are re-reports of rows already believed shipped).
 
 ---
 
-## O64 — ⛔ BLOCKED ON THE ENGINE, reproduced and filed 2026-08-31
+## O64 — ✅ FIXED BY THE ENGINE, same day, and our tests inverted
 
-> **★★★ STATUS 2026-08-31: this is not our defect, and we have proof rather
-> than an opinion.**
+> **You can move a picture the moment you place it.** No save, no reopen.
+>
+> ★★★ **And the half you did not report was the dangerous one.** Chasing your
+> sentence *"I assume this probably affects more than just images"* turned up a
+> second symptom nobody had seen: after deleting a page, an edit made on what
+> you see as page 1 was being committed to **a different sheet**, silently,
+> with no refusal and no message. The engine team reproduced that before fixing
+> it. It is gone too.
+>
+> **What it was:** every content-editing verb in the engine read the document
+> *as it was on disk*, while everything that adds content wrote into the
+> session. So the picture you had just placed did not exist as far as the verb
+> that would move it was concerned — which is exactly why saving and reopening
+> made it work.
+>
+> **How it went:** filed at 12:48 with a reproduction attached, answered at
+> 14:25 the same day (`pdfce-core` Pass 186.0). The three tests that proved the
+> defect are now three tests that guard against it coming back, and two of them
+> assert an outcome rather than an `Ok` — a verb that transformed nothing and
+> reported success would be the same complaint wearing a different face.
+>
+> **Verified:** `cargo test --workspace`, on every commit.
+
+<details><summary>The filing, kept — it is the record of how it was found</summary>
+
+> **★★★ STATUS 2026-08-31 (superseded, see above): this is not our defect, and
+> we have proof rather than an opinion.**
 >
 > `crates/pdfce-gui/tests/engine_overlay_skew.rs` — three tests, all green,
 > run by `cargo test --workspace` on every commit:
@@ -490,6 +515,8 @@ Every insert path must be checked — image, text, annotation, form field,
 ce dimension, stamp, link, redaction mark.
 
 **Status:** not investigated.
+
+</details>
 
 ---
 
@@ -941,7 +968,45 @@ Two defects:
 
 ---
 
-## O76 — ◑ HALF BUILT 2026-08-31 — the honesty half; the fix is an ENGINE row
+## O76 — ✅ FIXED 2026-08-31 — the engine answered and both routes are wired
+
+> **A check box dragged bigger keeps the border weight it had.** The outline
+> stops thickening with the box.
+>
+> **What it actually was — neither of the two things this row first guessed.**
+> pdfce was not writing a fatter border. It was not rewriting the artwork *at
+> all*: the engine redrew a field's appearance for text and dropdown fields
+> only, and a check box is a button, so the picture pdfce had drawn at the old
+> size was kept and simply stretched into the new box. Drag a 12 pt check box
+> to 40 pt and its 1 pt border draws at about 3.3 pt.
+>
+> **Filed at 12:49, answered at 14:26** (`pdfce-core` Pass 187.0), and scoping
+> it found three more defects nobody had reported: text and dropdown fields
+> were being rebuilt at the OLD size, a push-button caption change redrew
+> nothing, and a resize of a field drawn in several places was silently
+> discarded.
+>
+> **Our half, wired today:** your three resize switches now reach a form field
+> at all — by the drag AND by typing numbers in the Properties panel, from the
+> same answer, because a second route that quietly used a different setting is
+> how the two drift.
+>
+> **Measured, driving the real binary:** a check box dragged from 190×146 pt
+> outward reports `regenerated=true` — the appearance was rebuilt at the new
+> size. A screenshot could not have told you that: a scaled 1 pt border and a
+> redrawn 3 pt one are the same pixels.
+>
+> ⬜ **Still open, and it is a feature rather than a bug:** scaling the radii of
+> rounded corners. A form field's border carries no radius and pdfce's check-box
+> artwork has square corners, so there is nothing to scale until a
+> rounded-rectangle primitive exists. That is worth scoping with you rather
+> than improvising under a bug report.
+>
+> **Verified:** driven — `a_resized_check_box_is_redrawn_not_stretched`.
+
+<details><summary>The half-built state this row passed through, kept for its diagnosis</summary>
+
+### ◑ HALF BUILT 2026-08-31 — the honesty half; the fix was an ENGINE row
 
 > **The cause is neither of the two this row guessed.** The outline does not
 > thicken because pdfce wrote a bigger border width. It thickens because
@@ -988,6 +1053,8 @@ the form-field resize path, or its default is the wrong way round, or it is not
 findable. The corner-radius half appears not to exist at all.
 
 **Status:** not investigated.
+
+</details>
 
 ---
 

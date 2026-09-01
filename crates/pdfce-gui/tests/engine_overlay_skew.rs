@@ -1,7 +1,28 @@
-//! # `engine_overlay_skew` — the shell's model of a page and the engine's
-//! disagree the moment content is added, and this test says by how much
+//! # `engine_overlay_skew` — the shell's model of a page and the engine's must
+//! describe the same page, and these tests are what notices when they stop
 //!
-//! ## Why this test exists, and why it lives in the SHELL's test tree
+//! ## ★★★ STATUS, 2026-08-31: FIXED BY THE ENGINE, AND THESE TESTS INVERTED
+//!
+//! This file was written as a **reproduction** — three tests that passed on
+//! the broken engine and were built to fail on the fixed one, each carrying
+//! its own instruction to whoever saw it go red. All three fired within the
+//! day: `pdfce-core` **Pass 186.0** made every content verb resolve its page
+//! against the session overlay instead of the base document, and the second
+//! symptom in the request — the one nobody had reported and which this file
+//! discovered — was reproduced by the engine team before being fixed.
+//!
+//! So each assertion has been turned round to state the CORRECT behaviour,
+//! and the file changes job: it stopped being a claim about somebody else's
+//! crate and became this project's regression net under an engine it does not
+//! control and updates weekly. The history below is kept deliberately — a
+//! reader who finds one of these red needs the whole story, not the verdict.
+//!
+//! ★ Two of the three now assert an **outcome**, not merely a `Ok`/`Err`: a
+//! verb that transformed nothing and reported success, or two models that had
+//! each missed the same object, would satisfy the naive shape of every one of
+//! these tests while the operator's gesture still did nothing.
+//!
+//! ## The history: why this test existed, and why in the SHELL's test tree
 //!
 //! `OPERATOR_REQUESTS.md` row **O64**, in the operator's words:
 //!
@@ -36,15 +57,20 @@
 //! false. So the claim in the request is this file, and this file is run by
 //! `cargo test --workspace` on every commit.
 //!
-//! ## What each test asserts, and what it will do when the engine is fixed
+//! ## The shape they were written in, and why it was right
 //!
-//! Both tests are written to **pass on the broken engine and fail on the
-//! fixed one**, and each says so in its own assertion message. That is
-//! deliberate and it is the only honest shape available: a test that asserted
-//! the *correct* behaviour would be a red test in a green repository for as
-//! long as the request is open, and would be muted within the week. When the
-//! engine lands the fix these two go red, and the message tells the reader to
-//! invert them and close row O64.
+//! Each test was written to **pass on the broken engine and fail on the fixed
+//! one**, saying so in its own assertion message. That was the only honest
+//! shape available: a test asserting the *correct* behaviour would have been a
+//! red test in a green repository for as long as the request stayed open, and
+//! would have been muted within the week.
+//!
+//! ★★ The value of that shape is now measured rather than argued. All three
+//! went red on the day the engine landed the fix, each printed the sentence
+//! telling the reader what to do, and inverting them took minutes rather than
+//! an investigation. **A tripwire that names its own deletion is worth more
+//! than a comment saying the same thing**, because only one of the two is
+//! executed.
 //!
 //! ## Scope — the operator's generalisation, stated as code
 //!
@@ -97,17 +123,19 @@ fn tiny_png() -> Vec<u8> {
     ]
 }
 
-/// ★★★ **The skew, stated with no gesture at all.**
+/// ★★★ **The two models of one page, stated with no gesture at all.**
 ///
-/// After `add_image` the two models of page 0 must describe the same page.
-/// They do not: the shell's decomposition (which is what the canvas hit-tests
-/// and what the Objects panel lists) gains the image, and
-/// `EditSession::page_objects` — the engine's own model, and the one every
-/// geometry verb resolves an index against — does not.
+/// After `add_image` the shell's decomposition — what the canvas hit-tests and
+/// what the Objects panel lists — and `EditSession::page_objects` — the
+/// engine's own model, against which every geometry verb resolves an index —
+/// must describe the same page.
 ///
-/// No pointer, no raster, no race. The inequality **is** the defect.
+/// For the life of row O64 they did not: the shell gained the image and the
+/// engine did not, so the shell selected index N of an (N+1)-object model and
+/// the engine refused it as out of range. No pointer, no raster, no race —
+/// the inequality WAS the defect, and the equality is now the guarantee.
 #[test]
-fn the_engine_cannot_see_content_this_session_added() {
+fn the_engine_sees_the_content_this_session_added() {
     let doc = fixture();
     let mut session = EditSession::new(doc);
 
@@ -159,21 +187,21 @@ fn the_engine_cannot_see_content_this_session_added() {
          defect has moved and O64's diagnosis is wrong"
     );
 
-    assert_ne!(
+    assert_eq!(
         shell_count, engine_count,
-        "★ THE ENGINE WAS FIXED. `EditSession::page_objects` now agrees with \
-         the overlay decomposition, which means the content-editing verbs can \
-         address content added this session. INVERT THIS ASSERTION to \
-         `assert_eq!`, delete the one below it, and close OPERATOR_REQUESTS.md \
-         row O64."
+        "★★★ THE SKEW IS BACK. These two models must describe the same page: \
+         the shell selects an index in ITS model and hands it to a verb that \
+         resolves the index in the ENGINE's, so a disagreement of one is an \
+         edit applied to the wrong object or refused as out of range. Fixed \
+         by the engine in Pass 186.0, 2026-08-31."
     );
 
     assert_eq!(
-        engine_count, before,
-        "the engine's model is the page as it was on disk: {engine_count} \
-         objects where the shell has {shell_count}. Every geometry verb \
-         resolves an index against this model, so index {before} — the image \
-         the shell just selected — is out of range."
+        engine_count,
+        before + 1,
+        "and both must SEE the image, not merely agree with each other — two \
+         models that had each missed it would satisfy the equality above and \
+         the operator would still be unable to move what he just placed"
     );
 }
 
@@ -185,7 +213,7 @@ fn the_engine_cannot_see_content_this_session_added() {
 /// asserts that call refuses, and names the error, so the request can quote
 /// it rather than describe it.
 #[test]
-fn transforming_a_just_inserted_image_is_refused() {
+fn a_just_inserted_image_can_be_transformed() {
     let doc = fixture();
     let mut session = EditSession::new(doc);
 
@@ -215,23 +243,22 @@ fn transforming_a_just_inserted_image_is_refused() {
         pdfce_core::vector::TransformOptions::default(),
     );
 
-    assert!(
-        outcome.is_err(),
-        "★ THE ENGINE WAS FIXED — a just-inserted image can now be \
-         transformed. Invert this assertion and close OPERATOR_REQUESTS.md \
-         row O64. Outcome was: {outcome:?}"
+    let outcome = outcome.expect(
+        "★★★ MOVING A JUST-INSERTED IMAGE MUST WORK — the operator's own \
+         report, and it was an engine defect rather than a shell one: the \
+         verb resolved its page against the base document instead of the \
+         session overlay, so the object the shell had just added did not \
+         exist as far as the verb was concerned. Fixed in Pass 186.0, \
+         2026-08-31. A refusal here means it has come back",
     );
 
-    // Name the refusal, so the feature request can quote it rather than
-    // describe it, and so a DIFFERENT refusal arriving later is a test
-    // failure rather than a silent change of subject.
-    let err = outcome.unwrap_err();
-    let text = format!("{err:?}");
-    assert!(
-        text.contains("ObjectOutOfRange"),
-        "the refusal must still be an out-of-range INDEX — if the engine now \
-         refuses for another reason the diagnosis in O64 needs re-reading. \
-         Got: {text}"
+    // ★ The COUNT, not merely the `Ok`. A verb that transformed nothing and
+    // reported success would satisfy `is_ok()` and would be the same defect
+    // wearing another face: the operator drags the image and it does not
+    // move.
+    assert_eq!(
+        outcome.objects_transformed, 1,
+        "one object was named and one must have moved: {outcome:?}"
     );
 }
 
@@ -259,7 +286,7 @@ fn transforming_a_just_inserted_image_is_refused() {
 /// no fixture with distinguishable content and cannot be argued with. (2)
 /// follows from it arithmetically and is stated in the request.
 #[test]
-fn after_a_page_is_deleted_the_engine_still_indexes_the_old_page_set() {
+fn after_a_page_is_deleted_the_old_page_set_is_gone() {
     let doc = fixture_four_pages();
     let mut session = EditSession::new(doc);
 
@@ -278,14 +305,23 @@ fn after_a_page_is_deleted_the_engine_still_indexes_the_old_page_set() {
     // it is looking at the base document, which still has four.
     let out_of_range = session.page_objects(3);
 
+    let Err(refusal) = out_of_range else {
+        panic!(
+            "★★★ THE WRONG-SHEET DEFECT IS BACK, and it is the one with \
+             teeth. Page 3 of a THREE-page document resolved. If an index the \
+             document no longer has still resolves, then every index it DOES \
+             have resolves to the sheet that used to carry it — so an edit \
+             made after a page deletion changes a different drawing, returns \
+             `Ok`, and discloses nothing. Fixed by the engine in Pass 186.0."
+        );
+    };
+    let text = format!("{refusal:?}");
     assert!(
-        out_of_range.is_ok(),
-        "★ THE ENGINE WAS FIXED — page 3 of a three-page document is now \
-         correctly out of range, which means the content verbs resolve their \
-         page against the overlay. INVERT this assertion (assert it is an \
-         Err naming PageOutOfRange) and close the page-index half of \
-         OPERATOR_REQUESTS.md row O64. Outcome was: {:?}",
-        out_of_range.map(|o| o.objects.len())
+        text.contains("PageOutOfRange"),
+        "the refusal must be about the PAGE INDEX. Any other refusal means \
+         the page resolved and something else went wrong, which is a \
+         different subject and must not be read as this one being fixed. \
+         Got: {text}"
     );
 }
 
