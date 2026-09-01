@@ -136,17 +136,20 @@ pub fn visible(
     let Some(subpath) = entered.subpath else {
         return Vec::new();
     };
-    // ★ `page_object_index` rather than a cast: a target inside a form
-    // XObject has no page paint-order index, and the handles this builds are
-    // grab targets for `node-move`, which writes to the page's content
-    // stream. A leaf therefore gets no handles — the ladder stops at the
-    // Object rung for it, which `canvas::selection` argues at `descend`.
-    let Some(object) = entered.object.page_object_index() else {
-        return Vec::new();
-    };
+    // ★★ **Either index space, as of 2026-09-01** — `OPERATOR_REQUESTS.md` O70.
+    //
+    // This resolved a page paint-order index and returned empty for anything
+    // inside a form XObject, with the right reason at the time: the handles are
+    // grab targets for a verb that writes the PAGE's content stream, and
+    // offering one for a gesture that must then refuse is the placeholder R9
+    // forbids.
+    //
+    // `pdfce-core` Pass 188.0 shipped `move_handle_in_form`, and
+    // `provider::geometry` answers where a leaf's controls are — so the grab
+    // target now leads somewhere.
     let mut out = Vec::new();
     for node in selection.selected_nodes_on(page_index, entered.object) {
-        for (side, point) in provider.node_handles(object, subpath, node) {
+        for (side, point) in provider.node_handles_of(entered.object, subpath, node) {
             if let Some(canvas) =
                 crate::viewer::pdf_space_to_canvas(egui::pos2(point.x as f32, point.y as f32), page)
             {
@@ -234,30 +237,57 @@ pub fn drag(
         return None;
     };
     let entered = selection.entered_object()?;
-    // `None` for a leaf: there is no page paint-order index to move a node of.
-    let object = entered.object.page_object_index()?;
     // The provider is asked for only so a drag on a page whose model has gone
     // refuses rather than addressing a stale index — the same guard
     // `resizing::action` makes for the same reason.
     provider?;
     let to = crate::viewer::canvas_to_pdf_space(frame.at, page)?;
+    let to = Point::new(f64::from(to.x), f64::from(to.y));
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
+        //
+        // ★ `in_form=` since 2026-09-01 (O70): the same gesture now reaches two
+        // verbs, and a trace that named only the node would leave a reader
+        // unable to tell which — on a document where the two index spaces hold
+        // 129,758 and 10,256 entries, that is the difference between reading a
+        // correct drag and a wrong one.
         format!(
-            "handle-commit node={} side={:?} to=[{:.2} {:.2}]",
-            frame.node, frame.handle, to.x, to.y
+            "handle-commit node={} side={:?} in_form={} to=[{:.2} {:.2}]",
+            frame.node,
+            frame.handle,
+            entered.object.is_leaf(),
+            to.x,
+            to.y
         )
     });
-    actions.push(
-        VectorAction::MoveHandle {
+    // ★★ Two verbs, one gesture — `OPERATOR_REQUESTS.md` O70. The address
+    // space decides which, and it is asked here rather than inside the action
+    // because the two carry different index types and only this point knows
+    // which one it is holding.
+    let action = match (
+        entered.object.leaf_index(),
+        entered.object.page_object_index(),
+    ) {
+        (Some(leaf), _) => VectorAction::MoveHandleInForm {
+            page: frame.page_index,
+            leaf,
+            node: frame.node,
+            handle: frame.handle,
+            to,
+        },
+        (None, Some(object)) => VectorAction::MoveHandle {
             page: frame.page_index,
             object,
             node: frame.node,
             handle: frame.handle,
-            to: Point::new(f64::from(to.x), f64::from(to.y)),
-        }
-        .into(),
-    );
+            to,
+        },
+        // Structurally unreachable — a `TargetId` is one or the other — and
+        // refused rather than defaulted, because either default would address
+        // the wrong list.
+        (None, None) => return None,
+    };
+    actions.push(action.into());
     None
 }
 

@@ -829,16 +829,19 @@ Four separate defects in one paragraph, all of which are in scope:
 > was "none" and the refusal arrived after the operator had already entered the
 > rung and seen the points.
 >
+> ### ✅ …and the drag looks the same inside as outside — 2026-09-01
+>
+> Dragging something inside a container shows **the shape moving**, not a box
+> round it, and the curve handles are drawn and draggable there too. Driven:
+> the preview builds its geometry while the drag is in flight.
+>
+> ★ Both were one line each once the piece could be asked what it is made of,
+> which is the point of having built that first.
+>
 > ### ⬜ Still owed on this row
 >
-> 1. **The live shape preview while dragging inside a container.** The
->    selection box follows your pointer; the geometry does not, yet. It shows
->    the outline ghost — what every drag showed before that preview existed.
-> 2. **Bézier handles inside a container.** The curve handles are drawn for a
->    page object and not yet for a piece inside one. Nothing is offered and
->    nothing refuses, which is the honest half-state.
-> 3. **Double-clicking a text box to edit the text.** Today it descends to the
->    text run rather than opening the caret.
+> 1. **Double-clicking a text box to edit the text.** Today it descends to the
+>    text run rather than opening the caret. The last item on this row.
 >
 > **Verified:** driven —
 > `a_click_selects_the_whole_drawing_and_a_double_click_goes_inside`.

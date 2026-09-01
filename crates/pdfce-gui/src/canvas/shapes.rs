@@ -69,7 +69,7 @@ use egui::{Painter, Pos2, Stroke};
 use pdfce_core::vector::{Matrix, PaintStyle, Point, Segment, Subpath, VectorObject};
 
 use crate::canvas::mapping::PageMapping;
-use crate::panels::objects::provider::ObjectModelProvider;
+use crate::panels::objects::provider::{ObjectModelProvider, TargetId};
 
 /// How many objects a preview will carry before it gives up.
 ///
@@ -198,18 +198,25 @@ impl ShapePreview {
 #[must_use]
 pub fn transformed(
     provider: &ObjectModelProvider,
-    objects: &[usize],
+    targets: &[TargetId],
     m: Matrix,
 ) -> Option<ShapePreview> {
-    let model = provider.page_objects();
     let mut out = ShapePreview::default();
     let mut segments = 0_usize;
 
-    for &index in objects.iter().take(MAX_OBJECTS) {
+    for &target in targets.iter().take(MAX_OBJECTS) {
         // ★ Only paths. See the module header: a text run and an image carry no
         // geometry this shell may draw, and drawing them approximately would be
         // worse than leaving them to the outline.
-        let Some(VectorObject::Path(path)) = model.objects.get(index) else {
+        //
+        // ★★ `object_for` rather than `model.objects.get`, since 2026-09-01
+        // (`OPERATOR_REQUESTS.md` O70): it resolves either index space, so a
+        // drag inside a form XObject previews its geometry instead of falling
+        // back to the outline ghost. That fallback was correct while a leaf
+        // could not be edited at all and became a visible gap the moment it
+        // could — the operator drags a line inside a title block and watches a
+        // box move.
+        let Some(VectorObject::Path(path)) = provider.object_for(target) else {
             continue;
         };
         let subpaths: Vec<Subpath> = path
@@ -246,10 +253,10 @@ pub fn transformed(
             line_width: path.line_width * average_scale(m),
         });
     }
-    if objects.len() > MAX_OBJECTS {
+    if targets.len() > MAX_OBJECTS {
         out.capped = true;
     }
-    trace(&out, objects.len());
+    trace(&out, targets.len());
     Some(out)
 }
 
@@ -285,13 +292,15 @@ pub fn transformed(
 #[must_use]
 pub fn with_nodes_moved(
     provider: &ObjectModelProvider,
-    object: usize,
+    target: TargetId,
     nodes: &std::collections::BTreeSet<usize>,
     dx: f64,
     dy: f64,
 ) -> Option<ShapePreview> {
-    let model = provider.page_objects();
-    let VectorObject::Path(path) = model.objects.get(object)? else {
+    // ★ Either index space — see [`transformed`]'s own note. The anchor
+    // numbering below is object-scoped and identical in both, because
+    // `provider::geometry` computes it with the same running-offset walk.
+    let VectorObject::Path(path) = provider.object_for(target)? else {
         return None;
     };
 
@@ -364,7 +373,18 @@ pub fn for_move_subject(
         // differ in which engine verb they are entitled to call, not in what the
         // operator sees, so they share a preview.
         MoveSubject::Transform { objects, .. } | MoveSubject::Objects { objects, .. } => {
-            transformed(provider, objects, Matrix::translate(dx, dy))
+            let targets: Vec<TargetId> = objects
+                .iter()
+                .map(|&i| TargetId::Object(i as u64))
+                .collect();
+            transformed(provider, &targets, Matrix::translate(dx, dy))
+        }
+        // ★★★ **And the same preview for a drag inside a container** — O70,
+        // 2026-09-01. One line, because `transformed` stopped caring which
+        // list an object came from.
+        MoveSubject::LeavesInForm { leaves, .. } => {
+            let targets: Vec<TargetId> = leaves.iter().map(|&i| TargetId::Leaf(i as u64)).collect();
+            transformed(provider, &targets, Matrix::translate(dx, dy))
         }
         // ★ A subpath move is every anchor in that subpath, and the anchor list
         // comes from the PROVIDER rather than from a walk here — it already
@@ -374,55 +394,49 @@ pub fn for_move_subject(
         MoveSubject::Subpath {
             object, subpath, ..
         } => {
+            let target = TargetId::Object(*object as u64);
             let nodes: std::collections::BTreeSet<usize> = provider
-                .subpath_node_points(*object, *subpath)
+                .subpath_node_points_of(target, *subpath)
                 .into_iter()
                 .map(|(index, _)| index)
                 .collect();
-            with_nodes_moved(provider, *object, &nodes, dx, dy)
+            with_nodes_moved(provider, target, &nodes, dx, dy)
+        }
+        MoveSubject::SubpathInForm { leaf, subpath, .. } => {
+            let target = TargetId::Leaf(*leaf as u64);
+            let nodes: std::collections::BTreeSet<usize> = provider
+                .subpath_node_points_of(target, *subpath)
+                .into_iter()
+                .map(|(index, _)| index)
+                .collect();
+            with_nodes_moved(provider, target, &nodes, dx, dy)
         }
         // ★★★ THE ONE THE OPERATOR NAMED: *"if I moved the end of a line, it
         // didn't show me the shape change of the line."*
         MoveSubject::Node { object, node, .. } => {
             let mut only = std::collections::BTreeSet::new();
             only.insert(*node);
-            with_nodes_moved(provider, *object, &only, dx, dy)
+            with_nodes_moved(provider, TargetId::Object(*object as u64), &only, dx, dy)
         }
-        MoveSubject::Nodes { object, nodes, .. } => {
-            with_nodes_moved(provider, *object, &nodes.iter().copied().collect(), dx, dy)
+        MoveSubject::NodeInForm { leaf, node, .. } => {
+            let mut only = std::collections::BTreeSet::new();
+            only.insert(*node);
+            with_nodes_moved(provider, TargetId::Leaf(*leaf as u64), &only, dx, dy)
         }
-        // ★★ **NO live shape preview for a form-interior move, and that is a
-        // stated gap rather than an omission** — O70's second slice,
-        // 2026-09-01.
-        //
-        // Every arm above reads `PageObjects::objects` by paint-order index;
-        // a leaf is a position in `PageObjects::leaves` and would need a
-        // second lookup here and in `transformed`. Rather than add a
-        // half-correct one under a deadline, the drag falls back to what every
-        // gesture had before the live preview existed: the outline ghost, which
-        // `canvas::overlay` draws from the same bounds the selection box uses.
-        //
-        // ⇒ So the operator sees the BOX follow the pointer rather than the
-        // geometry, which is the O63 behaviour for one case rather than a
-        // regression to it for all of them. The fix is one accessor —
-        // `provider::leaf_subpaths` — and it belongs with the Part/Node rungs
-        // for leaves, which are the same missing accessor seen from the other
-        // side.
-        MoveSubject::LeavesInForm { .. }
-        // ★★ The three deeper in-form rungs join it, and for the same reason:
-        // `with_nodes_moved` and `transformed` both read `PageObjects::objects`
-        // by paint-order index. The GEOMETRY for a leaf now exists
-        // (`provider::geometry`) and threading it through the preview is a
-        // second edit to two helpers that are shared with the page path — done
-        // separately, so a preview change cannot break the page's live shapes
-        // in the same commit as the in-form rungs land.
-        //
-        // ⇒ Until then the drag shows the outline ghost, which is what every
-        // gesture showed before O63. The row says so rather than leaving the
-        // operator to notice.
-        | MoveSubject::SubpathInForm { .. }
-        | MoveSubject::NodeInForm { .. }
-        | MoveSubject::NodesInForm { .. } => None,
+        MoveSubject::Nodes { object, nodes, .. } => with_nodes_moved(
+            provider,
+            TargetId::Object(*object as u64),
+            &nodes.iter().copied().collect(),
+            dx,
+            dy,
+        ),
+        MoveSubject::NodesInForm { leaf, nodes, .. } => with_nodes_moved(
+            provider,
+            TargetId::Leaf(*leaf as u64),
+            &nodes.iter().copied().collect(),
+            dx,
+            dy,
+        ),
     }
 }
 

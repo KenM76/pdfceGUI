@@ -154,6 +154,23 @@ pub enum VectorAction {
         /// Leaf indices, ascending and unique.
         leaves: Vec<usize>,
     },
+    /// ★★ Move one **Bézier control point of an object inside a form
+    /// XObject** — `EditSession::move_handle_in_form`. O70.
+    ///
+    /// Absolute, as [`Self::MoveHandle`] is and for its reason: the operand is
+    /// a coordinate pair.
+    MoveHandleInForm {
+        /// The 0-based page.
+        page: usize,
+        /// The enclosing object, by **leaf** index.
+        leaf: usize,
+        /// The anchor the handle serves, object-scoped.
+        node: usize,
+        /// Which of the two controls.
+        handle: pdfce_core::vector::Handle,
+        /// Where it lands, in PDF user space.
+        to: pdfce_core::vector::Point,
+    },
     /// ★★ Displace one **subpath of an object inside a form XObject** —
     /// `EditSession::move_subpath_in_form`. `OPERATOR_REQUESTS.md` O70.
     MoveSubpathInForm {
@@ -546,6 +563,19 @@ pub(super) fn apply(doc: &mut crate::app::state::OpenDoc, action: VectorAction) 
                     },
                 );
             }
+        }
+        VectorAction::MoveHandleInForm {
+            page,
+            leaf,
+            node,
+            handle,
+            to,
+        } => {
+            vector_edit_on_page(doc, "move-handle-in-form", page, 1, |session| {
+                session
+                    .move_handle_in_form(page, leaf, node, handle, to)
+                    .map(|outcome| outcome.disclosures)
+            });
         }
         VectorAction::MoveSubpathInForm {
             page,

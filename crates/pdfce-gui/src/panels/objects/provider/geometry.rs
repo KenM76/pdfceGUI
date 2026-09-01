@@ -197,6 +197,57 @@ impl ObjectModelProvider {
         best.map(|(index, _)| index)
     }
 
+    /// [`Self::node_handles`], for either index space.
+    ///
+    /// The Bézier control points of one anchor: the incoming one is the second
+    /// control of the segment **before** it, the outgoing one the first control
+    /// of the segment **after**. Only cubics have them, so a polyline answers
+    /// empty and no handle is drawn — which is the honest answer rather than a
+    /// grab target for a gesture with nothing to move.
+    ///
+    /// ★ The object-scoped anchor index is brought back into the subpath's own
+    /// space with the SAME running offset [`Self::subpath_node_points_of`]
+    /// computes. Two walks that disagreed about which subpath anchor 7 falls in
+    /// would draw a handle on one curve and move another.
+    #[must_use]
+    pub fn node_handles_of(
+        &self,
+        target: TargetId,
+        subpath: usize,
+        node: usize,
+    ) -> Vec<(pdfce_core::vector::Handle, Point)> {
+        use pdfce_core::vector::{Handle, Segment};
+
+        let Some(VectorObject::Path(path)) = self.object_for(target) else {
+            return Vec::new();
+        };
+        let subpaths = path.page_subpaths();
+        let mut offset = 0usize;
+        for (i, sp) in subpaths.iter().enumerate() {
+            let count = sp.anchors().count();
+            if i == subpath {
+                // The anchor is not in this subpath: a selection that out-ran a
+                // decomposition, refused rather than guessed at — the posture
+                // `canvas::moving`'s `NodeNotFound` takes.
+                let Some(local) = node.checked_sub(offset).filter(|k| *k < count) else {
+                    return Vec::new();
+                };
+                let mut out = Vec::with_capacity(2);
+                if let Some(Segment::Cubic { c2, .. }) =
+                    local.checked_sub(1).and_then(|j| sp.segments.get(j))
+                {
+                    out.push((Handle::Incoming, *c2));
+                }
+                if let Some(Segment::Cubic { c1, .. }) = sp.segments.get(local) {
+                    out.push((Handle::Outgoing, *c1));
+                }
+                return out;
+            }
+            offset += count;
+        }
+        Vec::new()
+    }
+
     /// [`Self::subpath_bounds_canvas`], for either index space.
     ///
     /// ★ Computed from the subpath's own anchors rather than through

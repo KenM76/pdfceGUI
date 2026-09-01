@@ -90,6 +90,9 @@ const ENTER: &str = "smart-enter"; // ui-text-exempt: a trace event name, never 
 const MOVED: &str = "move-leaves-in-form"; // ui-text-exempt: a trace event name, never displayed
 /// The refusal the shell wrote for the whole of this feature's absence.
 const DECLINED: &str = "canvas-decline"; // ui-text-exempt: a trace event name, never displayed
+/// The live shape preview's own line — what the operator watches while the
+/// drag is in flight.
+const PREVIEW: &str = "canvas-shape-preview"; // ui-text-exempt: a trace event name, never displayed
 /// The line a DELETE of a form-interior object writes.
 const DELETED: &str = "delete-leaves-in-form"; // ui-text-exempt: a trace event name, never displayed
 /// `Delete`, for the second half of "the ordinary editing one would expect".
@@ -262,6 +265,39 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     report.note(format!(
         "★★★ the engine moved it inside the container: `{}`",
         moved.raw
+    ));
+
+    // ★★ **And the operator watched the SHAPE move, not a box round it** —
+    // O70's last owed item, 2026-09-01.
+    //
+    // `canvas::shapes` read `PageObjects::objects` by paint-order index, so a
+    // drag inside a container fell back to the outline ghost: the box followed
+    // the pointer and the geometry did not. That was the pre-O63 behaviour for
+    // one case, correct while the drag could not commit at all, and a visible
+    // gap the moment it could.
+    //
+    // ★ `shapes=` rather than the line's presence. A preview that asked for one
+    // object and built none is what a build reading the wrong list produces —
+    // and it traces, because the line is written whether or not anything came
+    // back.
+    let previewed = session
+        .trace()?
+        .events(PREVIEW)
+        .filter_map(|l| l.get_usize("shapes"))
+        .max()
+        .unwrap_or(0);
+    if previewed == 0 {
+        return Ok(Some(format!(
+            "**THE DRAG SHOWED A BOX, NOT THE SHAPE**: every `{PREVIEW}` line reports \
+             zero shapes. The move committed, so the geometry exists and the preview could \
+             not find it. `canvas::shapes` reads it through `provider::object_for`, which \
+             resolves either index space; a build still reading page objects by paint-order \
+             index gets nothing for a leaf and falls back to the outline ghost. Trace: {}.",
+            session.trace_path().display()
+        )));
+    }
+    report.note(format!(
+        "★★ …and the drag previewed the SHAPE while it was in flight: {previewed} built"
     ));
 
     // --- D: …and Delete reaches it too --------------------------------------

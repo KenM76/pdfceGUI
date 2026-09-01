@@ -27,6 +27,7 @@ use std::collections::BTreeSet;
 
 use super::*;
 use crate::app::state::{OpenDoc, open_local_fixture};
+use crate::panels::objects::provider::TargetId;
 
 /// The local fixture with real path geometry to walk.
 ///
@@ -89,7 +90,7 @@ fn the_walk_agrees_with_the_providers_anchor_numbering() {
         only.insert(*index);
         let preview = with_nodes_moved(
             &doc.page_objects().expect("a decomposition"),
-            object,
+            TargetId::Object(object as u64),
             &only,
             10.0,
             20.0,
@@ -134,7 +135,7 @@ fn a_translation_moves_every_point_by_exactly_the_translation() {
 
     let preview = transformed(
         &doc.page_objects().expect("a decomposition"),
-        &[object],
+        &[TargetId::Object(object as u64)],
         Matrix::translate(7.0, -3.0),
     )
     .expect("the preview builds");
@@ -178,7 +179,7 @@ fn an_identity_transform_lands_on_the_object() {
     };
     let preview = transformed(
         &doc.page_objects().expect("a decomposition"),
-        &[object],
+        &[TargetId::Object(object as u64)],
         Matrix::IDENTITY,
     )
     .expect("the preview builds");
@@ -210,7 +211,9 @@ fn a_selection_past_the_cap_is_bounded_and_says_so() {
         .map_or(0, |p| p.page_objects().objects.len());
     // Ask for far more indices than the page has; the out-of-range ones are
     // skipped, and the cap is what this asserts.
-    let asked: Vec<usize> = (0..MAX_OBJECTS + 10).collect();
+    let asked: Vec<TargetId> = (0..MAX_OBJECTS + 10)
+        .map(|i| TargetId::Object(i as u64))
+        .collect();
     let preview = transformed(
         &doc.page_objects().expect("a decomposition"),
         &asked,
