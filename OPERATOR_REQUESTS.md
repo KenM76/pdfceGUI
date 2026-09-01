@@ -773,7 +773,7 @@ Four separate defects in one paragraph, all of which are in scope:
 
 ---
 
-## O70 — ◑ HALF BUILT AND DRIVEN 2026-08-31 — the container rung ships
+## O70 — ✅ COMPLETE, BUILT AND DRIVEN 2026-08-31 → 09-01
 
 > **Clicking a wrapped drawing now selects the drawing.** On a CAD sheet whose
 > content was placed as one piece — a title block, a stamped detail, a symbol —
@@ -838,10 +838,17 @@ Four separate defects in one paragraph, all of which are in scope:
 > ★ Both were one line each once the piece could be asked what it is made of,
 > which is the point of having built that first.
 >
-> ### ⬜ Still owed on this row
+> ### ✅ …and double-clicking a text box types in it — 2026-09-01
 >
-> 1. **Double-clicking a text box to edit the text.** Today it descends to the
->    text run rather than opening the caret. The last item on this row.
+> The last rung, and the one where *deeper* means something different: below a
+> piece of text is **the words**, not a smaller shape. Double-click it and the
+> caret lands where you clicked, with the text tool armed — which is what
+> Inkscape and Illustrator both do, and what stops you being left with a caret
+> blinking while the arrow is still the tool.
+>
+> **This row is now complete.** Every part of what you asked for in it is built
+> and driven: the checkbox, the container click, the descent, the editing
+> inside, the preview, the handles, and this.
 >
 > **Verified:** driven —
 > `a_click_selects_the_whole_drawing_and_a_double_click_goes_inside`.

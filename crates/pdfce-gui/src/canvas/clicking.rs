@@ -729,6 +729,75 @@ pub fn click(
             super::trace::selection_event(selection, "enter-form", true);
             return;
         }
+        // ★★★ **A DOUBLE-CLICK ON TEXT EDITS THE TEXT** —
+        // `OPERATOR_REQUESTS.md` O70: *"Selecting a text box or similar item
+        // does the same thing, but double-clicking inside the bounding box
+        // should edit the text."*
+        //
+        // Below the container arm, deliberately: a label inside a title block
+        // is reached by entering the block first and editing on the next
+        // double-click, which is the same chain the operator described rather
+        // than a shortcut past it.
+        //
+        // ## ★★ It ARMS the caret tool, and that is the convention rather than
+        // ## a side effect
+        //
+        // Inkscape's selector switches to the text tool on this gesture, and
+        // Illustrator's does the same. Placing a caret without arming would
+        // type correctly — `textedit::keys::typing` runs whatever tool is
+        // selected — and would leave the operator in a state no other program
+        // has: a caret in the page while the arrow is still the tool, so their
+        // next click means *select* when everything about the screen says they
+        // are typing.
+        //
+        // ★ `tool::select` rather than `arm_text_edit`, and the difference
+        // matters here: the latter TOGGLES and calls `textedit::abandon`, which
+        // would put away the caret this arm is about to place.
+        if double
+            && caps.edit_content
+            && let Some(t) = targets
+            && let Some(object) = hit.object
+            && crate::canvas::target::CanvasTargetProvider::object_class(t, page_index, object)
+                == Some(crate::canvas::pick::PickClass::Text)
+        {
+            crate::canvas::tool::select(
+                ctx,
+                crate::canvas::tool::CanvasTool::TextEdit(
+                    crate::canvas::textedit::TextEditKind::Edit,
+                ),
+            );
+            match crate::canvas::textedit::click(
+                ctx,
+                &crate::canvas::textedit::Click {
+                    doc,
+                    page_index,
+                    kind: crate::canvas::textedit::TextEditKind::Edit,
+                    canvas_point: point,
+                },
+                actions,
+            ) {
+                Ok(()) => crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed.
+                    "canvas-double-click-text via=descend".to_owned()
+                }),
+                Err(refusal) => {
+                    // ★ The refusal is the operator's, not the trace's alone.
+                    // A double-click that opened no caret and said nothing
+                    // would read as a text object that cannot be edited, which
+                    // is a different and more discouraging claim than the one
+                    // `textedit` is actually making.
+                    crate::app::actions::record_note(
+                        doc.edit_epoch,
+                        crate::text::textedit::refusal(refusal).to_owned(),
+                    );
+                    crate::diag::trace(|| {
+                        // ui-text-exempt: diagnostic trace, never displayed.
+                        format!("text-edit-declined reason={refusal:?} via=double-click")
+                    });
+                }
+            }
+            return;
+        }
         // ★★ **A CLICK OUTSIDE THE CONTAINER LEAVES IT** — O70, and Inkscape's
         // other way out.
         //

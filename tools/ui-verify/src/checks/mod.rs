@@ -140,6 +140,16 @@ pub mod delete_key;
 /// The Manage-dimension-groups window: it opens, it creates a group, and the
 /// group comes back joinable.
 pub mod dimension_groups;
+/// ★ **The second half of the descent** — something inside a wrapped drawing
+/// can be DRAGGED, not merely selected (`OPERATOR_REQUESTS.md` O70). Reads the
+/// funnel's own applied line, which the engine's `Ok` is what produces.
+/// ★ **The ladder goes as deep inside a container as outside one** — the
+/// second double-click, the Part rung and a drag that commits
+/// (`OPERATOR_REQUESTS.md` O70).
+/// ★ **Double-clicking a text box edits the text** — the last rung of the
+/// Smart-Selector chain, and the one where "deeper" means the words rather
+/// than a smaller shape (`OPERATOR_REQUESTS.md` O70).
+pub mod double_click_text;
 pub mod driving;
 /// ★ **A drawing dragged in from Explorer and dropped on the page thumbnails**
 /// — `OPERATOR_REQUESTS.md` O67. The only check in this suite whose subject is
@@ -177,12 +187,6 @@ pub mod form_field;
 /// where nothing calls the query. That is the state the audit found, under
 /// 2,538 passing tests. Its header carries both fixtures' arguments.
 pub mod form_groups;
-/// ★ **The second half of the descent** — something inside a wrapped drawing
-/// can be DRAGGED, not merely selected (`OPERATOR_REQUESTS.md` O70). Reads the
-/// funnel's own applied line, which the engine's `Ok` is what produces.
-/// ★ **The ladder goes as deep inside a container as outside one** — the
-/// second double-click, the Part rung and a drag that commits
-/// (`OPERATOR_REQUESTS.md` O70).
 pub mod form_leaf_descend;
 pub mod form_leaf_move;
 /// ★★★ **Where to click so that a form-field selection CHANGES**, shared by the
@@ -940,6 +944,8 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // …and one rung deeper again. Third of the three, in the order an
         // operator meets them: reach it, edit it, go inside it.
         Box::new(form_leaf_descend::TheLadderGoesAsDeepInsideAContainer),
+        // The chain's last rung, and the one that leaves the geometry: text.
+        Box::new(double_click_text::DoubleClickingATextBoxEditsTheText),
         // `OPERATOR_REQUESTS.md` O71, 2026-08-31. Beside the Smart-Selector
         // check because both are about what a plain click MEANS — that one in
         // Edit, this one in Read, which is the stance where the answer had
