@@ -228,10 +228,57 @@ fn run(args: &[String]) -> Result<ExitCode, String> {
     println!();
 
     let mut run = RunReport::default();
+    let mut ran_one = false;
     for check in &all {
         if !selected.is_empty() && !selected.iter().any(|s| s == check.name()) {
             continue;
         }
+        // ★★★ **A BEAT BETWEEN CHECKS, and a measurement bought it — 2026-09-01.**
+        //
+        // A full sweep of 128 checks reported THREE FAILURES and about sixty
+        // skips. Every one of the three passed when re-run alone, seconds
+        // later, against the same binary:
+        //
+        // | check | in the sweep | alone |
+        // |---|---|---|
+        // | `an_invalidating_save_is_warned_about` | *"THE PROCEED BUTTON IS INERT"* | PASS |
+        // | `read_mode_copies_a_picture…` | *"THE PICTURE COULD NOT BE SELECTED"* | PASS |
+        // | `the_format_tab_offers_font_controls…` | Bold did nothing | PASS |
+        //
+        // ⇒ **The suite was producing false FAILURES, not merely false skips**,
+        // and that is a much worse defect than the skips this project has
+        // already written up. A skip says *"I could not measure"* and is
+        // discounted. A failure says *"the feature is broken"* and is BELIEVED
+        // — the first of those three sent a session hunting for a broken
+        // Proceed button on signed documents, which would have been a morning.
+        //
+        // ★★ The evidence for contention rather than flakiness is in the third
+        // one's own notes, which print two numbers the others do not:
+        //
+        //   in the sweep:  swept 22 characters, restyle took 20006 ms
+        //   alone:         swept 266 characters, restyle took 2490 ms
+        //
+        // A tenfold difference in what a fixed-length drag selected and an
+        // eightfold one in how long the same edit took. The harness's drag is
+        // real pointer motion on a wall clock, so a machine that is busy makes
+        // the gesture SHORTER; the application under test is starved at the
+        // same time. Neither is a property of the feature.
+        //
+        // ★ The cause is the shape of the suite: every check launches a release
+        // binary — with a render worker pool — drives it, and kills it. The
+        // process is reaped (`Session::drop` waits), but window teardown,
+        // GPU/context release and Windows' foreground arbitration all lag
+        // behind process exit, and the next check starts into that wake.
+        //
+        // A whole second is generous and the arithmetic says it is affordable:
+        // 128 checks × 1 s is two minutes on a run that already takes fifteen.
+        // Bought back many times over by the checks that now run instead of
+        // skipping — and once over completely by not spending a morning on a
+        // failure that was never real.
+        if ran_one {
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+        }
+        ran_one = true;
         run.checks.push(check.run(&ctx));
     }
     run.print();
