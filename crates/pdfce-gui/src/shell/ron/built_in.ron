@@ -124,6 +124,7 @@
                         Command(id: "view.page_facing_continuous", size: Small),
                     ],
                     collapse: 4,
+                    prefer_rows: 2,
                 ),
                 (
                     id: "navigate",

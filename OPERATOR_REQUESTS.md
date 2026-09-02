@@ -131,14 +131,47 @@ This is the other half of the same relationship.
 
 ---
 
-## O97 — ⬜ **The display buttons should be on two rows, to save space**
+## O97 — ◑ **BUILT 2026-09-02, NOT YET DRIVEN** — the display buttons are on two rows
 
 **Ken, 2026-09-02:**
 
 > *"our display buttons should be on two rows to save space."*
 
-**Not investigated.** A layout change to the page-display group. Two rows of two
-rather than one row of four.
+### ★★★ The cause, and it was not a layout bug
+
+The ribbon **only wraps a group when it runs out of width.** `wrap_group`
+searches for the narrowest packing *once the group no longer fits*; a group that
+fits stays on one row however wide that row is. That is right for a Font group
+and wrong for a **radio** — four square icon buttons in a row is a strip, and the
+same four as a 2 × 2 block is half the width and reads as one control.
+
+### ✅ Built 2026-09-02
+
+A new manifest field, `Group::prefer_rows` — *"lay this group out on several rows
+even when one row would fit"* — and the page-display group asks for two.
+
+★ It is a **hint, not a height**, and three properties are pinned by their own
+test: asking for one row changes nothing; the band's row ceiling still wins, so a
+group asking for four rows in a two-row band gets two (the band's height is fixed
+— R128 — and a manifest must not be able to break it); and asking does not
+*force* the count, because the planner still returns the narrowest packing.
+
+★★ **No second packing algorithm.** The hint is exactly the right to skip the
+*"it already fits"* short-circuit; everything after it is the search that was
+already there, so a preferred layout and a pressured one cannot disagree about
+how a group wraps. A group that prefers two rows still goes to three on the
+collapse ladder.
+
+★ **R7 holds:** `egui-shell` reads a number. It has no idea which of an
+application's groups is a radio, and the manifest is where the application
+already says everything else about its ribbon. `check-shell-purity` is green.
+
+### ⬜ NOT DRIVEN
+
+Built, unit-tested and gated. **The oracle for this one is a screenshot** —
+`D:/dev/rag/egui/`'s standing rule is that layout defects have exactly one
+oracle, a rendered window — and that needs the pointer, so it waits until you
+are away.
 
 ---
 

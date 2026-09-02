@@ -716,6 +716,22 @@ fn group(id: &str, caption: &str, items: impl IntoIterator<Item = Item>) -> Grou
     Group::new(id, caption).with_items(items)
 }
 
+/// The same, laid out on **two rows** even when one would fit.
+///
+/// ★ `OPERATOR_REQUESTS.md` O97 — *"our display buttons should be on two rows to
+/// save space."* For a cluster of icon-only peers that is a **choice** rather
+/// than a list: four square buttons in a row is a strip, and the same four as a
+/// 2 × 2 block is half the width and reads as one control. See
+/// [`egui_shell::manifest::Group::prefer_rows`] for what the hint does and does
+/// not promise.
+///
+/// A named constructor rather than a `.with_prefer_rows(2)` on the call, so that
+/// a tab module reads as a list of groups and the one group that is shaped
+/// differently says so in its first word.
+fn group_two_rows(id: &str, caption: &str, items: impl IntoIterator<Item = Item>) -> Group {
+    group(id, caption, items).with_prefer_rows(2)
+}
+
 /// A command reference, by id.
 ///
 /// Named `command` rather than used as `Item::command` so that a tab

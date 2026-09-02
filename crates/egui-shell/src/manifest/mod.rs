@@ -690,6 +690,42 @@ pub struct Group {
     /// everything else about its ribbon, and the shell just reads a number.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub collapse: Option<u32>,
+    /// **Lay this group out on several rows even when one row would fit.**
+    ///
+    /// `None` — the default and the meaning of an absent key — is *"one row
+    /// until the band runs out of width"*, which is what every group did before
+    /// this field existed and what most groups should keep doing.
+    ///
+    /// # ★★★ Why a group would ask for rows it does not need
+    ///
+    /// Because wrapping under pressure and wrapping by design are different
+    /// things, and the planner only ever did the first. `wrap_group` searches
+    /// for the narrowest packing **once the group no longer fits**; a group that
+    /// fits stays on one row however wide that row is.
+    ///
+    /// That is right for a Font group and wrong for a **radio**. Four square
+    /// icon buttons in a row is a strip; the same four as a 2 x 2 block is half
+    /// the width, reads as one control, and is what Acrobat, Word and every
+    /// other ribbon does with a four-position choice. Operator, 2026-09-02:
+    /// *"our display buttons should be on two rows to save space."*
+    ///
+    /// # ★★ It is a HINT, not a height
+    ///
+    /// The value is a ceiling the planner is asked to prefer, and the band's own
+    /// row limit still wins: a group asking for four rows in a two-row band gets
+    /// two. Nor does it force that many rows — the planner still returns the
+    /// **narrowest** packing it can find, so a group of two items asking for two
+    /// rows gets whichever of 1 x 2 and 2 x 1 is narrower.
+    ///
+    /// ★ And it does not stop the group re-wrapping further under pressure. A
+    /// group that prefers two rows still goes to three on the collapse ladder,
+    /// exactly as a group that reached two under pressure would.
+    ///
+    /// ★ R7: the shell reads a number. It has no idea which of an application's
+    /// groups is a radio, and the manifest is where the application already says
+    /// everything else about its ribbon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prefer_rows: Option<u32>,
 }
 
 impl Group {
@@ -701,6 +737,7 @@ impl Group {
             caption: Some(caption.into()),
             items: Some(Vec::new()),
             collapse: None,
+            prefer_rows: None,
         }
     }
 
@@ -734,6 +771,25 @@ impl Group {
     #[must_use]
     pub fn items(&self) -> &[Item] {
         self.items.as_deref().unwrap_or(&[])
+    }
+
+    /// **Ask for this group to be laid out on `rows` rows even when one fits.**
+    ///
+    /// See [`Self::prefer_rows`] for what it does and does not promise. `rows`
+    /// below 2 is stored as given and ignored by the planner, which is the
+    /// honest handling: `1` means *"one row"*, which is already the default, and
+    /// silently rewriting it to `None` would make a manifest that round-trips
+    /// differently from the one that was written.
+    #[must_use]
+    pub fn with_prefer_rows(mut self, rows: u32) -> Self {
+        self.prefer_rows = Some(rows);
+        self
+    }
+
+    /// How many rows this group asks for, or `None` for the default.
+    #[must_use]
+    pub const fn preferred_rows(&self) -> Option<u32> {
+        self.prefer_rows
     }
 }
 

@@ -435,6 +435,7 @@ pub(crate) fn wrap_group(
     gutter: f32,
     max_rows: usize,
     wrap_at: f32,
+    prefer_rows: Option<usize>,
 ) -> GroupRows {
     let n = item_widths.len();
     let single = row_width(item_widths, gutter);
@@ -443,7 +444,30 @@ pub(crate) fn wrap_group(
         width: single,
     };
 
-    if n <= 1 || max_rows <= 1 || !wrap_at.is_finite() || wrap_at <= 0.0 || single <= wrap_at {
+    // ★★★ **`prefer_rows` is exactly the right to skip the fits-already test.**
+    //
+    // Everything below already searches for the NARROWEST packing within the
+    // row limit. What kept a comfortable group on one row was this
+    // short-circuit — *"it fits, so leave it"* — which is the correct default
+    // and is wrong for a group whose shape is part of the control.
+    //
+    // A four-position radio is the case: four square buttons in a row is a
+    // strip, and the same four as a 2 x 2 block is half the width and reads as
+    // one control (`OPERATOR_REQUESTS.md` O97). So a group that asked for rows
+    // goes on to the search, and the search does the rest — no second packing
+    // algorithm, and no way for a preferred layout and a pressured one to
+    // disagree about how a group wraps.
+    //
+    // ★★ The value is a HINT and the band's ceiling still wins: `max_rows` is
+    // unchanged below, so a group asking for four rows in a two-row band gets
+    // two. And because the search returns the narrowest, asking for two rows
+    // does not FORCE two — a pair of items whose 1 x 2 is narrowest stays on
+    // one row.
+    let asked = prefer_rows.is_some_and(|rows| rows >= 2);
+    if n <= 1 || max_rows <= 1 || !wrap_at.is_finite() || wrap_at <= 0.0 {
+        return one_row();
+    }
+    if single <= wrap_at && !asked {
         return one_row();
     }
 
@@ -827,7 +851,7 @@ mod tests {
     /// anything that looks like a layout bug.
     #[test]
     fn a_group_is_as_wide_as_its_caption_when_the_caption_is_wider() {
-        let rows = |widths: &[f32]| wrap_group(widths, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH);
+        let rows = |widths: &[f32]| wrap_group(widths, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH, None);
 
         let one_narrow_button = rows(&[24.0]);
         let wide_caption = 90.0;
@@ -856,6 +880,74 @@ mod tests {
     /// a column of one control per row, which is narrower and is not a
     /// ribbon. Most groups in a real manifest are under the cap, so this is
     /// the common path and not the corner.
+    /// ★★★ **A group that asks for two rows gets them, even though one fits.**
+    ///
+    /// `OPERATOR_REQUESTS.md` O97 — four square icon buttons that are a strip in
+    /// one row and a control in a 2 x 2 block. Without the hint the planner
+    /// short-circuits on *"it fits"* and never looks for a narrower shape.
+    ///
+    /// The four widths are comfortably inside [`GROUP_WRAP_WIDTH`], so the
+    /// `None` case is the regression guard as much as the `Some` case is the
+    /// feature: **if the default ever starts wrapping, every group in every
+    /// application changes shape at once.**
+    #[test]
+    fn a_group_that_asks_for_rows_wraps_when_it_would_otherwise_fit() {
+        let four = [24.0_f32, 24.0, 24.0, 24.0];
+        let unasked = wrap_group(&four, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH, None);
+        assert_eq!(
+            unasked.counts,
+            vec![4],
+            "the default must stay one row — a group that fits is not re-shaped"
+        );
+
+        let asked = wrap_group(&four, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH, Some(2));
+        assert_eq!(
+            asked.counts,
+            vec![2, 2],
+            "two rows of two, which is narrowest"
+        );
+        assert!(
+            asked.width < unasked.width,
+            "the whole point is that it is NARROWER: {} against {}",
+            asked.width,
+            unasked.width
+        );
+    }
+
+    /// ★★ **The hint is a preference, not a command.**
+    ///
+    /// Three properties, and each is a way the feature could have been built
+    /// wrong:
+    ///
+    /// * asking for **one** row changes nothing — that is already the default,
+    ///   and a `Some(1)` that started wrapping would be a footgun in a manifest;
+    /// * the **band's ceiling wins** — a group asking for four rows in a
+    ///   two-row band gets two, because the band's height is fixed (R128) and a
+    ///   manifest must not be able to break it;
+    /// * asking does not FORCE the count — the planner still returns the
+    ///   narrowest packing, so two items whose one-row form is narrowest keep it.
+    #[test]
+    fn the_row_hint_is_a_preference_and_the_bands_ceiling_still_wins() {
+        let four = [24.0_f32, 24.0, 24.0, 24.0];
+        assert_eq!(
+            wrap_group(&four, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH, Some(1)).counts,
+            vec![4],
+            "one row is the default and asking for it must change nothing"
+        );
+        // Asking for more rows than the band has: the ceiling is `max_rows`.
+        let greedy = wrap_group(&four, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH, Some(9));
+        assert!(
+            greedy.counts.len() <= GROUP_ROWS,
+            "the band's row limit must bound the manifest's hint, got {:?}",
+            greedy.counts
+        );
+        // A single item cannot be split however hard the manifest asks.
+        assert_eq!(
+            wrap_group(&[24.0], 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH, Some(2)).counts,
+            vec![1]
+        );
+    }
+
     #[test]
     fn a_group_that_fits_the_cap_stays_on_one_row() {
         for widths in [
@@ -865,7 +957,7 @@ mod tests {
             // 6 × 70 + 5 × 4 = 440, exactly the cap: `<=`, not `<`.
             vec![70.0; 6],
         ] {
-            let rows = wrap_group(&widths, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH);
+            let rows = wrap_group(&widths, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH, None);
             assert_eq!(
                 rows.counts,
                 vec![widths.len()],
@@ -894,7 +986,7 @@ mod tests {
         let single = row_width(&widths, 4.0);
         assert!(single > GROUP_WRAP_WIDTH, "the fixture must trip the cap");
 
-        let rows = wrap_group(&widths, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH);
+        let rows = wrap_group(&widths, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH, None);
         assert_eq!(rows.rows(), 2, "two rows, not three and not one");
         assert_eq!(rows.counts, vec![4, 3], "4 + 3 is the even split of seven");
         assert_eq!(rows.width, 4.0f32.mul_add(75.0, 3.0 * 4.0));
@@ -924,7 +1016,7 @@ mod tests {
         for n in 0..14_usize {
             for each in [12.0_f32, 40.0, 97.5, 260.0] {
                 let widths = vec![each; n];
-                let rows = wrap_group(&widths, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH);
+                let rows = wrap_group(&widths, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH, None);
                 assert_eq!(
                     rows.counts.iter().sum::<usize>(),
                     n,
@@ -954,14 +1046,14 @@ mod tests {
     fn one_item_and_one_row_are_both_left_alone() {
         let huge = [900.0_f32];
         assert_eq!(
-            wrap_group(&huge, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH).counts,
+            wrap_group(&huge, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH, None).counts,
             vec![1],
             "a control wider than the cap takes its own row; the cap is a wrap \
              trigger and never a clip"
         );
 
         let seven = vec![75.0_f32; 7];
-        let unwrapped = wrap_group(&seven, 4.0, 1, GROUP_WRAP_WIDTH);
+        let unwrapped = wrap_group(&seven, 4.0, 1, GROUP_WRAP_WIDTH, None);
         assert_eq!(unwrapped.counts, vec![7]);
         assert_eq!(unwrapped.width, row_width(&seven, 4.0));
     }
@@ -972,7 +1064,7 @@ mod tests {
     fn a_non_finite_cap_degrades_to_one_row() {
         let widths = vec![75.0_f32; 7];
         for bad in [f32::INFINITY, f32::NAN, 0.0, -10.0] {
-            let rows = wrap_group(&widths, 4.0, GROUP_ROWS, bad);
+            let rows = wrap_group(&widths, 4.0, GROUP_ROWS, bad, None);
             assert_eq!(rows.counts, vec![7], "wrap_at={bad}");
             assert_eq!(rows.width, row_width(&widths, 4.0), "wrap_at={bad}");
         }
@@ -988,7 +1080,7 @@ mod tests {
     #[test]
     fn one_oversized_control_still_lets_the_rest_wrap() {
         let widths = [500.0_f32, 90.0, 90.0, 90.0, 90.0];
-        let rows = wrap_group(&widths, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH);
+        let rows = wrap_group(&widths, 4.0, GROUP_ROWS, GROUP_WRAP_WIDTH, None);
         assert_eq!(
             rows.counts,
             vec![1, 4],

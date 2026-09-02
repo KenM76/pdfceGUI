@@ -72,7 +72,7 @@
 //! [`super::DIRECTED`], which lists every such entry with the instruction
 //! that put it there, so the exception is visible rather than inferred.
 
-use super::{command, group, icon_only};
+use super::{command, group, group_two_rows, icon_only};
 use crate::text::ribbon;
 use egui_shell::manifest::Tab;
 
@@ -116,7 +116,11 @@ pub(super) fn tab() -> Tab {
             // would be four buttons with no indication of which one you are
             // in, which for a radio is the whole of the control.
             // ---------------------------------------------------------------
-            group(
+            // ★ **Two rows**, `OPERATOR_REQUESTS.md` O97. Four square icon
+            // buttons in a row is a strip; as a 2 × 2 block they are half the
+            // width and read as the single four-position choice they are —
+            // which is also what Acrobat's own view controls look like.
+            group_two_rows(
                 "page_display",
                 ribbon::group_view_page_display(),
                 [

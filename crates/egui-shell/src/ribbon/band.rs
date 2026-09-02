@@ -1122,6 +1122,9 @@ fn measure_group_rows(
         ctx.theme.metrics.gutter,
         max_rows,
         plan::GROUP_WRAP_WIDTH,
+        // ★ The manifest's own answer, `OPERATOR_REQUESTS.md` O97. `None` is
+        // every group that has not asked, which is almost all of them.
+        group.preferred_rows().map(|rows| rows as usize),
     );
     // The Large run leads, then a gutter, then the wrapped rows — the same
     // order `group_body` draws them in, and it must be, or the band plans
@@ -1363,6 +1366,7 @@ mod tests {
             caption: Some("   ".to_owned()),
             items: None,
             collapse: None,
+            prefer_rows: None,
         };
         assert_eq!(
             caption_text(&blank),
@@ -1374,6 +1378,7 @@ mod tests {
             caption: None,
             items: None,
             collapse: None,
+            prefer_rows: None,
         };
         assert_eq!(caption_text(&nameless), "(unnamed group)");
 
@@ -1388,6 +1393,7 @@ mod tests {
                 caption: Some(String::new()),
                 items: None,
                 collapse: None,
+                prefer_rows: None,
             },
         ] {
             assert!(!caption_text(&g).trim().is_empty(), "{g:?}");
