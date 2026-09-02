@@ -7,17 +7,23 @@
 > an engine verb that shipped hours after the request. Both outstanding engine
 > replies are consumed, and one of them found a hole in the engine's own API.
 >
-> ⬜ **The single biggest thing waiting is a MACHINE WINDOW, not a decision.**
-> Every O95–O102 row now has a driven check; **three still need the pointer** and
-> have never been executed (`tab_order_drag`, the forms spotlight, the two-row
-> display buttons), along with the older backlog. The moment he says he is away
-> from the PC, run the sweep and **falsify** the new checks rather than watching
-> them go green. Do not drive while he is at the machine.
+> ✅ **THE FULL SWEEP IS RUN — 2026-09-02 evening.** 148 checks driven:
+> `98 passed, 10 failed, 40 skipped`, and **every one of the ten was explained
+> and NONE was a defect in the software** — six were the wrong fixture, three
+> were contention (they pass alone on the same binary), one was a designed skip.
+> O95–O102 all have driven checks and O96–O101 are green.
 >
-> ★ **Four checks now run with NO input at all** — `PDFCE_DIAG_VIEWPORT` lays out
-> a real window without taking focus and `PDFCE_DIAG_INVOKE` raises a command at
-> startup. More of the suite could probably be converted; it is the cheapest
-> coverage available, because it needs no window in his day.
+> ★★★ **The six were documented, in this file, and I did not read it first.**
+> See *"THE SWEEP NEEDS THREE FIXTURES, NOT ONE"* below — it records a previous
+> sweep producing ten failures of which seven were the harness aiming wrong, and
+> I reproduced six of them. **Use the family table before running the suite.**
+>
+> ⬜ **Three things want a decision rather than more work:** contention is real
+> and unmeasured (a retry-on-failure or a serialised mode would end the "is this
+> real?" re-run every time); `text_edit_on_a_real_drawing`'s documented point has
+> drifted onto a multi-operator run and needs re-calibrating; and O98's spotlight
+> is gated on the Select tool, which is his call.
+>
 >
 > ★★ **And one finding to carry, because it recurs:** two pieces of prose in the
 > tab-order panel became *the exact opposite of the truth* the moment the engine

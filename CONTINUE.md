@@ -1,5 +1,63 @@
 # CONTINUE — handoff
 
+## 2026-09-02 (evening) — the full sweep is run: 148 checks, ZERO regressions
+
+### ✅ The whole suite, driven, with the machine to myself
+
+`98 passed, 10 failed, 40 skipped` on the default fixture — and **every one of
+the ten was explained and none was a defect in the software**:
+
+| cause | n | what it really was |
+|---|---|---|
+| wrong fixture | 6 | the geometry, wheel and text families need their own `--pdf` and `--doc-point` |
+| contention | 3 | failed inside a batch, passed alone on the same binary |
+| designed skip | 1 | the check declined to judge, correctly, and said why |
+
+★★★ **The six were documented and I did not read the document.** `RESUME.md`
+has a section headed *"THE SWEEP NEEDS THREE FIXTURES, NOT ONE — read before
+running it"*, which records that a single fixture once produced **ten failures
+of which seven were the harness aiming at the wrong thing**. I ran it with one
+fixture and got six of exactly that. The table of families is in `RESUME.md`;
+use it.
+
+⇒ Second time in one day a documented lesson was rediscovered the hard way — the
+RAG had the collapsed-header and stale-skip findings too. **The discipline is not
+writing findings down; that part works. It is reading the index before doing the
+thing.**
+
+### ★★ I called one of them a regression, out loud, and it was not
+
+`a_bookmark_lands_on_the_detail_it_names` failed with a specific diagnosis
+naming the operator's own report, and the feature had shipped and been driven
+the day before. That is the profile of a real regression, and I said so. It
+passes alone — zoom `0.382 → 0.766`, the detail framed. **Contention, not
+regression.** Recorded because the confident-and-wrong failure report is the
+thing this project keeps meeting, and it does not stop being a risk when it is
+the harness making it.
+
+### ⬜ The three that need a decision, not more work
+
+1. **Contention is real and unmeasured.** Three of 148 fail under batch load and
+   pass alone. That is not new — an earlier sweep saw the same — but nothing
+   measures it, so "is this real?" costs a re-run every time. A per-check retry
+   on failure, or a serialised run mode, would remove the question.
+2. **`text_edit_on_a_real_drawing`'s documented point has drifted.**
+   `0,1140,62` on `SW41177.pdf` now lands on a run spanning more than one show
+   operator, so the check honestly declines. It needs a re-calibrated point that
+   traces `one_operator=true`.
+3. **O98's spotlight is tool-gated** — see `OPERATOR_REQUESTS.md`. His call.
+
+### ✅ Also this evening
+
+- **O97, O98, O99 driven and green**; four earlier failures, all the check.
+- **The engine closed the `disclosures()` gap** the same day it was reported and
+  the tripwire fired on schedule; the workaround is deleted.
+- **The harness recovers from a stuck foreground** — an invisible explorer tray
+  window was blocking every input check and would not yield to anything but a
+  synthetic Alt.
+
+---
+
 ## 2026-09-02 (autonomous, later tick) — O99's drag is built, both engine replies are consumed, and one of them found a hole in the engine's own API
 
 ### ✅ The tab-order list can be dragged into a new order, with the caret he asked for
