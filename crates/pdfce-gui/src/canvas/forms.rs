@@ -708,7 +708,7 @@ pub(super) fn overlay(
     // that this mode fills forms, that annotations are visible and that the
     // document is not certified — so a field that is not fillable here is a
     // field this function has already returned before reaching.
-    shade(ui, doc, pages, list);
+    crate::canvas::form_marks::shade(ui, doc, pages, list);
 
     // ★★★ **THE SPOTLIGHT** — `OPERATOR_REQUESTS.md` O98. The field the Forms
     // panel is pointing at, outlined so the operator can see which box on the
@@ -721,7 +721,7 @@ pub(super) fn overlay(
     // ★ `crate::panels::forms::spotlight` carries why this is a cursor rather
     // than a mark on the content, and quotes the panel header that named this
     // gap — and named it permitted — long before it was built.
-    spotlight(ui, pages, list);
+    crate::canvas::form_marks::spotlight(ui, pages, list);
 
     // The focused field's editor FIRST, so that a click on another field is
     // seen by the editor it is leaving (as a focus loss, hence a commit)
@@ -1064,64 +1064,6 @@ fn kind_label(kind: &BoxKind) -> &'static str {
         BoxKind::Text { .. } => "text",   // ui-text-exempt: trace token
         BoxKind::Check { .. } => "check", // ui-text-exempt: trace token
         BoxKind::Radio { .. } => "radio", // ui-text-exempt: trace token
-    }
-}
-
-/// **Outline the field the Forms panel is pointing at** — O98.
-///
-/// ★★ **Every widget of that field**, not one. A field may be painted in
-/// several places — a header repeated on each page, a radio group — and
-/// spotlighting one of them would answer *"where is this field"* with a half
-/// truth. `WidgetBox::field` is the fully-qualified name, so the filter is the
-/// same identity the panel wrote.
-///
-/// ★ Draws nothing when the panel is not pointing at anything, which includes
-/// every frame the panel is not on screen: it clears the channel before its rows
-/// draw, so an unhidden panel with nothing focused leaves it empty.
-fn spotlight(ui: &egui::Ui, pages: &[PageView], list: &[WidgetBox]) {
-    let Some(spot) = crate::panels::forms::spotlight::get(ui.ctx()) else {
-        return;
-    };
-    let painter = ui.painter().clone();
-    let visuals = ui.visuals();
-    for view in pages {
-        for widget_box in list
-            .iter()
-            .filter(|b| b.page == view.page && b.field == spot.field)
-        {
-            crate::canvas::overlay::draw_field_spotlight(
-                &painter,
-                visuals,
-                &view.map,
-                widget_box.rect,
-            );
-        }
-    }
-}
-
-/// **Wash every fillable field on screen** — `OPERATOR_REQUESTS.md` O96.
-///
-/// The whole of the feature's drawing. `crate::canvas::overlay::draw_field_shade`
-/// owns the colour and the alpha and argues both; this owns *which* boxes and
-/// *whether at all*.
-///
-/// ★ One painter per page view rather than one for the lot, because a box's rect
-/// is in its own page's space and `PageMapping` is per page — the same reason
-/// [`cursor`] walks the views rather than the boxes.
-fn shade(ui: &egui::Ui, doc: &OpenDoc, pages: &[PageView], list: &[WidgetBox]) {
-    // ★ `doc.prefs`, which is the snapshot taken when the document opened —
-    // the same field `canvas::paging` reads for the wheel gesture. A live read
-    // would be wrong for the reason `OpenDoc::prefs` states: this is drawn per
-    // frame and a preference that changed mid-frame would flicker.
-    if !doc.prefs.shade_form_fields {
-        return;
-    }
-    let painter = ui.painter().clone();
-    let visuals = ui.visuals();
-    for view in pages {
-        for widget_box in list.iter().filter(|b| b.page == view.page) {
-            crate::canvas::overlay::draw_field_shade(&painter, visuals, &view.map, widget_box.rect);
-        }
     }
 }
 

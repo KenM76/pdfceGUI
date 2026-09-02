@@ -79,6 +79,14 @@ use pdfce_core::object::ObjId;
 use crate::panels::forms::edit::FormEdit;
 use crate::text::forms as t;
 
+/// The prefix of the per-row region names for the fill list; the 0-based row
+/// index is appended.
+///
+/// A cross-repo stability contract with `tools/ui-verify`: renaming it is
+/// changing an API, not tidying a string.
+// ui-text-exempt: a diagnostic region name, never displayed.
+const REGION_ROW_PREFIX: &str = "forms.fill.row.";
+
 /// What a row needs to know that is not on the [`Field`] itself.
 ///
 /// A struct rather than three parameters, because the row functions below
@@ -460,6 +468,31 @@ fn text_row(
     if response.has_focus() {
         crate::panels::forms::spotlight::set(ui.ctx(), fqn);
     }
+
+    // ★★ The value box's own rectangle, so a driven check can CLICK a row.
+    //
+    // Added 2026-09-02 with O98's check, and it had to be added before the
+    // check could exist: this panel published no per-row region at all, so
+    // there was nothing to aim a pointer at and the whole feature was
+    // unverifiable by the only method that counts. That is the third time on
+    // this project a feature has needed the instrument built before the
+    // evidence could be gathered.
+    //
+    // ★ Keyed on the row INDEX rather than the field name. The name is the
+    // right identity for the spotlight channel — it crosses a frame boundary,
+    // and an index into a walk of the form is only valid for the revision it
+    // was taken from — but it is the wrong identity for a region name, because
+    // a fully-qualified name legitimately contains dots, spaces and any byte a
+    // PDF string can hold, and a region name is parsed out of a trace line.
+    //
+    // `ui_rect_visible` rather than `ui_rect`: this panel is a scroll area, and
+    // a row scrolled out of view still reports a rectangle. A control that
+    // exists and cannot be reached is a defect this project has met twice.
+    crate::diag::ui_rect_visible(
+        &format!("{REGION_ROW_PREFIX}{index}"),
+        response.rect,
+        ui.clip_rect(),
+    );
 
     if let Some(text) = commit(response.lost_focus(), draft.as_str(), &stored) {
         out.push(FormEdit::FillText {

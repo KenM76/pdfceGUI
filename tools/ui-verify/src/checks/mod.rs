@@ -350,6 +350,7 @@ pub mod save_as;
 /// fixture is half of it.
 pub mod unshare_form;
 
+pub mod forms_spotlight;
 /// ★ `file.print` — the dialog that told every operator this build could not
 /// print, on a machine with twelve printers, in a build that had the printing
 /// crate linked into it.
@@ -934,6 +935,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // 2026-08-18, which is what made this possible.
         Box::new(pages_drag::PagesDragShowsWhereItLands),
         Box::new(tab_order_drag::TabOrderDragMovesAFieldAndShowsWhere),
+        Box::new(forms_spotlight::ClickingAFormRowLightsTheFieldOnThePage),
         // The DXF export, wired 2026-08-19 after being the FIRST entry in
         // `reach`'s scaffold list. Beside the page checks because it is the
         // other verb that writes a file the operator hands to somebody else.

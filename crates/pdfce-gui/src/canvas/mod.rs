@@ -130,6 +130,7 @@
 
 // Filling an interactive form where it is drawn: the boxes, the hit test that
 // deliberately takes no tolerance, and the one editor a focused field gets.
+pub mod form_marks;
 pub mod formfield;
 pub mod forms;
 /// ★ Pointing at the page instead of typing coordinates — `OPERATOR_REQUESTS.md`
