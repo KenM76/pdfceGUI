@@ -224,7 +224,7 @@ driven check. Waiting on the pointer.
 
 ---
 
-## O100 — ◑ **SURFACED 2026-09-02; the preset half is an ENGINE question, filed** — new colour-rendering options
+## O100 — ◑ **BUILT 2026-09-02, NOT YET DRIVEN; the preset half is ANSWERED** — new colour-rendering options
 
 **Ken, 2026-09-02:**
 
@@ -285,11 +285,43 @@ axis. ★ That may well be correct — the preset module's own reasoning notes t
 **question**, not a demand: *does a PDF/X or PDF/A level constrain the spot
 colorant device model, and if so should the preset pin it?*
 
-Filed as `request_do_the_standards_constrain_the_spot_colorant_device_model.md`.
+Filed as `done_2026-09-02-spot-device-model-REQUEST.md`.
+
+### ✅ ANSWERED the same day, and the answer was the opposite of what we expected
+
+**No PDF/X clause reaches the axis at all** — the vocabulary is absent from every
+reachable line of ISO 15930 parts -1, -3, -4, -7 and -9. And **PDF/A's Scope
+clause affirmatively excludes "operational details of rendering"**, in every part
+from 2005 to 2020: a disclaimer, not a gap.
+
+★★ The engine pinned it on PDF/X anyway, and the argument is worth keeping
+because it generalises: *"the label creates an expectation, not because a clause
+does."* The two values render **visibly differently**, and a control labelled
+`ISO 15930-7` carries the promise *"show me what the press will get"* — so
+leaving it alone would not decline to answer, it would silently ship whatever
+global override was last set into a view read as authoritative. That is a rule-4
+problem. Graded `implied`, never higher, and the sentence ends by saying no
+clause requires it.
+
+⇒ **On our side the row needed one thing and could not do it.** The engine asked
+us to show the entry's `why`, because the divergence is invisible on the page and
+reads as somebody's bug. `RenderPreset::disclosures()` emits a `why` **only for
+keys a preset leaves alone** — so the reasoning behind every value a preset
+actually *sets* never left the crate. Invisible until now, because until this
+Pass every set value was `best-effort` and the count sentence covered those
+fairly. A count is not a fair summary of a **claim**.
+
+So the row now reads `entries()` directly and prints the `why` of every set entry
+whose evidence is a claim about the standard — derived, never keyed on the axis,
+bounded at two by a measured test, and carrying a tripwire that goes red if the
+engine ever widens `disclosures()` so the workaround gets deleted rather than
+duplicating their output. Reported back as
+`note_disclosures_drops_the_why_of_every_value_a_preset_sets.md`, explicitly not
+as a Pass request.
 
 ---
 
-## O99 — ⬜ **BLOCKED ON THE ENGINE, filed 2026-09-02** — the tab-order list cannot be reordered at all
+## O99 — ◑ **BUILT 2026-09-02, NOT YET DRIVEN** — the tab-order list drags, with the caret
 
 **Ken, 2026-09-02:**
 
@@ -343,12 +375,52 @@ one question that cannot be answered from outside: **should it also write
 `/Tabs /A`**, so the order you arranged is the order the file *states* rather than
 an order some readers happen to follow?
 
-★★ **The drag gesture was deliberately not built.** R9 says an unavailable
-capability renders **nothing**, and a drag with a drop marker that cannot commit
-is a control that lies — worse than the read-only list that is there. That is a
-change from how two earlier gaps were handled, where the shell half was built and
-left waiting; it is the right call here because **the gesture *is* the feature**.
-There is no useful half.
+★★ **The drag gesture was deliberately not built** at filing time. R9 says an
+unavailable capability renders **nothing**, and a drag with a drop marker that
+cannot commit is a control that lies — worse than the read-only list that was
+there. That was a change from how two earlier gaps were handled, where the shell
+half was built and left waiting; it was the right call here because **the gesture
+*is* the feature**. There is no useful half.
+
+### ✅ The verb shipped the same day, and both halves are now built
+
+`EditSession::reorder_annotations(page, &[ObjId])` landed hours after the request
+went out. Wired, then the gesture, then the driven check — commits `df8e81d`,
+`73e8436`, `6112f28`.
+
+★ **Ids, not indices, and the engine asked for that by name.** Our sketch said
+`&[usize]`; their reply said the index we hold is almost never a raw `/Annots`
+index, because `page_annotations` skips null and non-dictionary entries. Worse
+than they knew: the number our rows carry is `position`, which is 1-based, counts
+**widgets only**, and skips entries with no id — wrong on three axes at once, and
+on a well-formed single-purpose form all three cancel, so it would have worked on
+every fixture we own and failed on real files. Rows now carry a `slot`.
+
+★★★ **Widgets move among widget slots; nothing else moves.** `/Annots` order is
+**paint** order, so a permutation that carried a widget past a `/Link` would
+change what is drawn over what — a visible change to the page, from a gesture
+whose whole subject was tab sequence. The engine's `non_widgets_moved` disclosure
+is what revealed the trap; our route reports zero by construction and the driven
+check asserts it.
+
+⬜ **It does not write `/Tabs`, and the open question in the request is answered
+— against our instinct.** We asked whether the reorder should write `/Tabs /A`
+and said we thought yes. Sourced answer: **no**. `/A` is PDF 2.0 only, PDF/UA-1
+§7.18.3 *requires* `/S` (Matterhorn 28-009 fires on anything else), nothing
+requires a writer to state a tab order at all, and Acrobat's own manual tab order
+is an `/Annots` permutation with no `/Tabs` written.
+
+⇒ **The consequence we now own:** on a page that states `/S`, `/R` or `/C`, a
+drag changes the array and a conforming reader may still tab in the stated order.
+The per-page `/Tabs` sentence — unconditional, above the rows, on every page —
+is what stops that reading as a bug in the drag. `set_page_tabs` is available for
+the asking and is deliberately **not** asked for: the trigger would be an
+operator reporting that an arranged order did not survive into another reader.
+
+### What is left
+
+The driven check is written and has not been run — it moves the pointer across a
+panel, and Ken was at the PC. It runs on the next window.
 
 ---
 
