@@ -1,5 +1,198 @@
 # CONTINUE — handoff
 
+## 2026-09-01 (late evening) — READ THIS FIRST. Links work, OCR progress is driven, and one falsification had to be repaired before it meant anything
+
+**Written at the operator's request, for a session starting cold.** Everything
+below is measured against the tree as it stands, not recalled.
+
+### The measured state — re-measured this session
+
+| | |
+|---|---|
+| **Tests** | **2,208** (GUI) + **422** (egui-shell) + **163** (ui-verify), 0 failing |
+| **Driven checks** | **138** (`ui-verify --list`) — 133 + 3 OCR + 2 links |
+| **Gates** | **21 / 21** green |
+| **Engine** | `pdfce-core 0.19.0` @ **`9d43079`** (it moved twice today: `d731410` → `94d640c` → `9d43079`) |
+| **Published** | **`pdfceGUI2`, 2026-09-01 22:45** · `pdfceGUI1` still holds the 19:58 build and is the fallback |
+
+★ **Re-measure before quoting any of these.** Six corrections have been spent on
+prose drifting from a count. The commands take under two minutes.
+
+★★ **The packaged build was verified against the engine it SHIPS**, not against
+the one the session tested with. `tools/package-portable.py` runs `cargo update`
+**before** it tests and builds, so its green run describes `9d43079`. The six new
+driven checks were then re-run against that binary afterwards — all six pass.
+That ordering is the fix for the trap that retracted a build on 2026-08-30;
+read the packaging log's order before trusting a package's green run.
+
+---
+
+### ★★★ What landed: a clickable table of contents, and the defect it avoids is not the obvious one
+
+**His question:** *"the what's new pdf on the desktop might have a table of
+contents that you can click on … it didn't do that in ours."*
+
+Right, and the honest description was worse than a bug: **there was no
+link-following code path anywhere in the shell.** It was not a shell defect
+either — a `/Link`'s destination could not be *read*. The engine answered within
+hours (`Pass 222.0`) and the shell half went in the same evening.
+
+★★★ **The failure most likely to ship was never "links do nothing"** — that is
+loud and gets reported in a minute. It is a viewer that treats all **five**
+`Destination` variants as navigable, resolves the four it cannot perform to a
+defaulted page 0, and navigates anyway. The cursor changes, the click lands, a
+page appears — and the operator concludes their document's links are wrong.
+
+So `canvas::links::follow` has five arms and no collapsing catch-all, and each
+non-navigating one raises **its own sentence** off-canvas: a deleted target page,
+a name table lost when the file was made, another file named with its page, and
+an action pdfce recognises and never executes.
+
+**The affordance is a cursor and nothing is drawn on the page.** A pointing hand
+over a followable link, nothing at all over one that is not. No border, no tint,
+no rectangle over the `/Rect`.
+
+**Where the code is:**
+
+- `canvas/links.rs` — the hit test, `follow`, and the cursor.
+- `text/links.rs` — the four sentences, one per cause.
+- `app/cache.rs` — `LinkCache`. **Two caches, two keys**: the O(document)
+  `DestinationReader` on the edit epoch, the per-page link list on
+  `(page, epoch)`. That split is not an optimisation — the cursor asks *"is the
+  pointer over a link"* on **every frame**, and without it this walks a 36-sheet
+  drawing's page tree on every mouse move.
+- `app/layers.rs` — **new**, split out of `app/state.rs`, which had reached the
+  1,500-line R2 ceiling exactly and would have blocked the next field too.
+
+---
+
+### ★★★ A FALSIFICATION THAT FAILED TO FALSIFY, and the repair is the lesson
+
+`a_link_it_cannot_follow_says_so_instead_of_jumping` originally asserted only
+that **the page had not changed**. The plausible wrong implementation was planted
+for real — every destination fed to the navigator with a defaulted page 0 — the
+workspace rebuilt, and **the check passed.**
+
+Because the fixture opens on page 0, and the defect navigates to page 0.
+
+⇒ The engine's fixtures were built so that **no link targets page 1**, precisely
+against defaulted answers, and that was still not enough. **The fixture's
+property is "the correct answer is not the default"; what an absence assertion
+needs is "the STARTING STATE is not the default."** Two different variables, and
+fixing one does not fix the other.
+
+The check now **zooms in first** and asserts page, zoom **and** scroll offset.
+Re-planted: it fails and names the cause. Restored: it passes.
+
+★ **Rule to carry:** for any *"it must not have happened"* assertion, ask what
+state the defect would leave and whether the run is already standing in it. Then
+plant the defect. A planted defect that passes means the check is decorative,
+however good the fixture is. Filed to `D:/dev/rag/rust/`.
+
+---
+
+### ★★ O93 is closed — OCR progress, driven on his own 883-page parts manual
+
+He named the fixture this session: *"there is a large document in the pdftest
+folder … that is all images with text."* That is
+`OneDrive\pdfTests\Parts Manual TH83 Telehandler.pdf` — **883 pages, 266 MB,
+every page an image, `/Rotate 270`, not one extractable character in it.**
+Measured at **2.6 s and ~440 recognised words a page**, so the whole manual is
+about **38 minutes**, which is exactly why he said not to do all of it.
+
+Eight pages of it back three driven checks (`checks/ocr_progress.rs`), each run
+twice — once on a new committed eight-page synthetic fixture, once on his scan.
+
+★★ **Falsified:** `job.stop()` swapped for `job.cancel()`; the Stop check failed
+naming the cause; restored and green.
+
+★★★ **Two things the driving found that no unit test could:**
+
+1. **A rect is not an oracle for "the user can see it is working."** A label
+   frozen at `Page 1 of 8` declares the same rect on every frame while being the
+   stalled program he is afraid of. The shell now traces the **numbers**
+   (`ocr-progress attempted= of= words= chars=`, on change) and the check asserts
+   they move.
+2. **★ Live progress was resting on a decorative widget.** egui is immediate-mode
+   and idle; the OCR worker is on another thread and raises no input events, so
+   **nothing was requesting the next frame**. It worked only because
+   `egui::Spinner` calls `request_repaint()` for its own animation (egui 0.35,
+   `widgets/spinner.rs:40`). Swapping the spinner for a progress bar — a
+   completely reasonable change — would have silently taken live progress with it
+   and left every test green. The dialog now asks for the repaint itself and says
+   why. Filed to `D:/dev/rag/egui/`.
+
+★ One measured behaviour that is **correct** and reads as a defect: the tally
+ends at **7 of 8**, never 8. `Job::poll` drains the channel, so the frame that
+reads the last page's report is the frame that reads `Finished`, and the dialog
+leaves the working phase before drawing it. The check asserts a **band**
+(`>= scope - 1`) and its source carries the reasoning so nobody re-tightens it.
+
+---
+
+### ★★ A CHECK THAT HAD BEEN QUIETLY NOT RUNNING
+
+`ocr_recognises_a_page_and_the_document_keeps_it` was reporting **SKIP**, not
+PASS. At the window's default width the `file` tab's Recognise group
+**collapses**, so `ribbon.item.file.ocr` is never declared and the harness
+reported *"no control to click"* — which reads as the command having been
+removed. **A SKIP is not red, so nothing prompted a look.**
+
+`Session::maximize`'s own doc comment describes this precise symptom. The lesson
+had been learned and written down; the call site simply never got it.
+
+⇒ **When a fix is "call this one extra function", grep for every site that should
+call it.** A per-call-site remedy with no enforcing gate gets incompletely
+applied, and the incomplete half fails in the quiet direction. Also worth doing
+periodically: **diff the SKIP set against the last known one.** A check that used
+to PASS and now SKIPs is a defect, never a neutral event.
+
+---
+
+### ⬜ WHAT TO DO NEXT, in his likely order
+
+1. **O88 — the marquee only takes what it completely ENCLOSES.** *"in a drawing
+   like `TR-0461-1500-copy.pdf` I can't box select the tables in the left or
+   right top corners … it only picks up the lines of each table."* Diagnosed,
+   **not built**. `MarqueeMode::Touched` already exists and is **unused**; the
+   convention to implement is AutoCAD's direction-sensitive one (left-to-right =
+   enclose, right-to-left = touch), which is also what he means by *"use the
+   conventional interaction, never invent one"*. ★ A **second cause** is recorded
+   against the row: a stale `/LW` can make a visible line unselectable, which
+   presents identically.
+2. **O92's other half** — selecting an object dropped **off the side of the
+   page** with a marquee. Same fix as O88; Select All already ships as the
+   workaround.
+3. **O85 — Ctrl+S closed the program after an edit.** Not reproduced. Blocked on
+   him saying what kind of edit preceded it; do not guess.
+4. **O89 — the text-colour route is three conditions deep.** Three candidate
+   fixes are in the row. **The choice is his, not yours.**
+
+★ **Nothing is blocked on the engine.** The link request was the only one open
+and it was answered and consumed the same day.
+
+---
+
+### What is safe to assume, and what is not
+
+- **Safe:** the link pipeline and the OCR progress pipeline are both driven, both
+  falsified, and both green against the engine the published build links.
+- **Safe:** `destination::actions_for` is the one implementation of Table 151 —
+  bookmarks and links both go through it. Do not write a second.
+- **NOT safe:** that a `Destination` match is exhaustive. It is
+  `#[non_exhaustive]`; `canvas::links::follow` has a wildcard, and a sixth
+  variant will land there and be described wrongly. That is on the record in the
+  consumed request rather than only in a comment.
+- **NOT safe:** a full 138-check sweep taken at face value. The suite
+  manufactures **false failures** under contention — three failed in-sweep and
+  all three passed alone. Do not sweep while background agents are landing, and
+  never drive the **published** build (its side effects land in his saved state —
+  copy the exe to scratch).
+- **NOT safe:** any sentence about what the engine cannot do. It moved three
+  times today. Run `bash tools/gates/run-all.sh` first —
+  `check-verb-coverage.sh` **is** the changelog reader.
+
+
 ## 2026-09-01 (evening) — READ THIS FIRST. Bookmarks land on the detail; three of his requests had never been written down
 
 **Written at the operator's request, for a session starting cold.** Everything

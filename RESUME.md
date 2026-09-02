@@ -1,20 +1,18 @@
 # RESUME — read this, then say "continue"
 
 
-> ★★★ **LAST SESSION: 2026-09-01 (evening).** The newest handoff is the top
-> section of **[`CONTINUE.md`](CONTINUE.md)** — bookmark destinations landed and
-> are driven, a clickable table of contents is an engine gap with a filed
-> request, and **three of his requests turned out never to have been written
-> into `OPERATOR_REQUESTS.md` at all** (back-filled as O92/O93/O94). Read that
-> section before this file; the counts in it were re-measured, the ones further
-> down this file were not.
+> ★★★ **LAST SESSION: 2026-09-01 (late evening).** The newest handoff is the top
+> section of **[`CONTINUE.md`](CONTINUE.md)** — a **clickable table of contents now
+> works** (engine `Pass 222.0`, requested and answered the same day), **O93 is
+> closed** and driven on his own 883-page scanned parts manual, and **one
+> falsification passed against a planted defect and had to be repaired before it
+> meant anything**. Read that section before this file; the counts in it were
+> re-measured, the ones further down this file were not.
 >
 > ★★ **If the operator typed "continue" and nothing else, read**
-> **[`CONTINUE.md`](CONTINUE.md) first.** It is the short path: what is next,
-> in order, and the two facts that are true and surprising. This file is the
-> long state document it points into.
-
-
+> **[`CONTINUE.md`](CONTINUE.md) first.** It is the short path: what is next, in
+> order, and the facts that are true and surprising. This file is the long state
+> document it points into.
 
 **Written 2026-08-18, last revised 2026-08-28 after the editable-surface
 audit.** For a session starting cold on `D:\Dev\pdfceGUI`.
