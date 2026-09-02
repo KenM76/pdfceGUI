@@ -1,13 +1,11 @@
 # RESUME — read this, then say "continue"
 
 
-> ★★★ **LAST SESSION: 2026-09-01 (late evening).** The newest handoff is the top
-> section of **[`CONTINUE.md`](CONTINUE.md)** — a **clickable table of contents now
-> works** (engine `Pass 222.0`, requested and answered the same day), **O93 is
-> closed** and driven on his own 883-page scanned parts manual, and **one
-> falsification passed against a planted defect and had to be repaired before it
-> meant anything**. Read that section before this file; the counts in it were
-> re-measured, the ones further down this file were not.
+> ★★★ **LAST TICK: 2026-09-02 (autonomous).** The newest handoff is the top
+> section of **[`CONTINUE.md`](CONTINUE.md)** — **O88's marquee is BUILT and NOT
+> DRIVEN** (R1: not shipped), the driven check fails on the *harness* for a third
+> distinct reason, and **the disk was 100 % full** and reported it as a linker
+> PDB error. The session before it shipped clickable links and closed O93.
 >
 > ★★ **If the operator typed "continue" and nothing else, read**
 > **[`CONTINUE.md`](CONTINUE.md) first.** It is the short path: what is next, in

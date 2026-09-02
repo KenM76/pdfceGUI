@@ -1,5 +1,77 @@
 # CONTINUE — handoff
 
+## 2026-09-02 (autonomous) — O88 is BUILT and NOT DRIVEN, and the disk was full
+
+**An autonomous-loop tick, not a session with him in the room.** Everything here
+is committed at `82646e2`.
+
+### ⬜ The status that matters, and do not misread it
+
+**O88 — the direction-sensitive marquee — is built and unit-tested, and has
+never been driven.** Under R1 that means **not shipped**, exactly as O93 was held
+open for the same reason a day earlier.
+
+`a_marquee_over_a_table_takes_its_text_as_well_as_its_lines` still fails, and it
+fails on the **harness**: the trace carries **no `canvas-selection` line of any
+kind** and only sixteen `canvas-pointer` ones, so **no rubber band ever begins**.
+The check did not arm the Select tool — that was added this tick
+(`arm_select_from_ribbon`) — and the run **still** selects nothing, so there is a
+second cause underneath that has not been found.
+
+★★ Its first failure was written off as *"the harness drove the band above the
+canvas"*. That was true of that run and it **masked this**. A check that fails
+for two different reasons in two runs is one whose second diagnosis nobody looked
+for. This is the third.
+
+⇒ **The next job on this row is the check, not the feature.** Do not read the
+unit tests as evidence the gesture works end to end: they cover the rule and
+cannot see the chain in front of it.
+
+### What was built
+
+Left-to-right encloses, right-to-left touches — AutoCAD's window /
+crossing-window rule, which SolidWorks drawings use too. No modifier key. The
+enclosing answer is byte-for-byte what it was.
+
+★★★ **One hazard, found by a failing test rather than by thinking:** a crossing
+band **touches a page-sized form XObject wherever it is drawn**, so on a wrapped
+drawing every right-to-left drag would have silently included the whole sheet —
+and his next gesture moves it. Under `Enclosed` that was impossible. Dropped by
+`canvas::marquee::without_page_wrappers`, using the shell's **existing**
+`container_is_worth_selecting` rule; no second threshold exists. ★ Only a hit
+that *contains another hit* is tested, so a drawing border covering the sheet
+stays selectable — there is a test whose only job is that case.
+
+### ★★ THE DISK WAS 100 % FULL, and it did not say so
+
+D: had **10 MB free of 954 GB**. It presented as
+`LINK : fatal error LNK1318: Unexpected PDB error; LIMIT (12)` — a real error
+with a real non-disk cause — so ten minutes went into a PDB-corruption theory
+before `cargo test` produced the honest *"not enough space on the disk"*.
+
+Cleared **16 GB** by dropping `target/debug` (regenerable; `target/release` was
+left alone because the driven checks use it).
+
+★ **89.7 GB of D: is `D:\Dev\pdfce	arget`** — the read-only tree, which also
+holds his working fallback `pdfce-gui.exe`. Not touched, and his call. Filed to
+`D:/dev/rag/rust/`.
+
+### Two R2 splits, both forced and both real seams
+
+`canvas/interact.rs` was at **exactly** 1,500 lines, so the next change of any
+kind was going to require one.
+
+- `canvas/marquee.rs` — what a band takes and why the direction decides it.
+- `textsel::sweep` — the `TextSelect` arm's body, whose rules already lived in
+  `textsel`; that arm always described itself as wiring.
+
+### Still true
+
+2,214 GUI + 422 shell + 163 ui-verify tests green. 21/21 gates green. The link
+and OCR checks were spot-checked after all of this and still pass. **The
+published build on `pdfceGUI2` is from before this tick** and does not contain
+the marquee change — which is correct, because it is not driven.
+
 ## 2026-09-01 (late evening) — READ THIS FIRST. Links work, OCR progress is driven, and one falsification had to be repaired before it meant anything
 
 **Written at the operator's request, for a session starting cold.** Everything
