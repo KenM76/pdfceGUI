@@ -96,6 +96,39 @@ in commit messages, where you cannot see them and a cold session does not look.
 back-filled, and are marked as back-filled so the dates are not read as evidence
 of a process that worked.
 
+## O102 — ⬜ **Closing the program should ask about unsaved work — for each document, focused, with a Save all**
+
+**Ken, 2026-09-02:**
+
+> *"also when I close the program it should prompt to save changes if there are
+> any, and it should do what other programs do - switch focus to the document
+> that is being prompted for, and cycle through each unsaved document while it
+> prompts, but also have a save all button that saves all changed documents."*
+
+**Not investigated.** Four separate requirements in one sentence, and they are
+worth keeping separate because three of them are the ones that get skipped:
+
+1. **Prompt on close when there is unsaved work.** The base case.
+2. **★ Switch focus to the document being asked about.** A modal that says
+   *"save changes?"* while showing a different document is asking about a file
+   the operator cannot see. This is the one that makes the prompt trustworthy.
+3. **★ Cycle through each unsaved document.** One prompt per dirty document, in
+   turn — not one prompt for "some documents".
+4. **★★ A Save all button**, which is what makes the cycle bearable. Without it
+   an operator with six dirty documents answers six questions.
+
+★ pdfce is multi-document, so this is a real cycle rather than a single
+question. `crate::dialogs::unsaved` already exists for the single-document case
+(closing one tab); what is not known yet is whether the **application close**
+path reaches it at all, and whether anything cycles.
+
+★★ The interaction to copy is the conventional one — Word, Notepad++, VS Code
+all do exactly this — and the standing instruction is to use the conventional
+interaction rather than invent one. Cancel on any document must abandon the
+whole close, not just that document's question.
+
+---
+
 ## O101 — ◑ **BUILT 2026-09-02, NOT YET DRIVEN** — the build time in the top bar
 
 **Ken, 2026-09-02:** *"also in the next release add the local compilation time
