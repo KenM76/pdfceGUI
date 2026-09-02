@@ -690,6 +690,65 @@ pub struct PageContext<'a> {
 /// selects nothing rather than the nearest word, which is what Acrobat does and
 /// what stops a stray drag on a drawing sheet's margin producing a selection the
 /// operator did not make.
+/// **Run one frame of a sweep gesture against the open document**, and trace it.
+///
+/// The `GestureOutcome::TextSelect` arm's whole body, lifted out of
+/// [`crate::canvas::interact`] on 2026-09-02 under R2 when that file crossed the
+/// 1,500-line ceiling. It belongs here rather than there for the reason every
+/// arm in that match states about itself: **the arm is wiring**, and every rule
+/// it applied — which extraction options, what a degenerate drag means, when a
+/// range has changed enough to trace — already lives in this module.
+///
+/// # Returns
+///
+/// The new selection, or `None`. ★ `None` is returned when the page has **no
+/// extractable text or no such page**, and the caller must assign it: a sweep
+/// over a page with nothing on it clears whatever was selected, which is what
+/// the operator asked for by sweeping there. Returning the *old* selection on a
+/// miss would make a sweep across a blank page do nothing at all, which reads as
+/// the gesture being broken rather than as there being nothing to select.
+///
+/// # ★ Why the trace fires on every frame and not only at the release
+///
+/// `trace::text_selection` collapses the frames where the range did not move, so
+/// what reaches the channel is the sequence of *distinct* states the selection
+/// passed through. A harness watching `chars=` grow can see the sweep happen;
+/// one line at the end could only see that it had.
+#[must_use]
+pub fn sweep(
+    doc: &crate::app::state::OpenDoc,
+    page_index: usize,
+    from: Pos2,
+    to: Pos2,
+    phase: crate::canvas::gesture::Phase,
+) -> Option<TextSelection> {
+    let selection =
+        if let (Some(page_text), Some(page)) = (doc.page_text(), doc.pages.get(page_index)) {
+            // ★ The SAME options the extraction ran with -- see
+            // `PageContext::opts` for why a bare `ExtractOptions::default()` here
+            // would be a defect rather than a shortcut.
+            let ctx = PageContext {
+                text: &page_text,
+                page,
+                index: page_index,
+                epoch: doc.edit_epoch,
+            };
+            drag(&ctx, from, to)
+        } else {
+            None
+        };
+    crate::canvas::trace::text_selection(
+        page_index,
+        selection.as_ref(),
+        if matches!(phase, crate::canvas::gesture::Phase::Complete) {
+            "drag" // ui-text-exempt: trace token, never displayed
+        } else {
+            "sweep" // ui-text-exempt: trace token, never displayed
+        },
+    );
+    selection
+}
+
 #[must_use]
 pub fn drag(ctx: &PageContext<'_>, from: Pos2, to: Pos2) -> Option<TextSelection> {
     let model = model(ctx);

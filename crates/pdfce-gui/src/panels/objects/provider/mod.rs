@@ -1198,14 +1198,40 @@ impl ObjectModelProvider {
             .next()
     }
 
-    /// Every object **fully enclosed** by a canvas-space marquee rect.
+    /// Every object a canvas-space marquee rect takes, under `mode`.
     ///
-    /// Fully-enclosed rather than touched is the deliberate default
-    /// (decision 011, matching Inkscape): a marquee that grabs everything it
-    /// grazes is unusable on a dense drawing, which is the document class
-    /// pdfce is for. This is the one place that convention is decided.
+    /// # ★★★ `mode` is a parameter as of 2026-09-02, and it is `OPERATOR_REQUESTS.md` O88
+    ///
+    /// This used to hard-code [`MarqueeMode::Enclosed`], on decision 011's
+    /// reasoning — *a marquee that grabs everything it grazes is unusable on a
+    /// dense drawing, which is the document class pdfce is for*. That reasoning
+    /// is still right and is still the **default**; what was wrong was that it
+    /// was the **only** answer.
+    ///
+    /// The operator's report: *"I can't box select the tables in the left or
+    /// right top corners … it only picks up the lines of each table."* Both
+    /// tables sit hard against the sheet edge, so a band that surrounds one has
+    /// to start **outside the page** — and at fit zoom there is barely a pixel
+    /// of margin to start in. The only band that can actually be drawn is one
+    /// *inside* the table, which surrounds a few short rules and nothing else.
+    ///
+    /// ⇒ *"It only picks up the lines"* is what an enclosing band returns when
+    /// it cannot be drawn big enough. It was never a hit test that excluded
+    /// text.
+    ///
+    /// The caller chooses from the drag's **direction** — see
+    /// `crate::canvas::gesture::GestureOutcome::Marquee::crossing`. Left to
+    /// right encloses; right to left touches. That is AutoCAD's window /
+    /// crossing-window rule, which SolidWorks drawings use too, and it is the
+    /// convention rather than an invention: no modifier key, nothing new to
+    /// learn, and the behaviour a drawing-office hand already has.
+    ///
+    /// ★ **Select All still passes `Enclosed` explicitly**
+    /// (`app::actions::apply`), and must: it hands an infinite rect, under
+    /// which the two modes agree, and stating the mode keeps the call readable
+    /// rather than resting on that coincidence.
     #[must_use]
-    pub fn hit_test_rect(&self, page_index: usize, rect: Rect) -> Vec<TargetId> {
+    pub fn hit_test_rect(&self, page_index: usize, rect: Rect, mode: MarqueeMode) -> Vec<TargetId> {
         if page_index != self.page_index {
             return Vec::new();
         }
@@ -1213,7 +1239,7 @@ impl ObjectModelProvider {
             return Vec::new();
         };
         // The page's own list, from the engine's rule.
-        let mut out: Vec<TargetId> = hit_test_rect(&self.objects, bounds, MarqueeMode::Enclosed)
+        let mut out: Vec<TargetId> = hit_test_rect(&self.objects, bounds, mode)
             .into_iter()
             .map(|i| TargetId::Object(i as u64))
             .collect();
@@ -1241,7 +1267,22 @@ impl ObjectModelProvider {
                 .leaves
                 .iter()
                 .enumerate()
-                .filter(|(_, leaf)| leaf.object.page_bbox().contained_by(bounds))
+                .filter(|(_, leaf)| match mode {
+                    // The engine's own two predicates, called rather than
+                    // re-derived, so the deep half and the page half of this
+                    // answer cannot come to different conclusions about the
+                    // same rect — which is the property this filter existed to
+                    // keep before it had a mode to get wrong as well.
+                    MarqueeMode::Enclosed => leaf.object.page_bbox().contained_by(bounds),
+                    MarqueeMode::Touched => leaf.object.page_bbox().intersects(bounds),
+                    // ★ No wildcard, deliberately. `MarqueeMode` is NOT
+                    // `#[non_exhaustive]`, so a third variant added upstream
+                    // breaks this build — which is the outcome to want. A
+                    // wildcard would silently give the new mode whichever
+                    // behaviour it fell through to, on a surface where the two
+                    // existing behaviours differ by "did the operator get
+                    // objects they did not ask for".
+                })
                 .map(|(i, _)| TargetId::Leaf(i as u64)),
         );
         out

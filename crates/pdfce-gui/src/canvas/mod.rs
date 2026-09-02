@@ -244,6 +244,14 @@ pub mod keys;
 /// defect, and why the affordance is a cursor and never a mark on the page.
 pub mod links;
 pub mod mapping;
+/// ★★ **What a rubber-band takes, and why the DIRECTION decides it** —
+/// `OPERATOR_REQUESTS.md` O88. Left to right encloses, right to left
+/// touches; AutoCAD's window / crossing-window rule. Split out of
+/// [`interact`] on 2026-09-02 under R2. Its header carries the operator's
+/// report and the reason the fix is geometric rather than about hit tests,
+/// and `without_page_wrappers` carries the hazard a crossing band
+/// introduces that an enclosing one could not.
+pub mod marquee;
 // Drawing a markup annotation where the operator points: the rubber band, the
 // four kinds it can author, and the raw endpoints an arrow's head depends on.
 pub mod markup;

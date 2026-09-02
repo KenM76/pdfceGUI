@@ -43,6 +43,8 @@
 //! type to follow its writer would have been the tidier-looking edit and the
 //! one that widened a private thing's visibility for no gain.
 
+use pdfce_core::vector::MarqueeMode;
+
 use super::forms::FieldAction;
 
 use super::Action;
@@ -1306,7 +1308,12 @@ impl PdfceApp {
                 );
                 let hits = doc
                     .page_objects()
-                    .map(|p| p.hit_test_rect(page, all))
+                    // ★ `Enclosed` stated rather than implicit, as of 2026-09-02
+                    // when the mode became a parameter (O88): under
+                    // `Rect::EVERYTHING` the two modes agree, and a reader must
+                    // not have to work that out before believing Select All is
+                    // unaffected by a change to what a rubber band means.
+                    .map(|p| p.hit_test_rect(page, all, MarqueeMode::Enclosed))
                     .unwrap_or_default();
                 crate::diag::trace(|| {
                     // ui-text-exempt: diagnostic trace, never displayed in the UI

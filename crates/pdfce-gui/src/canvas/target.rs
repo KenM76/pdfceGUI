@@ -53,6 +53,7 @@
 //! [`crate::canvas::mapping::SELECT_SCREEN_TOLERANCE_PX`] exists to close.
 
 use egui::{Pos2, Rect};
+use pdfce_core::vector::MarqueeMode;
 
 use crate::canvas::pick::PickClass;
 use crate::panels::objects::provider::ObjectModelProvider;
@@ -198,7 +199,14 @@ pub trait CanvasTargetProvider {
         true
     }
 
-    fn hit_test_rect(&self, page_index: usize, rect: Rect) -> Vec<TargetId>;
+    /// Every target a marquee rect takes, under `mode`.
+    ///
+    /// ★ `mode` is a parameter as of 2026-09-02 (`OPERATOR_REQUESTS.md` O88):
+    /// a left-to-right drag encloses, a right-to-left drag touches. The caller
+    /// decides from the drag's direction and every implementor obeys, rather
+    /// than each deciding for itself — see the live provider's own
+    /// `hit_test_rect` for the report that motivated it.
+    fn hit_test_rect(&self, page_index: usize, rect: Rect, mode: MarqueeMode) -> Vec<TargetId>;
 
     /// One target's canvas-space bounding rect, or `None` for a target this
     /// provider no longer knows.
@@ -485,8 +493,8 @@ impl CanvasTargetProvider for ObjectModelProvider {
         Self::object_sample_points(self, index)
     }
 
-    fn hit_test_rect(&self, page_index: usize, rect: Rect) -> Vec<TargetId> {
-        Self::hit_test_rect(self, page_index, rect)
+    fn hit_test_rect(&self, page_index: usize, rect: Rect, mode: MarqueeMode) -> Vec<TargetId> {
+        Self::hit_test_rect(self, page_index, rect, mode)
     }
 
     /// ★ `Self::containing_form`, spelled as the inherent call rather than as
@@ -800,14 +808,17 @@ impl CanvasTargetProvider for StubTargets {
             .map(|object| TargetId::Object(*object as u64))
     }
 
-    fn hit_test_rect(&self, page_index: usize, rect: Rect) -> Vec<TargetId> {
+    fn hit_test_rect(&self, page_index: usize, rect: Rect, mode: MarqueeMode) -> Vec<TargetId> {
         if page_index != self.page {
             return Vec::new();
         }
         self.objects
             .iter()
             .enumerate()
-            .filter(|(_, r)| rect.contains_rect(**r))
+            .filter(|(_, r)| match mode {
+                MarqueeMode::Enclosed => rect.contains_rect(**r),
+                MarqueeMode::Touched => rect.intersects(**r),
+            })
             .map(|(i, _)| TargetId::Object(i as u64))
             .collect()
     }
@@ -936,9 +947,21 @@ mod tests {
         );
         let grazing = Rect::from_min_size(Pos2::new(5.0, 5.0), egui::vec2(200.0, 200.0));
         assert_eq!(
-            p.hit_test_rect(0, grazing),
+            p.hit_test_rect(0, grazing, MarqueeMode::Enclosed),
             vec![TargetId::Object(1)],
             "an object the marquee only grazes must not be selected"
+        );
+        // ★★ …and the SAME band as a crossing window takes BOTH — O88.
+        //
+        // The pair is the point. An `Enclosed`-only assertion passes against a
+        // stub that ignores its mode argument entirely, which is exactly the
+        // shape a hurried implementation of this change would have: the
+        // parameter added, threaded, and never read. Asserting both modes over
+        // one rect is the only way this test can tell them apart.
+        assert_eq!(
+            p.hit_test_rect(0, grazing, MarqueeMode::Touched),
+            vec![TargetId::Object(0), TargetId::Object(1)],
+            "a crossing window must take the object it only grazes as well"
         );
     }
 

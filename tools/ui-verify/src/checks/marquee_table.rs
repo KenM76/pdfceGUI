@@ -176,6 +176,31 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
         )));
     }
 
+    // ★★★ **ARM THE SELECT TOOL FIRST**, and this line is the repair that made
+    // this check able to run at all — 2026-09-02.
+    //
+    // Its first three runs reported "THE BAND SELECTED NOTHING AT ALL: no
+    // `canvas-selection … via=pv.marquee` line", which reads as a hit test
+    // that excluded everything. It was not: the trace carried **no**
+    // `canvas-selection` line of any kind and only sixteen `canvas-pointer`
+    // ones, so no rubber band had ever begun. The press belongs to whichever
+    // tool is armed, and nothing here had armed one.
+    //
+    // ★★ Two of the three failures were previously written off as the harness
+    // "driving the band above the canvas" — true of the first run, and it
+    // masked this. A check that fails for two different reasons in two runs is
+    // one whose SECOND diagnosis nobody looked for.
+    //
+    // A `false` return means the pointer route to the tool is unavailable, which
+    // is a SKIP rather than a failure: the band could not be started, so nothing
+    // about what a band selects was measured.
+    if !crate::checks::driving::arm_select_from_ribbon(&session, &driver, ui_rect, report)? {
+        return Err(Error::new(
+            "the select tool could not be armed from the ribbon, so no rubber band could be \
+             started. Nothing about what a band selects was measured.",
+        ));
+    }
+
     // --- the band ------------------------------------------------------------
     let from = aim(
         ctx,

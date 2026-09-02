@@ -469,7 +469,7 @@ question above is undecided and is yours.
 ---
 
 
-## O88 — ⬜ **A box can only select what it completely surrounds** — which is why the corner tables cannot be caught
+## O88 — ◑ **BUILT AND UNIT-TESTED 2026-09-02, NOT DRIVEN** — a box can only select what it completely surrounds
 
 **Ken, 2026-09-01, on `TR-0461-1500-copy.pdf`:**
 
@@ -484,10 +484,10 @@ question above is undecided and is yours.
   paths and text side by side.
 - The engine's marquee **does** include text: it selects any object whose
   bounding box satisfies the mode, with no filtering by kind.
-- This shell asks for exactly one mode, everywhere: **`MarqueeMode::Enclosed`**
+- This shell asked for exactly one mode, everywhere: **`MarqueeMode::Enclosed`**
   — an object counts only if the band **completely surrounds** it.
 - The engine also has **`MarqueeMode::Touched`** — *"selected if its page bbox
-  touches the marquee (any overlap)"* — and **nothing in this shell has ever
+  touches the marquee (any overlap)"* — and **nothing in this shell had ever
   asked for it.**
 
 ### ★★★ Why "enclosed only" makes your corner tables uncatchable
@@ -500,32 +500,76 @@ table — which surrounds a few short rules and nothing else.
 ⇒ **"It only picks up the lines" is what an enclosing band returns when it
 cannot be drawn big enough.** Not a hit test that excludes text.
 
-### The remedy, and it is a convention rather than an invention
+### ✅ What was built, 2026-09-02
 
 **AutoCAD's direction-sensitive marquee**, which SolidWorks drawings use too:
 
-| drag | selects |
-|---|---|
-| **left → right** | only what is completely surrounded (what pdfce does today) |
-| **right → left** | anything the band **touches** |
+| drag | AutoCAD's name | selects |
+|---|---|---|
+| **left → right** | a *window* | only what is completely surrounded (what pdfce did before) |
+| **right → left** | a *crossing window* | anything the band **touches** |
 
-No modifier key, nothing new to learn, and it is the behaviour a CAD user's hand
-already has. Illustrator selects on touch always; Inkscape encloses and puts
-touch on `Alt`. The direction rule is the drawing-office one, and this is a
-drawing program.
+No modifier key, nothing new to learn. Illustrator selects on touch always;
+Inkscape encloses and puts touch on `Alt`. The direction rule is the
+drawing-office one, and this is a drawing program — your own standing
+instruction is to use the conventional interaction rather than invent one.
 
-★ It also fixes the corner case exactly: drag right-to-left across a table and
-everything it touches comes with it, edge of the sheet or not.
+★ **The enclosing band's answer is unchanged.** `Enclosed` is still what a
+left-to-right drag does and is still the right default on a dense sheet.
+Decision 011's reasoning is untouched; what was wrong was that it was the only
+answer available.
 
-**Status:** ⬜ **OPEN — diagnosed, not built.** The engine half already exists;
-this is a shell change to `canvas::interact`'s marquee and its gesture. Not
-built yet because it wants driving to verify and the machine was yours.
+**Where the code is:** `canvas/marquee.rs` (new — `mode_for`, `select`,
+`without_page_wrappers`), `canvas/gesture/outcome.rs` (the `crossing` flag),
+`canvas/target.rs` and `panels/objects/provider` (the mode parameter).
 
-★★ A driven check exists and is **not passing yet**:
-`a_marquee_over_a_table_takes_its_text_as_well_as_its_lines`. Its first two runs
-failed on the harness rather than the feature — a ten-page continuous document
-had scrolled the table off screen, and the band was driven above the canvas.
-Recorded so nobody reads that failure as evidence.
+### ★★★ A hazard the change introduces, found by a failing test rather than by thinking
+
+A crossing band **touches a page-sized form XObject wherever it is drawn.** So
+on a drawing wrapped in one — which `ncored-benchmark-cad-drawing.pdf` is —
+every right-to-left drag would have silently included the whole sheet, and the
+next gesture would move it. Under `Enclosed` this could not happen: a band that
+*surrounds* a page-sized form has to surround the page, which cannot be drawn.
+
+`canvas::marquee::without_page_wrappers` drops it, using **the shell's existing
+rule** — `container_is_worth_selecting`, which already answers *"is this
+container really just the sheet?"* against the page extent and which
+`canvas::smart` already applies to the click ladder. No second threshold exists.
+
+★ **Only a hit that contains another hit is tested.** A lone path covering the
+whole sheet — a drawing border, which is on almost every sheet this program is
+for — is not a container and stays selectable. There is a test whose only job is
+that case, because the obvious simpler implementation (`retain(worth_selecting)`)
+fails it.
+
+★ Measured rather than assumed: of four of your drawings, `TR-0461-1500-copy` and
+`SW41177` have `forms=0`, `ncored-benchmark` has 1, and `TRP5187 - Weber Supply`
+has 75.
+
+### ⬜ WHAT IS MISSING, and it is the part that decides the status
+
+**It has never been driven, so under R1 it is not shipped.**
+`a_marquee_over_a_table_takes_its_text_as_well_as_its_lines` still fails, and it
+is failing on the **harness**, not on the feature:
+
+- the trace carries **no `canvas-selection` line of any kind** and only sixteen
+  `canvas-pointer` ones, so **no rubber band ever begins**;
+- the check did not arm the Select tool. That was added 2026-09-02
+  (`arm_select_from_ribbon`) and **the run still selects nothing**, so there is a
+  second cause underneath it that has not been found;
+- ★★ its first failure was written off as *"the harness drove the band above the
+  canvas"* — true of that run, and it **masked this**. A check that fails for two
+  different reasons in two runs is one whose second diagnosis nobody looked for.
+  This is now the third.
+
+⇒ **The next session's first job on this row is that check, not the feature.**
+Do not read the unit tests as evidence the gesture works end to end; they cover
+the rule and cannot see the chain in front of it, which is the exact distinction
+O93 was held open on.
+
+★ A **second cause** remains recorded against this row from the original
+diagnosis: a stale `/LW` can make a visible line unselectable, which presents
+identically to a marquee that missed it.
 
 ---
 

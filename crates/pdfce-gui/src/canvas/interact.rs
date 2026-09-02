@@ -683,15 +683,24 @@ pub(super) fn interact(
         ),
         GestureOutcome::Marquee {
             rect,
+            crossing,
             shift,
             intent: MarqueeIntent::Select,
             phase: Phase::Complete,
         } => {
-            let hits = targets
-                .as_ref()
-                .map(|t| t.hit_test_rect(page_index, rect))
-                .unwrap_or_default();
-            selection.marquee(page_index, &hits, shift);
+            // ★★★ **THE DIRECTION DECIDES WHAT THE BAND TAKES** (O88): left
+            // to right encloses, right to left touches — AutoCAD's window /
+            // crossing-window rule. `canvas::marquee`'s header carries the
+            // operator's report, why the fix is geometric rather than about hit
+            // tests, and the page-wrapper hazard a crossing band introduces.
+            crate::canvas::marquee::select(
+                targets.as_deref().map(|t| t as &dyn CanvasTargetProvider),
+                page_index,
+                rect,
+                crossing,
+                shift,
+                &mut selection,
+            );
             trace::selection_event(&selection, "pv.marquee", shift);
         }
         // ★ The same rubber band, released with the other intent. **The
@@ -793,33 +802,13 @@ pub(super) fn interact(
         // glyphs, not objects, which is why this outcome is absent from
         // `needs_targets` above — and why a sweep over the 129,758-object
         // benchmark sheet decomposes nothing.
+        // ★ The sweep, routed. Every rule it once applied inline — the
+        // extraction options, the degenerate-drag refusal, what counts as a
+        // changed range — already lived in `textsel`, so the body moved there
+        // on 2026-09-02 under R2 and this arm became what it always described
+        // itself as: wiring.
         GestureOutcome::TextSelect { from, to, phase } => {
-            if let (Some(page_text), Some(page)) = (doc.page_text(), doc.pages.get(page_index)) {
-                // ★ The SAME options the extraction ran with — see
-                // `textsel::PageContext::opts`.
-                let text_ctx = textsel::PageContext {
-                    text: &page_text,
-                    page,
-                    index: page_index,
-                    epoch: doc.edit_epoch,
-                };
-                text_selection = textsel::drag(&text_ctx, from, to);
-            }
-            // Traced on every frame of the sweep, not only at the release:
-            // `trace_changed` collapses the frames where the range did not move,
-            // so what reaches the channel is the sequence of *distinct* states
-            // the selection passed through — which is what a harness reading a
-            // growing `chars=` needs, and is far more useful than one line at
-            // the end.
-            trace::text_selection(
-                page_index,
-                text_selection.as_ref(),
-                if matches!(phase, Phase::Complete) {
-                    "drag"
-                } else {
-                    "sweep"
-                },
-            );
+            text_selection = textsel::sweep(doc, page_index, from, to, phase);
         }
         // ★ Two gesture modules behind one outcome, split on the family rather
         // than on a list of kinds.

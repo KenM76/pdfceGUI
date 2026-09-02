@@ -84,6 +84,37 @@ pub enum GestureOutcome {
     Marquee {
         /// The band, normalised — dragged in any of four directions.
         rect: Rect,
+        /// ★★★ **Was it dragged RIGHT TO LEFT?** — `OPERATOR_REQUESTS.md` O88.
+        ///
+        /// AutoCAD's names for the two bands: a left-to-right drag is a
+        /// **window** and takes only what it completely surrounds; a
+        /// right-to-left drag is a **crossing window** and takes anything it
+        /// touches. SolidWorks drawings use the same rule, and it is the one a
+        /// drawing-office hand already has.
+        ///
+        /// # Why one BOOLEAN and not the two raw endpoints
+        ///
+        /// [`Self::TextBox`], [`Self::Rotate`] and the markup band all carry
+        /// their endpoints raw and normalise at the boundary, and the reason
+        /// they give is real: `Rect::from_two_pos` discards which corner the
+        /// press was at. This variant is the exception, and deliberately.
+        ///
+        /// **Every consumer of this band wants it normalised** — the hit test,
+        /// the painter, the zoom. Exactly one bit is discarded and exactly one
+        /// consumer needs it. Carrying `from`/`to` instead would let each
+        /// consumer re-derive the direction, and *the direction decides what the
+        /// gesture MEANS*: two consumers that disagreed about it would select one
+        /// set of objects and paint the band for a different one.
+        ///
+        /// ⇒ Decided once, here, exactly as [`Self::Marquee::shift`] is sampled
+        /// once at the press rather than re-read by whoever needs it.
+        ///
+        /// ★ The comparison is on **x only**. A drag that goes left and up is a
+        /// crossing window; one that goes right and down is a window. AutoCAD's
+        /// rule is horizontal, and a rule that also read y would give the four
+        /// diagonal drags two meanings apiece with nothing on screen to say
+        /// which.
+        crossing: bool,
         /// Whether Shift was held at the press (extend rather than replace).
         shift: bool,
         /// What the release does: select what is enclosed, or zoom to it.
@@ -346,6 +377,12 @@ impl Drag {
         match self.kind {
             DragKind::Marquee(intent) => GestureOutcome::Marquee {
                 rect: Rect::from_two_pos(self.origin, self.latest),
+                // ★ Strictly less-than, so a perfectly vertical drag is a
+                // WINDOW. It has to fall one way and the safe way is the
+                // existing behaviour: a vertical band that silently became a
+                // crossing window would take everything it grazed on a gesture
+                // the operator has been making for weeks.
+                crossing: self.latest.x < self.origin.x,
                 shift: self.shift,
                 intent,
                 phase,

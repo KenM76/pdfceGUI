@@ -262,11 +262,40 @@ fn a_marquee_encloses_objects_inside_a_form() {
     // A canvas rect covering PDF 70..130 in both axes: the middle square
     // only.
     let rect = Rect::from_min_max(canvas(70.0, 130.0), canvas(130.0, 70.0));
-    assert_eq!(p.hit_test_rect(0, rect), vec![TargetId::Leaf(1)]);
+    assert_eq!(
+        p.hit_test_rect(0, rect, MarqueeMode::Enclosed),
+        vec![TargetId::Leaf(1)]
+    );
     // And a marquee that only grazes it takes nothing -- enclosure, not
     // touching, on both index spaces.
     let grazing = Rect::from_min_max(canvas(100.0, 130.0), canvas(130.0, 100.0));
-    assert!(p.hit_test_rect(0, grazing).is_empty());
+    assert!(
+        p.hit_test_rect(0, grazing, MarqueeMode::Enclosed)
+            .is_empty()
+    );
+    // ★ …and the SAME grazing band as a crossing window takes it. Added
+    // 2026-09-02 with O88: without this the enclosure assertion above is
+    // half a claim, because it cannot distinguish "enclosure is enforced"
+    // from "the deep index space is unreachable by any marquee at all".
+    assert_eq!(
+        p.hit_test_rect(0, grazing, MarqueeMode::Touched),
+        vec![TargetId::Object(0), TargetId::Leaf(1)],
+        "a crossing window must reach a form's interior, or the two index spaces \
+         disagree about what a right-to-left drag means"
+    );
+    // ★★ …and `Object(0)` — the page-sized WRAPPER — comes with it, which is
+    // the honest answer from THIS function and is NOT what the operator gets.
+    //
+    // A crossing band touches a page-sized form wherever it is drawn, so on a
+    // wrapped drawing every right-to-left drag would otherwise include the whole
+    // sheet. It is dropped one layer up, by
+    // `canvas::marquee::without_page_wrappers`, using the same
+    // `container_is_worth_selecting` rule the click ladder already applies --
+    // and it is dropped THERE rather than here because this function is a hit
+    // test and that is a selection policy.
+    //
+    // ★ Asserting the raw answer keeps the seam visible. An expectation written
+    // as the filtered result would pass whether the filter existed or not.
 }
 
 /// Nesting is reported by depth, so a shell can say "three wrappers down"
@@ -367,16 +396,21 @@ fn marquee_encloses_only_fully_contained_objects() {
     let hits = p.hit_test_rect(
         0,
         Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(100.0, 100.0)),
+        MarqueeMode::Enclosed,
     );
     assert_eq!(hits, vec![TargetId::Object(0)]);
     // A marquee spanning both encloses both.
     let both = p.hit_test_rect(
         0,
         Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(300.0, 300.0)),
+        MarqueeMode::Enclosed,
     );
     assert_eq!(both, vec![TargetId::Object(0), TargetId::Object(1)]);
     // Wrong page: nothing.
-    assert!(p.hit_test_rect(1, Rect::EVERYTHING).is_empty());
+    assert!(
+        p.hit_test_rect(1, Rect::EVERYTHING, MarqueeMode::Enclosed)
+            .is_empty()
+    );
 }
 
 #[test]

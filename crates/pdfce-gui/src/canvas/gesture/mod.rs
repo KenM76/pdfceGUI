@@ -408,6 +408,8 @@ mod tests {
             outcomes.last(),
             Some(&GestureOutcome::Marquee {
                 rect: Rect::from_two_pos(Pos2::ZERO, Pos2::new(50.0, 20.0)),
+                // Dragged rightwards, so a window rather than a crossing one.
+                crossing: false,
                 shift: false,
                 intent: MarqueeIntent::Select,
                 phase: Phase::Complete,
@@ -499,6 +501,11 @@ mod tests {
             GestureOutcome::Marquee {
                 // Dragged up and left: normalised, or it would contain nothing.
                 rect: Rect::from_two_pos(Pos2::new(100.0, 100.0), Pos2::new(40.0, 30.0)),
+                // ★ …and leftwards, so this is a CROSSING window. The same drag
+                // that motivated the normalisation note above is the one O88 is
+                // about, which is a coincidence worth not tidying away: the
+                // fixture for "a band may be dragged backwards" was already here.
+                crossing: true,
                 shift: true,
                 intent: MarqueeIntent::Select,
                 phase: Phase::InFlight,
@@ -520,6 +527,7 @@ mod tests {
             end,
             GestureOutcome::Marquee {
                 rect: Rect::from_two_pos(Pos2::new(100.0, 100.0), Pos2::new(40.0, 30.0)),
+                crossing: true,
                 shift: true,
                 intent: MarqueeIntent::Select,
                 phase: Phase::Complete,
@@ -586,12 +594,14 @@ mod tests {
                         shift: ss,
                         intent: si,
                         phase: sp,
+                        ..
                     },
                     GestureOutcome::Marquee {
                         rect: zr,
                         shift: zs,
                         intent: zi,
                         phase: zp,
+                        ..
                     },
                 ) => {
                     assert_eq!(sr, zr, "the two bands must be the same rectangle");
