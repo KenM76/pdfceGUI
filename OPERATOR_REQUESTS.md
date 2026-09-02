@@ -96,6 +96,96 @@ in commit messages, where you cannot see them and a cold session does not look.
 back-filled, and are marked as back-filled so the dates are not read as evidence
 of a process that worked.
 
+## O99 — ⬜ **The tab-order list should be reorderable by dragging, with clear drop markers**
+
+**Ken, 2026-09-02:**
+
+> *"the tab order list is supposed to be able to be reordered by dragging and
+> dropping rows around like we can with pages in the page preview, and have clear
+> markers of where the field is going to move to."*
+
+**Not investigated.** Two named requirements: the drag itself, and **a clear
+marker of where the row will land** — which he names by comparison with the page
+rail, so that is the bar and the implementation to copy rather than reinvent.
+
+★ The page rail already does drag-reorder with an insertion marker. Whatever it
+uses is the thing to reuse; a second drop-marker implementation on one surface is
+two behaviours to learn.
+
+---
+
+## O98 — ⬜ **Clicking a field in the Fill Form panel should highlight it on the canvas**
+
+**Ken, 2026-09-02:**
+
+> *"when we have the fill form panel visible and I click on fields in it instead
+> it should highlight the field on the canvas that is being filled."*
+
+**Not investigated.** The panel and the canvas are two views of one form and
+today the panel does not say which box on the page it is filling — so on a
+drawing with a dozen fields you fill one and cannot see where it went.
+
+★ Note the direction: **panel → canvas**. The canvas → panel direction shipped as
+O53 (clicking a field on the page selects it and fills the Properties panel).
+This is the other half of the same relationship.
+
+---
+
+## O97 — ⬜ **The display buttons should be on two rows, to save space**
+
+**Ken, 2026-09-02:**
+
+> *"our display buttons should be on two rows to save space."*
+
+**Not investigated.** A layout change to the page-display group. Two rows of two
+rather than one row of four.
+
+---
+
+## O96 — ⬜ **Shade the form fields, like Acrobat** — a Display option
+
+**Ken, 2026-09-02:**
+
+> *"in our display section we should have an option to shade the form fields like
+> acrobat does."*
+
+**Not investigated.** Acrobat draws a pale blue wash over every fillable field so
+you can see at a glance what can be typed into, with a preference to turn it off.
+
+★★ **This one needs care against rule 4.** The standing rule is *applied content
+renders exactly as saved content will render* — no tint drawn into the page. A
+field shade is **not** that: it is an affordance for a control, not a mark on
+content, and it is exactly what Acrobat does. But it must be **off the saved
+document** — it must never reach a print, an export or a rasterised page — and
+the toggle must be a display setting rather than a document property. Worth
+stating before it is built, because "draw a wash over part of the page" is the
+shape rule 4 exists to refuse.
+
+---
+
+## O95 — ⬜ **Save As, and then keep editing the NEW file** — the thing every other program does
+
+**Ken, 2026-09-02:**
+
+> *"we need a Save As option so that we are then making edits in the save as file
+> instead of the original just like other programs have it."*
+
+**Not investigated**, and the second half is the whole request. `file.save_copy`
+already writes a copy — but it is a *copy*: the session stays pointed at the
+original, so the next `Ctrl+S` goes back to the file he was trying to leave.
+
+★ That is the difference between **Save a copy** and **Save As**, and both are
+real commands with different meanings. Acrobat, Word and every editor he uses
+have both, and Save As **rebinds the document**: the title bar, the tab, the
+recent list and the next save all follow the new file.
+
+★★ What has to be checked before anything is built: whether `EditSession` can be
+re-pointed at a new path, or whether the shell has to close and reopen — and if
+it reopens, what happens to the **undo stack**, which an operator would expect to
+survive a Save As and would not expect to survive a close.
+
+---
+
 ## O94 — ✅ **BUILT AND DRIVEN 2026-09-01** *(back-filled — see above)* — OCRed text can be copied
 
 **Ken, 2026-09-01:** *"also I can't seem to copy and paste text we have OCRed"*
@@ -839,6 +929,22 @@ workaround.
 ---
 
 
+## O85 — ✅ **NOT A DEFECT — an old build.** Ctrl+S closing the program
+
+**Closed by Ken, 2026-09-02:** *"the save bug was due to running an old version
+and is no longer present."*
+
+★ Worth keeping rather than deleting, and for the same reason O87 was: **this is
+the second report closed by "you were running an old build"**, and two of a kind
+is a pattern rather than a coincidence. The published slots alternate, so the
+folder he opens is not always the newest — and nothing in the program tells him
+which he is running without opening About.
+
+⇒ That is a discoverability finding about the *publishing scheme*, not about the
+program, and it is now on the record twice.
+
+<details><summary>The original investigation, kept because the reasoning is still sound</summary>
+
 ## O85 — ⬜ **"I pressed Ctrl+S to save and it closed"** — NOT REPRODUCED YET
 
 **Ken, 2026-09-01:** *"can you try doing an edit and save? I did this and
@@ -1012,6 +1118,10 @@ on the pre-change binary.
 assertions, including the new falsifier: the page's drawn width went 468.0 pt →
 308.0 pt across the resize, so the fit was still live after a pan. On the old
 build the pan froze the zoom and that number would not have moved.
+
+---
+
+</details>
 
 ---
 
