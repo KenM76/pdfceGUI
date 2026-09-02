@@ -307,7 +307,7 @@ two behaviours to learn.
 
 ---
 
-## O98 — ⬜ **Clicking a field in the Fill Form panel should highlight it on the canvas**
+## O98 — ◑ **BUILT 2026-09-02, NOT YET DRIVEN** — the panel points, the canvas lights up
 
 **Ken, 2026-09-02:**
 
@@ -321,6 +321,51 @@ drawing with a dozen fields you fill one and cannot see where it went.
 ★ Note the direction: **panel → canvas**. The canvas → panel direction shipped as
 O53 (clicking a field on the page selects it and fills the Properties panel).
 This is the other half of the same relationship.
+
+### ★★★ This was already written down as missing — and as permitted
+
+The Forms panel's own header has carried the gap since the panel was written,
+and it settles the rule-4 question in advance:
+
+> *"the old shell's Forms panel did draw on the canvas: hovering a row
+> highlighted the field's rectangle on the page … It was answering a real
+> question — 'which of these is the one I am about to type into?' — and the
+> answer is welcome under rule 4's fourth clause, which permits 'a snap
+> indicator, a hover highlight, a rubber-band, a selection handle — these are
+> the cursor'. It is still not carried, and the reason has **changed**: the
+> mechanism now exists … so what is missing is only the panel→canvas channel."*
+
+⇒ **Nothing had to be designed.** `canvas::forms` already places every fillable
+widget in canvas space; this is the channel, and it is one temp-store slot.
+
+### ✅ Built 2026-09-02
+
+Focus a field's box in the panel and its box on the page is **outlined**.
+
+★★ On **focus**, not on click, and the difference is your own word *"filled"*. A
+click lands in the box and focuses it, so clicking lights it up — but so does
+arriving by Tab, and so does still being there three keystrokes later. A
+click-only trigger would put the light out the moment you started typing, which
+is exactly when you want to know which box you are in.
+
+★★ **Every widget of that field, not one.** A field can be painted in several
+places — a header repeated per page, a radio group — and lighting one would
+answer *"where is this field"* with a half-truth.
+
+★ **An outline, where the O96 shade is a fill.** Every fillable field already
+wears the wash, so a spotlight that was merely a stronger wash would be a
+difference of degree you have to compare two boxes to notice. An outline is a
+difference of kind and reads at a glance. It is the selection colour, because
+that is what you are doing — picking this one out of a list.
+
+★ The panel **clears the channel before its rows draw** and a focused row lights
+it again, so no transition has to be tracked and a hidden panel puts the light
+out by construction.
+
+### ⬜ NOT DRIVEN
+
+Built, unit-tested and gated. The oracle is a rendered window, which takes the
+pointer.
 
 ---
 

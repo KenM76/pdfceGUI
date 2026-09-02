@@ -710,6 +710,19 @@ pub(super) fn overlay(
     // field this function has already returned before reaching.
     shade(ui, doc, pages, list);
 
+    // ★★★ **THE SPOTLIGHT** — `OPERATOR_REQUESTS.md` O98. The field the Forms
+    // panel is pointing at, outlined so the operator can see which box on the
+    // page they are filling.
+    //
+    // After the wash and before everything else: it must sit *on* the shade
+    // rather than under it, and *under* the focused editor's own caret and
+    // text, which are what must stay legible.
+    //
+    // ★ `crate::panels::forms::spotlight` carries why this is a cursor rather
+    // than a mark on the content, and quotes the panel header that named this
+    // gap — and named it permitted — long before it was built.
+    spotlight(ui, pages, list);
+
     // The focused field's editor FIRST, so that a click on another field is
     // seen by the editor it is leaving (as a focus loss, hence a commit)
     // before it is read as a request to focus something else.
@@ -1051,6 +1064,38 @@ fn kind_label(kind: &BoxKind) -> &'static str {
         BoxKind::Text { .. } => "text",   // ui-text-exempt: trace token
         BoxKind::Check { .. } => "check", // ui-text-exempt: trace token
         BoxKind::Radio { .. } => "radio", // ui-text-exempt: trace token
+    }
+}
+
+/// **Outline the field the Forms panel is pointing at** — O98.
+///
+/// ★★ **Every widget of that field**, not one. A field may be painted in
+/// several places — a header repeated on each page, a radio group — and
+/// spotlighting one of them would answer *"where is this field"* with a half
+/// truth. `WidgetBox::field` is the fully-qualified name, so the filter is the
+/// same identity the panel wrote.
+///
+/// ★ Draws nothing when the panel is not pointing at anything, which includes
+/// every frame the panel is not on screen: it clears the channel before its rows
+/// draw, so an unhidden panel with nothing focused leaves it empty.
+fn spotlight(ui: &egui::Ui, pages: &[PageView], list: &[WidgetBox]) {
+    let Some(spot) = crate::panels::forms::spotlight::get(ui.ctx()) else {
+        return;
+    };
+    let painter = ui.painter().clone();
+    let visuals = ui.visuals();
+    for view in pages {
+        for widget_box in list
+            .iter()
+            .filter(|b| b.page == view.page && b.field == spot.field)
+        {
+            crate::canvas::overlay::draw_field_spotlight(
+                &painter,
+                visuals,
+                &view.map,
+                widget_box.rect,
+            );
+        }
     }
 }
 

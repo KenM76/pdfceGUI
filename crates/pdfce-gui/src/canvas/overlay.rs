@@ -927,6 +927,46 @@ pub fn draw_field_shade(painter: &Painter, visuals: &Visuals, mapping: &PageMapp
     );
 }
 
+/// **Outline the field the Forms panel is pointing at** —
+/// `OPERATOR_REQUESTS.md` O98.
+///
+/// A **stroke**, where [`draw_field_shade`] is a fill, and the pair is
+/// deliberate: every fillable field already wears the wash, so a spotlight that
+/// was a stronger wash would be a difference of degree that an operator has to
+/// compare two boxes to notice. An outline is a difference of *kind* and reads
+/// at a glance, which is the whole job.
+///
+/// ★ The theme's **selection stroke**, because that is what the operator is
+/// doing — they have picked this field out of a list, and every other "this is
+/// the one I mean" on this canvas wears the same colour.
+///
+/// ★★ `StrokeKind::Outside`, so the outline sits *around* the field rather than
+/// over its first and last characters. A middle-aligned stroke on a tight text
+/// box eats the glyphs at both ends, which is worst on exactly the short fields
+/// — a date, a revision letter — where every character matters.
+pub fn draw_field_spotlight(
+    painter: &Painter,
+    visuals: &Visuals,
+    mapping: &PageMapping,
+    rect: Rect,
+) {
+    let screen = mapping.rect_to_screen(rect);
+    painter.rect_stroke(
+        screen,
+        CornerRadius::ZERO,
+        Stroke::new(SPOTLIGHT_WIDTH, visuals.selection.stroke.color),
+        StrokeKind::Outside,
+    );
+}
+
+/// How thick the spotlight's outline is, in points.
+///
+/// ★ 2.0 rather than the marquee's 1.0. This one has to be seen against a page
+/// that may be dense linework at a fitted zoom, and it is transient — it is on
+/// screen only while a row is focused, so it can afford to be assertive in a
+/// way a permanent mark could not.
+const SPOTLIGHT_WIDTH: f32 = 2.0;
+
 /// The alpha [`draw_field_shade`] washes a field at.
 ///
 /// ★ 28, against the marquee's 48. See that function's ★ for why lower: this one

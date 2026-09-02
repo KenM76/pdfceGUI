@@ -443,6 +443,24 @@ fn text_row(
         );
     }
 
+    // ★★★ **POINT THE SPOTLIGHT AT THIS FIELD** — `OPERATOR_REQUESTS.md` O98,
+    // *"when I click on fields in it … it should highlight the field on the
+    // canvas that is being filled."*
+    //
+    // ★★ On **focus**, not on click, and the difference is his own word
+    // *"filled"*. A click that lands in the value box focuses it, so clicking
+    // lights it up — but so does arriving by Tab, and so does still being there
+    // three keystrokes later. A click-only trigger would put the spotlight out
+    // the moment the operator started typing, which is exactly when they want
+    // to know which box on the page they are typing into.
+    //
+    // ★ Written every frame the box has focus rather than once on the
+    // transition: that is what keeps it alive with no timer and no teardown,
+    // and `spotlight::set` is idempotent.
+    if response.has_focus() {
+        crate::panels::forms::spotlight::set(ui.ctx(), fqn);
+    }
+
     if let Some(text) = commit(response.lost_focus(), draft.as_str(), &stored) {
         out.push(FormEdit::FillText {
             field: fqn.clone(),

@@ -161,6 +161,12 @@ pub mod edit;
 mod groups;
 /// One field, one row — the per-field controls.
 pub mod rows;
+/// ★★ **The panel→canvas channel** — which field the panel is pointing at, so
+/// the canvas can spotlight it (`OPERATOR_REQUESTS.md` O98). This header has
+/// named that gap since the panel was written, and named it as a PERMITTED
+/// affordance under rule 4's fourth clause; the module is that channel and
+/// nothing more.
+pub mod spotlight;
 /// The order this form is tabbed through, per page — a **read-only** second
 /// list beside the fill list. See that module's header for what it is, why it
 /// is a section rather than a panel, and why it offers no reorder affordance.
@@ -211,6 +217,16 @@ pub fn body(ui: &mut egui::Ui, doc: &OpenDoc, _state: &mut PanelsState, actions:
     // filled three fields must see those three values; `EditSession::view` is
     // the base revision with every unsaved edit applied, which is the same
     // thing the canvas rasterizes.
+    // ★★ **Put the spotlight out before the rows draw, so that a focused row can
+    // light it again this frame** — `OPERATOR_REQUESTS.md` O98.
+    //
+    // Clear-then-set rather than tracking a transition: with no focused row the
+    // clear stands and the canvas draws nothing, and the whole "which row lost
+    // focus, and was it this one" question never has to be asked. It also means
+    // a panel that is not drawn at all — hidden, or a different tab — writes
+    // nothing, so hiding the panel puts the spotlight out by construction.
+    crate::panels::forms::spotlight::clear(ui.ctx());
+
     let view = doc.session.view();
     // ★★ NEITHER of these returns early any more, and the reason is the
     // same one the Bookmarks panel's empty-outline return was removed for on
