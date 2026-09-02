@@ -218,10 +218,11 @@
 
 use std::collections::HashMap;
 
+use super::tabs::{Sequence, TabsEntry, page_tabs};
 use pdfce_core::annot::page_annotations;
 use pdfce_core::forms::AcroForm;
 use pdfce_core::graph::ObjectGraph;
-use pdfce_core::object::{ObjId, Object};
+use pdfce_core::object::ObjId;
 use pdfce_core::page_tree::PageSlot;
 
 /// The whole view's content, computed from one walk of the document.
@@ -312,6 +313,30 @@ pub struct PageTabs {
     /// `/Widget` annotations written as **direct dictionaries** inside
     /// `/Annots`, which have no identity to match against. See §5.
     pub anonymous: usize,
+    /// **Every indirect entry of this page's `/Annots`, in array order** —
+    /// the sequence a reorder is expressed over.
+    ///
+    /// # ★★ Why the rows are not enough, which is the whole reason this exists
+    ///
+    /// [`Self::rows`] is **widgets a field claims**. `/Annots` holds more: the
+    /// unclaimed widgets, the anonymous ones, and every `/Link`, `/Text` and
+    /// markup annotation on the page. `EditSession::reorder_annotations` takes
+    /// *"the page's indirect `/Annots` entries, each once, in the wanted
+    /// order"*, so a list built from the rows alone is not a permutation of it
+    /// — it is a permutation of a subset, and the engine refuses it by name
+    /// (`AnnotsNotAPermutation { missing, .. }`). Correctly: silently dropping
+    /// the entries a form panel does not care about would delete a page's
+    /// links.
+    ///
+    /// # ★ Entries with no id are absent from this list, deliberately
+    ///
+    /// A `/Widget` written as a direct dictionary has nothing to name it by.
+    /// The engine's contract is that such an entry is **pinned** — it keeps its
+    /// index and the rest flow around it — and the way to ask for that is to
+    /// omit it. So this list is shorter than the array whenever
+    /// [`Self::anonymous`] is non-zero, and that is the correct shape rather
+    /// than a lossy one.
+    pub annots: Vec<ObjId>,
     /// Annotations on this page that are not `/Widget`s. They are in the tab
     /// sequence and are not form fields. See §5.
     pub other_annots: usize,
@@ -371,6 +396,24 @@ pub struct TabRow {
     /// and passing it to the engine would be wrong on three axes at once. This
     /// field is the address; that one is the label.
     pub id: ObjId,
+    /// **This row's index within [`PageTabs::annots`]** — the slot it occupies
+    /// in the page's array of indirect annotations.
+    ///
+    /// # ★★ Why a second number, when the row already has two
+    ///
+    /// Because [`Self::position`] is a **label** and this is an **address**,
+    /// and they count different things. `position` is 1-based and counts
+    /// widgets only — it is the number of Tab presses that reach this box, and
+    /// an unclaimed widget or a `/Link` between two rows moves one and not the
+    /// other. Using `position` to index the array would be wrong on three axes
+    /// at once (off by the base, off by the non-widgets, off by the entries
+    /// with no id).
+    ///
+    /// A drag reorders the *rows*; the commit has to reorder the *array*. This
+    /// is the only thing that maps one onto the other, and computing it at the
+    /// drag by re-walking `/Annots` would be a second walk that could disagree
+    /// with the first.
+    pub slot: usize,
     /// **1-based** position among the *widgets* on this page.
     ///
     /// Among the widgets rather than among all annotations, because that is the
@@ -402,178 +445,6 @@ pub struct TabRow {
     /// field is a document-level thing, so the same field genuinely occupies a
     /// position in two different sequences.
     pub widget_count: usize,
-}
-
-/// What the file's `/Tabs` entry says about this page, and where it was found.
-///
-/// Three states rather than two, and the third is the whole of this module's
-/// §4. See that section for the primary-source reading behind it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TabsEntry {
-    /// **No `/Tabs` on the page dictionary, and none on any ancestor.**
-    ///
-    /// Reported as absent and given no mode name — not "manual", not
-    /// "unspecified". See §4.
-    Absent,
-    /// `/Tabs` on the page's **own** dictionary. This is the page's tab order.
-    OnPage(TabsMode),
-    /// No `/Tabs` on the page; the **nearest** ancestor page-tree node that
-    /// carries one carries this.
-    ///
-    /// **Not applied.** `/Tabs` is not among the four inheritable page
-    /// attributes (§7.7.3.4), so per the standard this page has no `/Tabs`. It
-    /// is reported because it is a fact about the file and because a viewer
-    /// that did inherit it would behave differently. See §4.
-    OnAncestor(TabsMode),
-}
-
-impl TabsEntry {
-    /// What this entry implies about whether the `/Annots` sequence on screen
-    /// **is** the tab order.
-    ///
-    /// [`Self::OnAncestor`] answers as [`Self::Absent`] does, because that is
-    /// what this build applies: the ancestor's value is disclosed beside the
-    /// list, not used to describe it.
-    #[must_use]
-    pub fn sequence(&self) -> Sequence {
-        match self {
-            Self::Absent | Self::OnAncestor(_) => Sequence::AnnotsOrder,
-            Self::OnPage(mode) => mode.sequence(),
-        }
-    }
-}
-
-/// A `/Tabs` name, decoded.
-///
-/// Five named values (ISO 32000-2 Table 31; `A` and `W` are PDF 2.0) plus a
-/// verbatim catch-all. The catch-all is modelled rather than folded into one of
-/// the five for the reason `pdfce-core` gives for keeping an unrecognised `/RT`
-/// name: *"a name pdfce does not recognise is a document fact and flattening it
-/// to the default would make the model claim the file said something it did
-/// not."*
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TabsMode {
-    /// `/R` — row order. Derived from where the fields sit.
-    Row,
-    /// `/C` — column order. Derived from where the fields sit.
-    Column,
-    /// `/S` — structure order. Derived from the document's tag tree.
-    Structure,
-    /// `/A` — annotations array order (PDF 2.0). **This list.**
-    AnnotsArray,
-    /// `/W` — widget order (PDF 2.0): widgets first, in `/Annots` order, then
-    /// everything else. **This list**, for the widgets.
-    Widgets,
-    /// A `/Tabs` name this build does not recognise, carried verbatim.
-    Unrecognised(String),
-}
-
-impl TabsMode {
-    /// Decode a `/Tabs` name.
-    ///
-    /// Byte comparison against the five names the standard defines. Anything
-    /// else — including a lower-case `r`, which is a *different name* in PDF
-    /// and not a spelling of `R` — is [`Self::Unrecognised`].
-    #[must_use]
-    pub fn from_name(name: &[u8]) -> Self {
-        match name {
-            b"R" => Self::Row,
-            b"C" => Self::Column,
-            b"S" => Self::Structure,
-            b"A" => Self::AnnotsArray,
-            b"W" => Self::Widgets,
-            other => Self::Unrecognised(String::from_utf8_lossy(other).into_owned()),
-        }
-    }
-
-    /// What this mode implies about the sequence on screen. See the table in
-    /// this module's §4.
-    #[must_use]
-    pub fn sequence(&self) -> Sequence {
-        match self {
-            Self::AnnotsArray | Self::Widgets => Sequence::AnnotsOrder,
-            Self::Row | Self::Column | Self::Structure => Sequence::Derived,
-            Self::Unrecognised(_) => Sequence::Unknown,
-        }
-    }
-}
-
-/// Whether the `/Annots` sequence this view shows is the tab order.
-///
-/// The one thing an operator must not be left to guess. A list that silently
-/// showed the wrong sequence would be worse than no list at all, which is why
-/// this is a modelled answer with a sentence per value rather than a footnote.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Sequence {
-    /// The sequence shown is the tab order (or, with no `/Tabs`, is what
-    /// viewers use in practice).
-    AnnotsOrder,
-    /// The tab order is **derived** — from geometry, or from the structure tree
-    /// — rather than stored, so the sequence shown is not it.
-    Derived,
-    /// The file names an order this build cannot interpret.
-    Unknown,
-}
-
-/// Read one page's `/Tabs`, and say where it came from.
-///
-/// `slot` is `pdfce_core::page_tree::PageSlot`, whose `ancestors` are **root
-/// first** and exclude the page itself — so the nearest ancestor is the *last*
-/// element, and this walks them in reverse.
-///
-/// # Why the ancestors come from `PageSlot` rather than from a `/Parent` walk
-///
-/// `pdfce-core`'s own (private) `page_uses_structure_tab_order` chases
-/// `/Parent` from the page, bounded by `page_tree::MAX_TREE_DEPTH`. That is the
-/// obvious implementation and it has two properties this one does not want.
-///
-/// 1. **It trusts `/Parent`.** `/Parent` is Required on a page, but a file that
-///    omits it, or that points it somewhere other than the node whose `/Kids`
-///    actually holds the page, still has a perfectly good page tree read from
-///    the top. `PageSlot::ancestors` is that top-down walk's own record of how
-///    it reached this page, so it cannot disagree with the page numbering this
-///    view is indexing by.
-/// 2. **It needs its own depth guard.** The downward walk is already bounded
-///    (`MAX_TREE_DEPTH`, and a visited set), so `ancestors` is a finite vector
-///    by construction and there is no cycle left to guard against. A second
-///    bound here would be a second place for the two to disagree.
-///
-/// Nothing is lost: on every conformant file the two walks visit the same
-/// nodes in the same order.
-#[must_use]
-pub fn page_tabs<G: ObjectGraph + ?Sized>(graph: &G, slot: &PageSlot) -> TabsEntry {
-    if let Some(mode) = tabs_name(graph, slot.id) {
-        return TabsEntry::OnPage(mode);
-    }
-    // Nearest ancestor first. `ancestors` is root-first, so this is a reverse
-    // iteration and NOT a `.first()`: an intermediate `Pages` node's `/Tabs`
-    // must win over the root's, exactly as it would under a `/Parent` walk.
-    for ancestor in slot.ancestors.iter().rev() {
-        if let Some(mode) = tabs_name(graph, *ancestor) {
-            return TabsEntry::OnAncestor(mode);
-        }
-    }
-    TabsEntry::Absent
-}
-
-/// The `/Tabs` name on one page-tree node's dictionary, if it has one.
-///
-/// `Dict::get` collapses a null-valued entry to `None` (§7.3.7/§7.3.9), so
-/// `/Tabs null` reads as absent without a second check — which is right: a null
-/// value is the standard's way of saying the key is not there.
-///
-/// A `/Tabs` whose value is not a name (a string, a number, an array) reads as
-/// absent too. That is a malformation, and the honest reading of a malformed
-/// entry is that the file has not named a tab order — inventing one from a
-/// string that happened to say "R" would be pdfce deciding what the file meant.
-fn tabs_name<G: ObjectGraph + ?Sized>(graph: &G, id: ObjId) -> Option<TabsMode> {
-    let name = graph
-        .resolved(id)
-        .as_dict()?
-        .get(b"Tabs")
-        .map(|o| graph.resolve(o))
-        .and_then(Object::as_name)?;
-    Some(TabsMode::from_name(name.as_bytes()))
 }
 
 /// Build the listing for a whole document.
@@ -641,6 +512,7 @@ pub fn collect<G: ObjectGraph + ?Sized>(
             page_index,
             tabs: page_tabs(graph, slot),
             rows: Vec::new(),
+            annots: Vec::new(),
             unclaimed: Vec::new(),
             anonymous: 0,
             other_annots: 0,
@@ -650,6 +522,18 @@ pub fn collect<G: ObjectGraph + ?Sized>(
         // can be made for it. See the comment at the increment.
         let mut widget_ordinal = 0usize;
         for annot in page_annotations(graph, slot.id) {
+            // ★ FIRST, and for EVERY entry — before the widget test, before the
+            // ownership test, before anything this panel cares about.
+            //
+            // This is the array a reorder is a permutation of, and it is the
+            // page's array, not this panel's view of it. A `/Link` is not a
+            // form field and is not listed anywhere below; it is still an entry
+            // that has to appear in a permutation or the engine refuses the
+            // whole call. The one exclusion is an entry with no id, which is
+            // pinned by omission — see [`PageTabs::annots`].
+            if let Some(id) = annot.id {
+                page.annots.push(id);
+            }
             // Not a widget: it is still in the tab sequence, and it is not a
             // form field. Counted, never listed — see §5.
             if !annot.is_widget() {
@@ -699,6 +583,12 @@ pub fn collect<G: ObjectGraph + ?Sized>(
             page.rows.push(TabRow {
                 // ★ The address a reorder is expressed in — see the field.
                 id,
+                // The entry this loop pushed at the top of THIS iteration, so
+                // it is this annotation's slot by construction rather than by
+                // arithmetic. `- 1` cannot underflow: the push above ran, and
+                // it ran unconditionally for any entry that reaches here (an
+                // entry with no id took the `else` branch and never arrives).
+                slot: page.annots.len() - 1,
                 // 1-based, and among the WIDGETS — so it is the number an
                 // operator counts while tabbing.
                 position: widget_ordinal,
@@ -725,6 +615,12 @@ pub fn collect<G: ObjectGraph + ?Sized>(
 
 #[cfg(test)]
 mod tests {
+    // `Object` is a TEST-only need here since the `/Tabs` reading moved to
+    // `super::tabs`: the fake graph builds page dictionaries by hand.
+    use pdfce_core::object::Object;
+    // Tests that exercise the `/Tabs` reading through `collect` still name its
+    // types; the reading itself now lives in `super::tabs`.
+    use super::super::tabs::TabsMode;
     use super::*;
     use crate::panels::objects::test_support::engine_fixture;
     use pdfce_core::document::Document;

@@ -48,7 +48,7 @@ pub const fn tab_order_heading() -> &'static str {
 pub const fn tab_order_explainer() -> &'static str {
     "Each page below lists its form fields in the order the file lists the annotations on that \
      page. That is also the order they are painted, so a field further down a page's list is \
-     drawn over one further up. This view reports the order; it does not change it."
+     drawn over one further up. Drag a row to move it; a line shows where it will land."
 }
 
 /// The count line at the top of the section.

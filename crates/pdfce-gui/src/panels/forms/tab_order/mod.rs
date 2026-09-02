@@ -1,5 +1,5 @@
 //! # `panels::forms::tab_order` — the order this form is tabbed through, per
-//! page, read-only
+//! page, and the drag that changes it
 //!
 //! A **second list beside the fill list**, answering a different question. The
 //! fill list ([`super::field_list`]) is in `/AcroForm` `/Fields` order because
@@ -14,31 +14,45 @@
 //! that it is **not** inheritable), §5 what is counted rather than listed. This
 //! file is the drawing, the disclosures and the one action the view can raise.
 //!
-//! ## ★ It is READ-ONLY, and it must not look otherwise
+//! ## ★★★ It WAS read-only, and the history is the point
 //!
-//! The operator asked for the field list to follow tab order **and** for editing
-//! that order to reorder it. The writing half is blocked: `pdfce-core` has no
-//! verb that reorders a page's `/Annots`, and `D:\Dev\pdfce`'s roadmap carries
-//! tab-order authoring as its F4, accepted and not started. So this is the half
-//! that can be built honestly today.
+//! This section used to be a prohibition. It said: no drag handles, no
+//! `Sense::drag`, no up/down buttons, not even disabled ones — because
+//! `pdfce-core` had no verb that reordered a page's `/Annots`, and a handle
+//! that cannot commit *"would teach the operator a gesture, let them perform
+//! it, and then either do nothing or lie"*. It ended with a promise: **"when
+//! the engine verb lands, the affordance arrives with it."**
 //!
-//! What that means concretely, and it is not a matter of taste:
+//! `EditSession::reorder_annotations` shipped on 2026-09-02, hours after the
+//! request went out, and this is that promise being kept. The prohibition is
+//! **superseded, not abandoned**, and it is left described rather than deleted
+//! for two reasons: the reasoning is what should be applied to the *next* gap
+//! (R9 has not changed), and a section that vanished would leave a reader
+//! wondering whether anybody had thought about it.
 //!
-//! - **No drag handles.** No grip glyph, no `Sense::drag`, no reorder cursor.
-//! - **No up/down buttons**, not even disabled ones.
-//! - **No disabled-but-present affordance of any kind.**
+//! ## What the drag is, and what it deliberately is not
 //!
-//! `RIBBON_IA.md` P3, and `HANDOFF.md` §6's "no placeholders": *"A capability
-//! that is absent renders **nothing**, never a greyed control that explains
-//! itself badly."* A drag handle that cannot commit is worse than that — it
-//! would teach the operator a gesture, let them perform it, and then either do
-//! nothing or lie. **When the engine verb lands, the affordance arrives with
-//! it**, and the row layout here is deliberately one that can grow a handle
-//! without being rearranged.
+//! [`drag`] holds the gesture and carries the argument in full. In outline:
 //!
-//! The one thing the view *does* say out loud is that it changes nothing —
-//! [`crate::text::forms::tab_order_explainer`]'s last clause — because a
-//! sentence is the correct way to state an absence and a greyed button is not.
+//! - **A row is a drag source; the marker is an insertion caret**, the same one
+//!   `crate::panels::pages` draws for the page rail, because the operator named
+//!   that panel as the reference — *"like we can with pages in the page
+//!   preview"*.
+//! - **Widgets move among widget slots and nothing else moves at all.** The
+//!   list is form fields; the array also holds every `/Link` and markup
+//!   annotation on the page, and `/Annots` order is *paint* order, so moving
+//!   one would silently change what is drawn on top of what.
+//! - **It does not write `/Tabs`.** Sourced, and counter-intuitive enough to
+//!   restate: `/Tabs /A` is PDF 2.0 only, and PDF/UA-1 §7.18.3 *requires*
+//!   `/Tabs /S`, so writing `/A` as a side effect of a drag would make a
+//!   conforming file non-conforming with nobody asking. Acrobat's own manual
+//!   tab order is an `/Annots` permutation with no `/Tabs` written.
+//!
+//! ★★ Which means the per-page `/Tabs` sentence this view has always shown is
+//! now doing a second job. On a page whose `/Tabs` says `/S` or `/R` or `/C`,
+//! a drag changes the array and **a conforming reader may still tab in the
+//! order the file states**. The sentence is what stops that reading as a bug in
+//! the drag. It stays above the rows, unconditional, on every page.
 //!
 //! ## Actions, not mutations — and it raises exactly one
 //!
@@ -123,9 +137,11 @@
 
 /// Turning a document into a per-page widget sequence — the classification,
 /// testable without a `Ui`.
+mod drag;
 pub mod model;
 /// The rows that register an unclaimed widget back into the form.
 mod register;
+pub mod tabs;
 
 use pdfce_core::forms::AcroForm;
 use pdfce_core::view::DocumentView;
@@ -134,7 +150,8 @@ use crate::app::actions::Action;
 use crate::app::state::OpenDoc;
 use crate::text::forms as t;
 
-use self::model::{Listing, PageTabs, TabsEntry, TabsMode};
+use self::model::{Listing, PageTabs};
+use self::tabs::{TabsEntry, TabsMode};
 
 /// The tallest the list may grow before it scrolls, in points.
 ///
@@ -207,8 +224,15 @@ pub(super) fn section(
             // footnote would reach them.
             //
             // The order is by how much it changes what they should conclude:
-            // what this list IS (and that it changes nothing), then how big it
-            // is, then what is missing from it.
+            // what this list IS **and how to reorder it**, then how big it is,
+            // then what is missing from it.
+            //
+            // ★ The first of those used to end "and that it changes nothing".
+            // It now teaches the drag instead, which is the only thing that
+            // can: there is no handle, no grip glyph and no button, so a
+            // sentence is the entire discoverability surface for the gesture.
+            // Pinned by
+            // `tests::the_explainer_teaches_the_drag_and_no_longer_claims_to_be_read_only`.
             ui.label(t::tab_order_explainer());
             ui.label(t::tab_order_count(
                 listing.pages.len(),
@@ -264,7 +288,7 @@ pub(super) fn section(
                         // hover — the collision `crate::panels::comments` keys
                         // its rows against.
                         ui.push_id(page.page_index, |ui| {
-                            page_block(ui, doc, page, &mut go);
+                            page_block(ui, doc, page, &mut go, actions);
                         });
                         ui.separator();
                     }
@@ -283,7 +307,13 @@ pub(super) fn section(
 /// A page with no widget on it is still drawn. Its `/Tabs` state is a fact about
 /// the document, and a gap in the page numbering would read as a bug in the
 /// view rather than as an empty page.
-fn page_block(ui: &mut egui::Ui, doc: &OpenDoc, page: &PageTabs, go: &mut Option<usize>) {
+fn page_block(
+    ui: &mut egui::Ui,
+    doc: &OpenDoc,
+    page: &PageTabs,
+    go: &mut Option<usize>,
+    actions: &mut Vec<Action>,
+) {
     // 1-based **only here**, where a human reads it. The index travels 0-based
     // to `Action::GoToPage`; see
     // [`tests::the_page_index_travels_zero_based_and_prints_one_based`].
@@ -353,15 +383,62 @@ fn page_block(ui: &mut egui::Ui, doc: &OpenDoc, page: &PageTabs, go: &mut Option
         );
     }
 
-    for row in &page.rows {
+    // ★★ Where a drag in flight would land, resolved DURING the row loop and
+    // carried out of it — `crate::panels::pages`' shape, for its reason: a gap
+    // is a rectangle, and a rectangle does not exist until the rows have been
+    // laid out. Nothing outside this function is in a position to compute it.
+    let mut drop: Option<drag::DropTarget> = None;
+    let in_flight = drag::current(ui.ctx()).filter(|d| d.page_index == page.page_index);
+    let pointer = ui.ctx().pointer_interact_pos();
+
+    for (index, row) in page.rows.iter().enumerate() {
         // `/TU` when the field has a non-blank one, the fully-qualified name
         // otherwise — the fill rows' preference, so the operator reads the
         // string an assistive technology speaks. The raw name is one hover
         // away, through the SAME tooltip the fill rows use, so a name copied
         // out of either list is the same string.
         let label = row.label.as_deref().unwrap_or(row.field.as_str());
-        ui.label(t::tab_order_row(row.position, label))
+        // ★ `Sense::drag()` on a label, rather than `dnd_drag_source`.
+        //
+        // egui 0.35's built-in drag-and-drop paints the dragged widget under
+        // the cursor as a floating preview. That is the wrong affordance for a
+        // *list reorder*: the operator is not carrying the row somewhere, they
+        // are choosing a boundary, and the thing that has to be legible is the
+        // boundary. The page rail made the same call, and the operator's own
+        // words are "clear markers of where the field is going to move to" —
+        // the marker is the feature; the floating ghost competes with it.
+        let response = ui
+            .add(egui::Label::new(t::tab_order_row(row.position, label)).sense(egui::Sense::drag()))
             .on_hover_text(t::form_field_row_tooltip(&row.field));
+        crate::diag::ui_rect(
+            &format!("{}{}.{index}", drag::REGION_ROW_PREFIX, page.page_index),
+            response.rect,
+        );
+        if response.drag_started() {
+            drag::begin(
+                ui.ctx(),
+                drag::Drag {
+                    page_index: page.page_index,
+                    from: index,
+                },
+            );
+        }
+        // ★ The grab cursor is requested EVERY FRAME of the drag, not once at
+        // `drag_started` — `crate::panels::pages` learnt this the hard way and
+        // recorded it: egui resolves the cursor per frame from whatever asked
+        // most recently, so a request made only at the start is overwritten by
+        // the next widget the pointer passes over, which during a drag down a
+        // list is every row below the one being carried.
+        if in_flight.is_some() || response.hovered() {
+            ui.ctx().set_cursor_icon(if in_flight.is_some() {
+                egui::CursorIcon::Grabbing
+            } else {
+                egui::CursorIcon::Grab
+            });
+        }
+        if let (Some(dragging), Some(pos)) = (in_flight, pointer) {
+            drag::consider(response.rect, index, pos, dragging, &mut drop);
+        }
         ui.label(
             egui::RichText::new(t::tab_order_row_where(
                 page_number,
@@ -372,6 +449,15 @@ fn page_block(ui: &mut egui::Ui, doc: &OpenDoc, page: &PageTabs, go: &mut Option
             .weak(),
         );
     }
+
+    // The caret is painted AFTER the rows, so it lies over them rather than
+    // under the row drawn next — an insertion mark on a boundary shares its
+    // pixels with the rows either side of it.
+    drag::paint(ui, drop.as_ref());
+    // Settling reads raw input and so runs unconditionally, including on the
+    // frame no gap was resolved: a drag released past the end of the list, or
+    // outside the panel entirely, still has to END. See `drag::settle`.
+    drag::settle(ui, page, drop.as_ref(), actions);
 
     // What this page could not list, each counted separately because each is a
     // different fact — see [`model`]'s §5. Conditional, because zero of any of
@@ -543,7 +629,7 @@ fn trace(listing: &Listing) {
 
 #[cfg(test)]
 mod tests {
-    use self::model::Sequence;
+    use self::tabs::Sequence;
     use super::*;
 
     /// **★ Only the states where the sequence is NOT the tab order warn.**
@@ -749,87 +835,73 @@ mod tests {
         }
     }
 
-    /// **★ The view offers no control that could reorder anything.**
+    /// **★★ The explainer must TEACH THE GESTURE, and must not still claim
+    /// the view is read-only.**
     ///
-    /// The prohibition in this module's header, asserted as far as a headless
-    /// test can reach it: the catalog contains **no string** for a reorder
-    /// affordance. That is the honest half to pin — a drag handle needs a
-    /// label, a tooltip, or both, and `RIBBON_IA.md` R1 puts every
-    /// operator-visible string in the catalog, so a reorder control cannot be
-    /// added to this view without a string appearing here first.
+    /// This test replaces `no_string_in_this_view_offers_a_reorder`, which
+    /// asserted that no string here mentioned dragging. That was the correct
+    /// tripwire while `EditSession::reorder_annotations` did not exist — the
+    /// failure mode then was somebody shipping a disabled drag handle "ready
+    /// for when the verb lands", which is the placeholder R9 forbids. The verb
+    /// shipped on 2026-09-02; the tripwire is now aimed at the wrong thing, and
+    /// keeping it would have forbidden the feature the operator asked for.
     ///
-    /// It is deliberately a test about **absence**, which is unusual and worth
-    /// justifying: the writing half of this feature is blocked on an engine
-    /// verb that does not exist, and the failure mode is not that someone
-    /// builds it badly — it is that someone adds the affordance *in advance*,
-    /// disabled, "ready for when the verb lands". That is the placeholder this
-    /// project forbids, and this is the tripwire for it.
+    /// What replaces it is the property the old assertion was protecting all
+    /// along, pointed the other way. **A drag with no visible handle is
+    /// undiscoverable.** There is no button, no grip dots, no "Move up" — the
+    /// only thing that can tell an operator this list is draggable is the
+    /// sentence above it. So the sentence is load bearing, and two things about
+    /// it are pinned:
+    ///
+    /// 1. It says how (`drag`) AND what will be shown (`line`). The operator
+    ///    asked for "clear markers of where the field is going to move to"; a
+    ///    caret nobody expects is not a clear marker.
+    /// 2. It no longer claims the view does not change the order. That
+    ///    sentence was true for the whole of this view's life and is now the
+    ///    exact opposite of the truth — the class of stale copy that survives
+    ///    longest, because nothing about it looks wrong.
     #[test]
-    fn no_string_in_this_view_offers_a_reorder() {
-        let every_string = [
-            t::tab_order_heading().to_owned(),
-            t::tab_order_explainer().to_owned(),
-            t::tab_order_count(2, 9),
-            t::tab_order_empty().to_owned(),
-            t::tab_order_fields_without_widgets(1),
-            t::tab_order_page_heading(1, 3),
-            t::tab_order_page_no_widgets().to_owned(),
-            t::tab_order_goto().to_owned(),
-            t::tab_order_goto_tooltip(1),
+    fn the_explainer_teaches_the_drag_and_no_longer_claims_to_be_read_only() {
+        let explainer = t::tab_order_explainer().to_lowercase();
+        assert!(explainer.contains("drag"), "{explainer}");
+        assert!(explainer.contains("line"), "{explainer}");
+        for stale in ["does not change", "read-only", "reports the order;"] {
+            assert!(
+                !explainer.contains(stale),
+                "the view now reorders, so '{stale}' is stale: {explainer}"
+            );
+        }
+    }
+
+    /// **★ Still no labelled reorder control, and that is deliberate.**
+    ///
+    /// The gesture is the feature — the operator asked for drag and drop by
+    /// name — and a "Move up / Move down" pair beside every row would double
+    /// the height of a list that already runs to 200 rows on a real form. The
+    /// absence is worth pinning because the obvious response to "the drag is
+    /// hard to discover" is to add buttons, and the right response is to fix
+    /// the sentence that teaches it.
+    ///
+    /// ★★ This is NOT a permanent prohibition and should not be read as one.
+    /// A keyboard route to reordering is an accessibility gap this view has,
+    /// and if it is filled the right way — a keymap command, not a pair of
+    /// buttons per row — this test is what should be revisited, with its
+    /// reasoning, rather than deleted quietly.
+    #[test]
+    fn no_row_carries_a_labelled_reorder_button() {
+        for s in [
             t::tab_order_row(1, "Full name"),
             t::tab_order_row_where(1, 1, 2),
-            t::tab_order_no_tabs_entry().to_owned(),
-            t::tab_order_tabs_row().to_owned(),
-            t::tab_order_tabs_column().to_owned(),
-            t::tab_order_tabs_structure().to_owned(),
-            t::tab_order_tabs_annots_array().to_owned(),
-            t::tab_order_tabs_widgets().to_owned(),
-            t::tab_order_tabs_unrecognised("Q"),
-            t::tab_order_tabs_on_ancestor("R"),
-            t::tab_order_unclaimed(1),
-            t::tab_order_anonymous(1),
-            t::tab_order_other_annots(1),
-        ];
-        for s in &every_string {
+            t::tab_order_goto().to_owned(),
+            t::tab_order_goto_tooltip(1),
+        ] {
             let lower = s.to_lowercase();
-            for verb in ["move up", "move down", "reorder", "drag", "rearrange"] {
+            for verb in ["move up", "move down", "rearrange"] {
                 assert!(
                     !lower.contains(verb),
-                    "this view is read-only, and “{verb}” appeared in: {s}"
+                    "{verb} appeared in a row string: {s}"
                 );
             }
         }
-        // …and the explainer says so in words, which is how an absent
-        // capability is stated when a greyed control is forbidden.
-        assert!(
-            t::tab_order_explainer().contains("does not change it"),
-            "the view must say out loud that it changes nothing: {}",
-            t::tab_order_explainer()
-        );
-    }
-
-    /// **The `/Tabs` name is quoted back exactly as the file spells it.**
-    ///
-    /// Including a name pdfce has never seen. Substituting anything for an
-    /// unrecognised value would make the view claim the file said something it
-    /// did not — the same reasoning `pdfce-core` gives for carrying an
-    /// unrecognised `/RT` name verbatim.
-    #[test]
-    fn an_unrecognised_tabs_name_is_printed_verbatim() {
-        assert_eq!(mode_name(&TabsMode::Row), "R");
-        assert_eq!(mode_name(&TabsMode::AnnotsArray), "A");
-        assert_eq!(mode_name(&TabsMode::Unrecognised("Zed".to_owned())), "Zed");
-        assert_eq!(tabs_field(&TabsEntry::Absent), "absent");
-        assert_eq!(
-            tabs_field(&TabsEntry::OnPage(TabsMode::Structure)),
-            "page:S"
-        );
-        assert_eq!(
-            tabs_field(&TabsEntry::OnAncestor(TabsMode::Row)),
-            "ancestor:R",
-            "the trace must distinguish an inherited-looking entry from the \
-             page's own, or the one departure this view makes from the engine \
-             is unprovable from outside"
-        );
     }
 }
