@@ -1,5 +1,96 @@
 # CONTINUE — handoff
 
+## 2026-09-02 (autonomous, second tick) — O88 is DRIVEN, and the check was wrong three different ways first
+
+**Everything here is committed.** The tick before this one built the marquee and
+could not drive it; this one drove it.
+
+### ✅ O88 ships
+
+`a_marquee_over_a_table_takes_its_text_as_well_as_its_lines` **passes** on his own
+drawing, and was **falsified** — with `mode_for` stubbed to return `Enclosed` for
+both directions it fails with *"THE BAND ENCLOSED THE TABLE AND SELECTED
+NOTHING"*; restored, it passes.
+
+```
+marquee-mode crossing=true mode=touched hits=3 paths=2 text=1 other=0
+```
+
+Paths **and** text: the kind he reported missing.
+
+### ★★★ THE THING TO CARRY: three wrong diagnoses, one failure message
+
+The check failed for **three different reasons in three runs**, each fix correct
+and each revealing the next:
+
+1. the view had inherited a scroll, so the band was driven **above the canvas**;
+2. **no tool was armed**, so the press belonged to nothing;
+3. ★ **the origin was on ink** — the trace carried
+   `selection-set page=0 object=23 via=press` and no marquee line at all, so the
+   press selected the object under it and the drag became a *move*.
+
+**The first was diagnosed, fixed and written up — and that write-up masked the
+other two**, because the failure message never changed.
+
+⇒ **A check that has failed repeatedly with one message is not a check with one
+cause.** Re-derive from the trace on every run rather than trusting the last
+write-up. This is now the fourth instance of that shape in this harness.
+
+### ★★ "Empty paper" is `tolerance_px / zoom`, and it is much wider than it looks
+
+`canvas::presspick`'s stated rule is *"a press on empty paper still marquees"*.
+Pressing on **ink** does not — it selects. So a harness can only start a rubber
+band where there is nothing to select.
+
+And the pick tolerance is **4 screen pixels** converted to page units, so at the
+fitted zoom this check drives (0.38×) it is over **ten page points**. The old
+origin sat 6 pt from the sheet border — visually in the margin, and inside the
+catch radius.
+
+★ The new one was chosen by rendering the page at **1 pt per pixel and looking**:
+80 pt clear of anything in every direction. Do not pick "just outside the object";
+that is exactly the failure.
+
+### ★★★ …and then the oracle itself turned out to be an assumption
+
+It asserted a **count**: *"a table's rules are one path object per line and its
+words are one text object per cell, so a band should return well into double
+figures"*, failing anything under four.
+
+**Measured: `objects n=25 paths=19 text=6`.** The *entire drawing* — two tables,
+a title block, an isometric view, dozens of labels — is **twenty-five objects**.
+A band returning three is a large fraction of the page, and the threshold was
+rejecting a correct result while calling it his defect.
+
+★★ It could never have expressed his complaint anyway. *"It only picks up the
+lines"* is a claim about **a kind being missing**. One path and one text is a
+pass; nine paths and no text is the defect — and a count ranks those two the
+wrong way round at every threshold.
+
+⇒ `canvas::marquee::select` now traces `paths=`, `text=`, `other=` from the
+provider's own classifier, and the check asserts **both kinds are present**.
+
+### ⬜ What is still not driven, and it is his own complaint
+
+**The enclosing direction cannot be driven on that sheet.** To surround a table
+hard against the edge the band must start outside the page, and every corner it
+could start from is on ink — which is precisely what he reported. The crossing
+window is the answer, and it is what is driven.
+
+★ A **second cause** stays on the O88 row from the original diagnosis: a stale
+`/LW` can make a visible line unselectable, which presents identically.
+
+### ⬜ WHAT TO DO NEXT, in his likely order
+
+1. **O92's other half** — selecting an object dropped **off the side of the
+   page** with a marquee. The crossing window may already have solved it; it has
+   not been checked. Select All ships as the workaround.
+2. **O85 — Ctrl+S closed the program after an edit.** Not reproduced. Blocked on
+   him saying what kind of edit preceded it; do not guess.
+3. **O89 — the text-colour route is three conditions deep.** Three candidate
+   fixes are in the row. **The choice is his, not yours.**
+
+
 ## 2026-09-02 (autonomous) — O88 is BUILT and NOT DRIVEN, and the disk was full
 
 **An autonomous-loop tick, not a session with him in the room.** Everything here

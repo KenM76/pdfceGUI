@@ -2,10 +2,11 @@
 
 
 > ★★★ **LAST TICK: 2026-09-02 (autonomous).** The newest handoff is the top
-> section of **[`CONTINUE.md`](CONTINUE.md)** — **O88's marquee is BUILT and NOT
-> DRIVEN** (R1: not shipped), the driven check fails on the *harness* for a third
-> distinct reason, and **the disk was 100 % full** and reported it as a linker
-> PDB error. The session before it shipped clickable links and closed O93.
+> section of **[`CONTINUE.md`](CONTINUE.md)** — **O88 is driven and shipped** (a
+> right-to-left box takes what it touches), and getting there needed **three
+> different diagnoses behind one unchanged failure message**, plus the discovery
+> that the check's own oracle was an assumption a measurement refuted. The
+> session before it shipped clickable links and closed O93.
 >
 > ★★ **If the operator typed "continue" and nothing else, read**
 > **[`CONTINUE.md`](CONTINUE.md) first.** It is the short path: what is next, in
