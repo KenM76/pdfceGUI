@@ -353,6 +353,77 @@ impl CanvasMapping {
 
         Ok(WindowPoint { x: wx, y: wy })
     }
+
+    /// **The same conversion, for a point deliberately OUTSIDE the page box.**
+    ///
+    /// \ ★★★ Why this exists, and why it is a second entry point rather than a flag
+    ///
+    /// `OPERATOR_REQUESTS.md` O92: *"we should be able to select things offside
+    /// of the page, especially since I sometimes drop objects there, and when I
+    /// do I can't get them back."* A check for that has to drive a rubber band
+    /// **into the grey margin**, and [`Self::doc_to_window`] refuses every point
+    /// outside the media box — correctly, for every other caller.
+    ///
+    /// That refusal is not softened and its reasoning is untouched: a point
+    /// outside the page is almost always a check aiming at the wrong sheet or
+    /// converting against the wrong geometry, and silently allowing it would let
+    /// those land somewhere plausible and wrong. **This is the narrow, named
+    /// exception**, and a caller has to say the words to get it.
+    ///
+    /// \ ★★ What is NOT relaxed
+    ///
+    /// A bound stays, and it is the **viewport's**, passed in — see the ★★★
+    /// comment in the body for why bounding against `image_rect` instead
+    /// rejects the entire class this function exists for. A point off the page
+    /// can still be clicked, because the grey margin is part of the canvas
+    /// widget; a point off the *viewport* cannot be clicked by anybody, and
+    /// clamping it would land on an edge and hit-test nothing.
+    ///
+    /// ★ Coordinates may be negative. The flip is the same one line, and a
+    /// negative `x` produces a window position left of the page's own origin,
+    /// which is exactly where a dropped object sits.
+    ///
+    /// \ Errors
+    ///
+    /// Wrong page, or a point that is off the **viewport** rather than merely
+    /// off the page.
+    pub fn doc_to_window_off_page(&self, p: DocPoint, viewport: LRect) -> Result<WindowPoint> {
+        if p.page != self.page_index {
+            return Err(Error::new(format!(
+                "the mapping describes page {} and the point is on page {}",
+                self.page_index, p.page
+            )));
+        }
+        let canvas_x = p.x as f32;
+        let canvas_y = (self.page.height_pt - p.y) as f32; // the flip, once
+        let wx = self.image_rect.min.x + canvas_x * self.zoom - self.scroll.x;
+        let wy = self.image_rect.min.y + canvas_y * self.zoom - self.scroll.y;
+        // ★★★ **THE VIEWPORT, NOT `image_rect`** — and getting this wrong was
+        // the first thing that happened.
+        //
+        // `image_rect` is the **page's** rectangle. Every off-page point is
+        // outside it by construction, so bounding against it rejects the entire
+        // class this function exists for — and rejects it with a message about
+        // "not enough margin on screen", which is plausible and completely
+        // wrong.
+        //
+        // The bound that means something is the scroll area the page is drawn
+        // inside, published as `ui-rect name=canvas-viewport`. Its grey margin
+        // IS where a dropped object lives, and a point outside it cannot be
+        // clicked by anybody.
+        if wx < viewport.min.x || wx > viewport.max.x || wy < viewport.min.y || wy > viewport.max.y
+        {
+            return Err(Error::new(format!(
+                "off-page document point ({}, {}) maps to window ({wx:.1}, {wy:.1}), which is \
+                 outside the canvas VIEWPORT {viewport:?} — not merely outside the page \
+                 ({:?}), which this conversion permits. There is not enough margin on screen \
+                 to reach it: zoom out so the sheet occupies less of the viewport, or choose a \
+                 point nearer it. Refusing to clamp, for the reason `doc_to_window` gives.",
+                p.x, p.y, self.image_rect
+            )));
+        }
+        Ok(WindowPoint { x: wx, y: wy })
+    }
 }
 
 /// The live window's measured geometry: where its client area sits on the

@@ -283,6 +283,13 @@ pub mod ocr;
 /// from [`ocr`] because all three need a multi-page run and that module's
 /// one-page fixture has no observable middle. Its header carries the argument.
 pub mod ocr_progress;
+/// ★★ **A band dragged into the grey margin reaches an object off the page** —
+/// `OPERATOR_REQUESTS.md` O92, asked by driving it rather than reasoned about.
+/// Its fixture has exactly two squares and the band is aimed to miss the
+/// on-page one, so `hits == 1` alone proves the marquee left the sheet — no
+/// index, no ordering assumption. Its header carries why the band must touch
+/// the off-page square without being able to enclose it.
+pub mod off_page_marquee;
 /// ★ The **Pages tab**, all of which did nothing: six verbs registered, drawn,
 /// offered by a context menu and four of them bound to chords, with no dispatch
 /// arm between them. The only check in the suite whose subject is a
@@ -1225,6 +1232,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // apiece against kilobyte fixtures, where the OCR checks below are a
         // minute each. A run that fails on something cheap should fail before
         // paying for something expensive.
+        Box::new(off_page_marquee::ABandDraggedIntoTheMarginReachesAnObjectOffThePage),
         Box::new(link_follow::ALinkGoesToThePageItNames),
         Box::new(link_follow::ALinkItCannotFollowSaysSo),
         Box::new(ocr::OcrRecognisesAPageAndTheDocumentKeepsIt),

@@ -193,16 +193,16 @@ leaves the working phase before drawing it. The outcome then states the true
 totals. The check asserts a band (`>= scope - 1`) and its source carries the
 reasoning, so nobody re-tightens it.
 
-## O92 — ◑ **PART SHIPPED 2026-09-01** *(back-filled)* — reaching an object dropped off the side of the page
+## O92 — ✅ **SHIPPED AND DRIVEN 2026-09-02** — reaching an object dropped off the side of the page
 
 **Ken, 2026-09-01:** *"we should be able to select things offside of the page,
 especially since I sometimes drop objects there, and when I do I can't get them
 back."*
 
-### ✅ What shipped — Select All on the page
+### ✅ Select All on the page — 2026-09-01
 
-There is now a Select All that takes every object on the sheet **including the
-ones outside its boundary**, so a dropped object can be grabbed and dragged back.
+There is a Select All that takes every object on the sheet **including the ones
+outside its boundary**, so a dropped object can be grabbed and dragged back.
 
 ★ Its first version selected **nothing**. It asked for `Rect::EVERYTHING`, whose
 infinities become **NaN** through the canvas-to-PDF transform, and every
@@ -210,11 +210,57 @@ comparison against NaN is false — so a rect meaning "all of it" is
 arithmetically identical to a rect meaning "none of it", and the failure is
 silent. A finite `1.0e6` rect selects 25 of 25. Commit `a2ea73b`.
 
-### ⬜ What did NOT ship — the marquee still cannot reach off-page
+### ✅ …and the gesture you would actually reach for — 2026-09-02
 
-Dragging a box in the margin is the gesture you would actually reach for, and it
-is **the same defect as O88**: the marquee only takes what it completely
-encloses. Tracked there, not duplicated here.
+**Drawing a box in the margin now works**, and it needed no new code: it is
+O88's crossing window. A right-to-left drag takes what it **touches**, so a band
+started on the sheet and dragged out into the grey reaches an object lying
+entirely off the edge. An *enclosing* band over the same rectangle surrounds
+nothing and returns zero, which is what shipped before.
+
+**Driven**, on a purpose-built fixture, and **falsified** — with `mode_for`
+stubbed to return `Enclosed` for both directions it fails with *"THE BAND
+REACHED INTO THE MARGIN AND FOUND NOTHING"*; restored, it passes.
+
+```
+marquee-mode crossing=true mode=touched hits=1 paths=1 text=0
+canvas-selection via=pv.marquee sel=1 first=object:1
+```
+
+### ★★★ Why `hits == 1` is an airtight oracle here
+
+`fixtures/off-page-object.pdf` is a 200 × 200 page with **two** filled squares
+and nothing else: **A** at x 40–100, y 40–100 (on the page) and **B** at
+x −160…−40, y 100–140 (**entirely left of the media box**).
+
+The band runs from `(160, 170)` — blank paper — out to `(−100, 120)`. It
+
+- **misses A**, whose top edge is y = 100 against the band's bottom at y = 120;
+- **touches B**;
+- **cannot enclose B**, which reaches x = −160 while the band stops at −100 —
+  deliberately, or the check would pass under the old mode too and stop
+  distinguishing them.
+
+⇒ One hit can only be B. No index, no ordering assumption, no kind census.
+
+### ★★ One harness thing had to change, and the first attempt at it was wrong
+
+`CanvasMapping::doc_to_window` **refuses every point outside the media box**, and
+that refusal is right for every other caller. This needed a separately named
+`doc_to_window_off_page` — a caller has to say the words.
+
+★★★ Its first version bounded the result against `image_rect`, and **that is the
+page's own rectangle**, so every off-page point is outside it by construction.
+The whole class the function exists for was rejected, with a message about *"not
+enough margin on screen"* — plausible, and completely wrong. The bound that means
+something is the **canvas viewport** (`ui-rect name=canvas-viewport`), whose grey
+margin is where a dropped object lives.
+
+### ⬜ Nothing shipped in the binary for this row
+
+O88's build already contained the fix. What 2026-09-02 added is the **evidence**
+— a fixture, a driven check and a harness conversion — so the published build on
+`pdfceGUI1` already behaves this way.
 
 ## O91 — ✅ **SHIPPED AND DRIVEN 2026-09-01 (evening)** — a clickable table of contents works
 
