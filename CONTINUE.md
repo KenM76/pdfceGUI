@@ -1,5 +1,102 @@
 # CONTINUE — handoff
 
+## 2026-09-02 (autonomous, later tick) — O99's drag is built, both engine replies are consumed, and one of them found a hole in the engine's own API
+
+### ✅ The tab-order list can be dragged into a new order, with the caret he asked for
+
+`EditSession::reorder_annotations` shipped hours after the request went out. The
+commit path, the gesture and the driven check all landed this tick — commits
+`df8e81d`, `73e8436`, `6112f28`, `e62c417`.
+
+**The check is written and has NOT been run.** It moves the pointer across a
+panel and he was at the PC. That is the single largest thing waiting for a
+window in which he is away.
+
+### ★★★ A row is not an array entry, and that is the whole of the hard part
+
+The list holds **widgets a field claims**. `/Annots` also holds the unclaimed
+widgets, the anonymous ones, and every `/Link`, stamp and markup on the page. The
+engine takes *"the page's indirect `/Annots` entries, each once"*, so a list
+built from the rows is a permutation of a **subset** — refused by name, correctly,
+because dropping the rest would delete a page's links.
+
+So the model now carries the whole array, `TabRow` carries its `slot` in it, and
+the widgets move **among widget slots** while everything else keeps its index.
+
+★★ That second rule was a *choice*, and the engine's disclosure is what revealed
+it. `/Annots` order is **paint order**. A permutation that carried a widget past
+a `/Link` would change what is drawn over what — a visible change to the page,
+from a gesture whose entire subject was tab sequence. `non_widgets_moved` exists
+because that is surprising; the right answer to a surprising consequence you can
+avoid is to avoid it, and keep the disclosure for the cases you cannot. Zero by
+construction from this route, asserted in the driven check.
+
+★ **Ids, not indices, and the engine asked for that by name.** Our sketch said
+`&[usize]`. Worse than they knew: our rows' `position` is 1-based, counts
+**widgets only**, and skips entries with no id — wrong on three axes at once, and
+on a well-formed single-purpose form all three cancel. It would have worked on
+every fixture we own and failed on real files.
+
+### ★★★ TWO PIECES OF PROSE BECAME THE EXACT OPPOSITE OF THE TRUTH
+
+This is the finding to carry forward, because it will happen again:
+
+- The panel's explainer ended *"This view reports the order; it does not change
+  it."* True for the whole of that view's life.
+- The module header was a **prohibition** — no drag handles, no `Sense::drag`,
+  not even disabled ones — ending with a promise: *"when the engine verb lands,
+  the affordance arrives with it."*
+
+Both were correct when written and false the moment the verb shipped. **Nothing
+about either looked wrong**, which is why that class survives longest. The header
+is superseded rather than deleted: the reasoning is what applies to the *next*
+gap, and a section that vanished would leave a reader wondering whether anybody
+had thought about it.
+
+⇒ The explainer now teaches the gesture, and that sentence is the **entire**
+discoverability surface — there is no handle, no grip glyph, no button. A drag
+nobody knows about is not a feature. A test pins both halves.
+
+### ★★★ `RenderPreset::disclosures()` drops the `why` of every value a preset SETS
+
+The engine asked us to show the spot entry's `why`, *"because the divergence is
+invisible on the page and looks like somebody's bug."* **It was unreachable** —
+that function's final loop is gated on `PresetAction::LeaveAlone`.
+
+Invisible until this week, and the reason matters: until Pass 237.0 every set
+value was `best-effort`, and the count sentence covers those fairly. **A count is
+an honest summary of a judgement and a dishonest summary of a claim.** The spot
+model is `implied`; `page_blend_space_source` on PDF/A-2 and -4 is `sourced` and
+has had the same problem since it shipped.
+
+Worked around in nine lines — read `entries()`, print the `why` where the
+evidence is a claim about the standard. **Derived**, never keyed on the axis;
+**bounded at two** by a measured test; and carrying **a tripwire that names its
+own deletion** if the engine widens `disclosures()`. Reported back explicitly
+*not* as a Pass request.
+
+### ⬜ WHAT TO DO NEXT
+
+1. **The moment he is away from the PC: run the whole ui-verify sweep.** Five or
+   six features are BUILT-not-DRIVEN, which under R1 means not shipped —
+   `tab_order_drag`, O96 field shading, O97 two-row buttons, O98 spotlight, O101
+   the build stamp, plus the older backlog O78, O69, O68, O65, O72–O75, O62.
+   **Falsify the new ones**, do not just watch them go green.
+2. **O89 is HIS decision** — three candidate fixes for the text-colour route,
+   and the choice is not ours to make.
+3. Publish when there is something worth publishing; slots alternate.
+
+### ★ One housekeeping defect worth knowing about
+
+Two doc comments in `ui-verify` carried a literal `"""+star+"""` — a Python
+placeholder that leaked through a heredoc months ago and sat in the source
+since. Nothing reads doc comments, so nothing complained. The same class bit
+twice more this tick (a lost line-continuation backslash, a `ui-text-exempt`
+comment that `cargo fmt` separated from the literal it exempted) — both caught
+by gates built for exactly that.
+
+---
+
 ## 2026-09-02 (autonomous, third tick) — O92 is closed by O88, and the next work is the not-yet-driven backlog
 
 ### ✅ A box drawn in the margin reaches an object off the sheet

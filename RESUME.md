@@ -2,11 +2,22 @@
 
 
 > ★★★ **LAST TICK: 2026-09-02 (autonomous).** The newest handoff is the top
-> section of **[`CONTINUE.md`](CONTINUE.md)** — **O88 is driven and shipped** (a
-> right-to-left box takes what it touches), and getting there needed **three
-> different diagnoses behind one unchanged failure message**, plus the discovery
-> that the check's own oracle was an assumption a measurement refuted. The
-> session before it shipped clickable links and closed O93.
+> section of **[`CONTINUE.md`](CONTINUE.md)** — **O99's drag is built**: the
+> tab-order list reorders by dragging, with the insertion caret he asked for, on
+> an engine verb that shipped hours after the request. Both outstanding engine
+> replies are consumed, and one of them found a hole in the engine's own API.
+>
+> ⬜ **The single biggest thing waiting is a MACHINE WINDOW, not a decision.**
+> Five or six features are BUILT-not-DRIVEN, which under R1 means **not
+> shipped**. The moment he says he is away from the PC, run the whole ui-verify
+> sweep and falsify the new checks. Do not drive while he is at the machine.
+>
+> ★★ **And one finding to carry, because it recurs:** two pieces of prose in the
+> tab-order panel became *the exact opposite of the truth* the moment the engine
+> verb shipped — an explainer saying the view "does not change" the order, and a
+> module header forbidding the drag. Both were correct when written. **Nothing
+> about either looked wrong**, which is why that class survives longest. When a
+> blocker clears, grep for the prose that described it.
 >
 > ★★ **If the operator typed "continue" and nothing else, read**
 > **[`CONTINUE.md`](CONTINUE.md) first.** It is the short path: what is next, in
