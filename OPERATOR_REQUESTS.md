@@ -96,6 +96,71 @@ in commit messages, where you cannot see them and a cold session does not look.
 back-filled, and are marked as back-filled so the dates are not read as evidence
 of a process that worked.
 
+## O100 — ◑ **SURFACED 2026-09-02; the preset half is an ENGINE question, filed** — new colour-rendering options
+
+**Ken, 2026-09-02:**
+
+> *"the engine I think has a couple of new options for colour rendering that we
+> might need to surface and set for our standards presets."*
+
+**Right, and one of them was brand new.** `pdfce-core 0.20` added
+`Settings::spot_colorant_device_model` — *whether a spot ink keeps its own
+printing plate, or is mixed down to process colour before anything is drawn.*
+
+### ★★★ The gate that exists for this fired the moment the engine came forward
+
+`every_setting_the_store_carries_has_a_control_in_this_window` enumerates the
+engine's own `Settings::write_to_string` at runtime and demands a control for
+each key. It was **green before the update and red immediately after**, naming
+the setting and saying an operator could otherwise only reach it by hand-editing
+`settings.txt`.
+
+★ Worth recording because the same test's history is a list of times it caught
+exactly this — three previous occasions are in its own comments — and because it
+is the answer to *"how would we know?"*: not by reading a note, by linking the
+crate.
+
+★★ The **second** completeness test then fired for the copy: the window draws 29
+settings and the catalog described 28. Two independent instruments, one demanding
+the control and one demanding the sentences that go with it.
+
+### ✅ Surfaced — Settings ▸ Colour, immediately after its sibling
+
+Placed next to *Grey over a spot colour in print-ready files*, because the two
+are one subject from two sides: **that** control is what *overprints* a spot
+colour, **this** one is what a spot colour *is*. An operator arrives at either by
+seeing white behave unexpectedly on a print-ready drawing, and finding only one
+would leave them thinking they had exhausted the options.
+
+★ Both values are **conformant** — this is a genuine choice, not a bug with a
+switch:
+
+| | renders for | white over a spot |
+|---|---|---|
+| *keep the ink on its own plate* (default) | a device that **has** the ink — §10.8.3 | leaves it showing, as a press does |
+| *mix it down* | the **actual composite device** — §8.6.6.4's `shall` | knocks it out, as Acrobat's screen view does |
+
+The copy leads with the **symptom** rather than the clause, because that is how
+somebody gets here.
+
+### ⬜ The preset half is the ENGINE's, and it is filed as a question
+
+The standards presets are **not ours to set**: `Choice::apply` calls
+`RenderPreset::for_standard(s).apply(settings)`, so the engine owns which axes a
+standard pins — deliberately, and it is R8's registration rule reached through
+the crate boundary, so a standard the engine adds appears here with no change at
+all.
+
+`RenderPreset` covers `page_blend_space_source` and does **not** cover the new
+axis. ★ That may well be correct — the preset module's own reasoning notes that
+*"a third of the grid is axes a standard does not reach"* — so it is filed as a
+**question**, not a demand: *does a PDF/X or PDF/A level constrain the spot
+colorant device model, and if so should the preset pin it?*
+
+Filed as `request_do_the_standards_constrain_the_spot_colorant_device_model.md`.
+
+---
+
 ## O99 — ⬜ **The tab-order list should be reorderable by dragging, with clear drop markers**
 
 **Ken, 2026-09-02:**

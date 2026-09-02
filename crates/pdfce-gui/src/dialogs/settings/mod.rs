@@ -522,6 +522,10 @@ pub fn show(
                     // would ask about grey-over-spot before saying whether
                     // overprint is simulated at all.
                     colour::zero_tint(ui, draft);
+                    // ★ Immediately after its sibling: that control is what
+                    // OVERPRINTS a spot colour, this one is what a spot colour
+                    // IS. Both are reached by the same symptom.
+                    colour::spot_model(ui, draft);
                     ui.add_space(10.0);
                     // ★ Directly after `page_blend_space`, and the order is an
                     // argument rather than a preference: that setting decides

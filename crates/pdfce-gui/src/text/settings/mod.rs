@@ -513,7 +513,13 @@ mod tests {
     /// button, which was built on the refusal. `cargo update` brought both in
     /// together, and the settings test and one face-by-name assertion were the
     /// only two things that noticed.
-    const SETTINGS_COUNT: usize = 28;
+    // ★ 28 → 29 on 2026-09-02: `spot_colorant_device_model`, new in
+    // `pdfce-core 0.20`. Ken: *"the engine I think has a couple of new options
+    // for colour rendering that we might need to surface."* He was right, and
+    // the coverage gate two files away fired on the same `cargo update` — the
+    // pair working as designed, one demanding the control and one demanding
+    // the copy.
+    const SETTINGS_COUNT: usize = 29;
 
     /// The `(title, silence, radius)` triple for every setting in the window.
     ///
@@ -553,6 +559,14 @@ mod tests {
                 blend_space_radius(),
             ),
             (zero_tint_title(), zero_tint_silence(), zero_tint_radius()),
+            // ★ Beside its sibling, because they are the same subject from two
+            // sides: that one is what OVERPRINTS a spot colour, this one is
+            // what a spot colour IS. New in pdfce-core 0.20 (O100).
+            (
+                spot_model_title(),
+                spot_model_silence(),
+                spot_model_radius(),
+            ),
             (
                 cmyk_ceiling_title(),
                 cmyk_ceiling_silence(),

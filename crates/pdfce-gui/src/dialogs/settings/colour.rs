@@ -129,6 +129,41 @@ pub fn zero_tint(ui: &mut Ui, draft: &mut Draft) {
     }
 }
 
+/// **Whether a spot ink keeps its own plate, or is mixed down first.**
+///
+/// ★ New in `pdfce-core 0.20` (`OPERATOR_REQUESTS.md` O100), and placed
+/// immediately after [`zero_tint`] because the two are the same subject seen
+/// from two sides: that one is *what overprints a spot colour*, this one is
+/// *what a spot colour IS*. An operator who has arrived at either has arrived
+/// because white behaved unexpectedly on a print-ready drawing, and finding
+/// only one of them would leave them thinking they had exhausted the options.
+///
+/// [`crate::text::settings::spot_model_title`] carries why both values are
+/// conformant and what the visible difference is.
+pub fn spot_model(ui: &mut Ui, draft: &mut Draft) {
+    use pdfce_core::settings::SpotColorantDeviceModel as Model;
+    widgets::header(
+        ui,
+        t::spot_model_title(),
+        t::spot_model_silence(),
+        t::spot_model_radius(),
+    );
+    // ★ Default first, as every radio in this window is — an operator reads
+    // what pdfce is doing now before they read the alternative.
+    for model in [
+        Model::SimulateSeparations,
+        Model::AlternateSpaceSubstitution,
+    ] {
+        widgets::option(
+            ui,
+            &mut draft.working.spot_colorant_device_model,
+            model,
+            t::spot_model_label(model),
+            Some(t::spot_model_note(model)),
+        );
+    }
+}
+
 /// Whether a CMYK JPEG's ink values are stored inverted.
 ///
 /// # ★ The one well-sourced default in the whole window
