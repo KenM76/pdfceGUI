@@ -572,5 +572,5 @@ acceptable resting state for another year, or is this the thing that has
 to be right?
 
 *(The former Q4 — locating the benchmark drawing — is answered.
-`D:\Dev\temp\pdfce\ncored-benchmark-cad-drawing.pdf`, measured in
+`D:\Dev\pdfTests\ncored-benchmark-cad-drawing.pdf`, measured in
 `BENCHMARK.md`.)*

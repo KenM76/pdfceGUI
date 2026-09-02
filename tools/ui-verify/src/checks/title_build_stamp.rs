@@ -104,7 +104,19 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     })?;
 
     let mut spec = LaunchSpec::new(&exe, ctx.out("title_build_stamp.trace.txt"));
-    spec.pdf = ctx.pdf.clone();
+    // ★★★ NO DOCUMENT, and deliberately not `ctx.pdf`.
+    //
+    // The stamp is a property of the BINARY, not of what is open, so a document
+    // adds nothing to the assertion — and taking one adds a way to fail that
+    // has nothing to do with the subject. Measured: passing `--pdf` at a path
+    // that does not exist made this SKIP, and a SKIP is not red, so the check
+    // would have quietly stopped being evidence the first time a fixture moved.
+    //
+    // Which is exactly what had happened. The whole project's documentation
+    // named the benchmark drawing at `D:\\Dev\\temp\\pdfce\\`, and it now lives
+    // in `D:\\Dev\\pdfTests\\`. Three documents were corrected alongside this
+    // line. A check whose subject does not need a document should not acquire
+    // a dependency on one.
     spec.env.push((
         ctx.profile.diag_env.0.to_owned(),
         ctx.profile.diag_env.1.to_owned(),

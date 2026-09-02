@@ -483,7 +483,7 @@ Test documents that matter:
 
 | file | why |
 |---|---|
-| `D:\Dev\temp\pdfce\ncored-benchmark-cad-drawing.pdf` | A3, 129,758 objects, ~1.2 s per raster. The performance case. |
+| `D:\Dev\pdfTests\ncored-benchmark-cad-drawing.pdf` | A3, 129,758 objects, ~1.2 s per raster. The performance case. |
 | `D:\Dev\temp\pdfce\SW41177.pdf` | 36 SolidWorks sheets. The multi-page and mixed-size case. |
 
 ---

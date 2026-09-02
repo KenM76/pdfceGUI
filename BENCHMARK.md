@@ -1,7 +1,7 @@
 # Rendering benchmark — real CAD drawing
 
 **Measured:** 2026-08-12
-**Subject:** `D:\Dev\temp\pdfce\ncored-benchmark-cad-drawing.pdf`
+**Subject:** `D:\Dev\pdfTests\ncored-benchmark-cad-drawing.pdf`
 **Raw trace:** `evidence/bench-gui-diag.txt` (773 lines, `PDFCE_DIAG=1`)
 
 This file exists because an earlier draft of `GUI_ROADMAP.md` asserted
@@ -534,7 +534,7 @@ inverts — at high zoom with tiling, fill is *all* there is, so it scales.
 ```powershell
 $env:PDFCE_DIAG = "1"
 Start-Process "D:\Dev\pdfce\target\release\pdfce-gui.exe" `
-  -ArgumentList '"D:\Dev\temp\pdfce\ncored-benchmark-cad-drawing.pdf"' `
+  -ArgumentList '"D:\Dev\pdfTests\ncored-benchmark-cad-drawing.pdf"' `
   -RedirectStandardError diag.txt
 # …drive the app…
 Select-String "render-async" diag.txt
