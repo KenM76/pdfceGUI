@@ -36,3 +36,4 @@
 - [A temporary shim needs a tripwire that names its own deletion](feedback_a_temporary_shim_needs_a_tripwire_that_names_its_own_deletion.md) — `debug_assert` on the condition that makes it unnecessary; it fired two hours later.
 - [Adding a second route is an audit of the capability](feedback_adding_a_second_route_is_an_audit_of_the_capability.md) — twice in one afternoon the new door found a divergence the old one was hiding.
 - [A completeness question needs an instrument, not a document](feedback_a_completeness_question_needs_an_instrument_not_a_document.md) — "confirm you built every X" is a script keyed on the OTHER side's API; our docs structurally cannot answer it.
+- [Write the row when he speaks, not when the work lands](feedback_write_the_row_when_he_speaks_not_when_the_work_lands.md) — three requests were built and never filed; the work getting done is why nothing looked wrong.
