@@ -115,6 +115,12 @@ pub mod fonts;
 pub mod frame;
 pub mod gating;
 pub mod keyboard;
+/// ★ The **optional-content override** — `hidden_layers`, `set_hidden_layers`,
+/// `set_layer_visible`, `reset_layers`. Split out of [`state`] on 2026-09-01
+/// under R2, when that file reached the 1,500-line ceiling. Its header carries
+/// the three-state rule that `Option<BTreeSet<ObjId>>` encodes, and why
+/// `reset_layers` and `set_hidden_layers(∅)` are different acts.
+pub mod layers;
 // Opening a document, closing it, and the three ways an open can fail. Split
 // from `state.rs` under R2 along the seam those two subjects already drew:
 // that file is *what an open document is*, this one is *the document's lifetime

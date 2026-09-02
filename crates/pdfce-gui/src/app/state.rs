@@ -99,7 +99,6 @@ use std::time::Instant;
 use pdfce_core::edit::EditSession;
 use pdfce_core::object::ObjId;
 use pdfce_core::page_tree::Page;
-use pdfce_render::LayerVisibility;
 
 use crate::app::cache::{FontCache, PageObjectCache, PageTextCache};
 use crate::canvas::selection::SelectionState;
@@ -167,16 +166,16 @@ pub use crate::viewer::ZoomAnchor;
 /// it is what `crate::text::panels::layers_session_only_note` discloses, and
 /// it is why changing it must not bump [`OpenDoc::edit_epoch`].
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-struct LayerOverride {
+pub(super) struct LayerOverride {
     /// The complete hidden set, or `None` to obey the document.
-    hidden: Option<BTreeSet<ObjId>>,
+    pub(super) hidden: Option<BTreeSet<ObjId>>,
     /// How many times the above has changed.
     ///
     /// The render staleness key — see
     /// [`crate::render::worker::RenderKey`], whose own docs explain why a
     /// counter beats comparing the set on every frame. `0` is the
     /// never-touched state, which is exactly `hidden: None`.
-    generation: u64,
+    pub(super) generation: u64,
 }
 
 mod identity;
@@ -847,6 +846,11 @@ pub struct OpenDoc {
     /// Which runs on the current page are inside a form XObject, and therefore
     /// cannot be edited by this cut of `pdfce-core`. See `FormRunCache`.
     pub(super) form_runs: crate::app::cache::FormRunCache,
+    /// **The current page's clickable links**, and the document-wide reader
+    /// that resolves where they go. Read through [`Self::page_links`]; see
+    /// [`crate::app::cache::LinkCache`] for why it is two caches with two keys
+    /// and why the reader going stale would be silent.
+    pub(super) links: crate::app::cache::LinkCache,
     /// **What text the operator has selected on the canvas**, if any.
     ///
     /// Beside [`Self::selection`] rather than inside it, and the separation is
@@ -874,7 +878,14 @@ pub struct OpenDoc {
     /// dies with the document rather than bumping [`Self::edit_epoch`].
     annotations: bool,
     /// The operator's optional-content override. See [`LayerOverride`].
-    layers: LayerOverride,
+    ///
+    /// ★ `pub(super)` rather than private since 2026-09-01: the four methods
+    /// that read and write it live in [`crate::app::layers`], split out of this
+    /// file under R2 when it reached the 1,500-line ceiling. Still module-scoped
+    /// — nothing outside `app` may reach past `hidden_layers` and its three
+    /// companions, because the three-state `Option` they enforce is exactly what
+    /// a direct write would get wrong.
+    pub(super) layers: LayerOverride,
 }
 
 impl OpenDoc {
@@ -1013,6 +1024,7 @@ impl OpenDoc {
             fonts: FontCache::default(),
             page_text: PageTextCache::default(),
             form_runs: crate::app::cache::FormRunCache::default(),
+            links: crate::app::cache::LinkCache::default(),
             // Empty, like every other derived field here — see `selection`.
             text_selection: None,
             // What a reader shows. `pdfce_render::RenderOptions` defaults the
@@ -1094,90 +1106,6 @@ impl OpenDoc {
     /// make an `objects n=` line re-trace as though an edit had happened.
     pub fn set_annotations_visible(&mut self, visible: bool) {
         self.annotations = visible;
-    }
-
-    /// The complete set of optional-content groups currently hidden.
-    ///
-    /// The operator's override if there is one, and otherwise the
-    /// **document's own** answer from
-    /// `pdfce_core::annot::optional_content_default_off` — which is the
-    /// print/export-correct `/D`-initial OFF set (§8.11.4.3), and the same
-    /// resolution `pdfce_core::layers::read_layers` reports per layer as
-    /// `visible_by_default`.
-    ///
-    /// This is what a visibility control reads to compute the *next* set:
-    /// the override replaces the document's configuration rather than merging
-    /// with it (T-12.9), so a caller starts from the complete current answer
-    /// and hands back a complete new one. Handing in only the groups the
-    /// operator touched would show every layer the document had turned off.
-    ///
-    /// Computed rather than cached: it is read when a control is clicked, not
-    /// per frame, and a cached copy would be one more thing to invalidate on
-    /// an edit that added a layer.
-    #[must_use]
-    pub fn hidden_layers(&self) -> BTreeSet<ObjId> {
-        self.layers.hidden.clone().unwrap_or_else(|| {
-            pdfce_core::annot::optional_content_default_off(&self.session.view())
-        })
-    }
-
-    /// Replace the operator's optional-content override with `hidden`.
-    ///
-    /// The **complete** hidden set, for the reason above. Bumps the
-    /// generation, which is what makes the cached page texture stale.
-    ///
-    /// Bumps it even when the set is unchanged, deliberately: comparing two
-    /// `BTreeSet<ObjId>`s to save a re-render costs more than the re-render
-    /// is likely to, and a control that calls this has by definition just
-    /// been clicked. A spurious re-render is a wasted rasterization; a missed
-    /// one is a control that appears inert, and those are not equally bad.
-    pub fn set_hidden_layers(&mut self, hidden: BTreeSet<ObjId>) {
-        self.layers.hidden = Some(hidden);
-        self.layers.generation = self.layers.generation.wrapping_add(1);
-    }
-
-    /// Show or hide one optional-content group.
-    ///
-    /// The single-checkbox convenience over [`Self::hidden_layers`] and
-    /// [`Self::set_hidden_layers`], seeding from the document's own defaults
-    /// on the first toggle so the override starts out agreeing with what the
-    /// operator is looking at.
-    ///
-    /// **It does not apply `/RBGroups` radio semantics.** A group in a radio
-    /// group may have at most one member visible at a time (Table 101), so
-    /// turning one on has to turn its siblings off — and the sibling list
-    /// comes from `pdfce_core::layers::read_layers`, which is the *control's*
-    /// reading, not this type's. A control that needs it composes the whole
-    /// set and calls [`Self::set_hidden_layers`]; a half-implementation here
-    /// would be a second visibility algebra beside the engine's, which is
-    /// what the replace-not-merge contract exists to prevent.
-    pub fn set_layer_visible(&mut self, group: ObjId, visible: bool) {
-        let mut hidden = self.hidden_layers();
-        if visible {
-            hidden.remove(&group);
-        } else {
-            hidden.insert(group);
-        }
-        self.set_hidden_layers(hidden);
-    }
-
-    /// Drop the operator's override and go back to obeying the document.
-    ///
-    /// Distinct from hiding nothing, and the distinction is the whole of
-    /// T-12.9: this restores the document's own `/D` configuration, whereas
-    /// `set_hidden_layers(BTreeSet::new())` reveals every layer the document
-    /// turns off.
-    pub fn reset_layers(&mut self) {
-        self.layers.hidden = None;
-        self.layers.generation = self.layers.generation.wrapping_add(1);
-    }
-
-    /// The override to hand a render, or `None` to obey the document.
-    fn layer_visibility(&self) -> Option<LayerVisibility> {
-        self.layers
-            .hidden
-            .as_ref()
-            .map(|hidden| LayerVisibility::hiding(hidden.iter().copied()))
     }
 
     /// What a render of the current view would be *of*.

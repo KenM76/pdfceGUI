@@ -209,7 +209,8 @@ pub fn class_tooltip(class: PickClass) -> &'static str {
         }
         PickClass::FormField => "Off: clicks pass through form fields, and none can be filled in.",
         PickClass::Link => {
-            "Links cannot be selected in this build. The row is here for when they can."
+            "Links cannot be selected in this build. Clicking one in Read or Review \r
+             follows it instead. The row is here for when they can be selected."
         }
         PickClass::Characters => {
             "Off: dragging across text no longer selects letters to copy. Clicking the \

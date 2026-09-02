@@ -75,7 +75,9 @@
 use std::cell::{Cell, Ref, RefCell};
 use std::time::Instant;
 
+use pdfce_core::annot::PageLinks;
 use pdfce_core::fontinfo::FontInventory;
+use pdfce_core::outline::DestinationReader;
 use pdfce_core::text_extract::PageText;
 
 use crate::app::settings::SettingsExt;
@@ -245,6 +247,66 @@ pub(in crate::app) struct PageTextCache {
 /// invalidates it - which matters, because an edit can change how many runs a
 /// page has and a stale `Vec` indexed by run number would answer confidently
 /// about the wrong run.
+/// **Every clickable `/Link` on the current page, and the reader that resolves
+/// where each one goes** (ISO 32000-1 §12.5.6.5, §12.3.2).
+///
+/// # ★★★ Why this is TWO caches with two different keys
+///
+/// They have genuinely different lifetimes, and collapsing them would make the
+/// expensive one page-scoped:
+///
+/// | | keyed on | cost | rebuilt when |
+/// |---|---|---|---|
+/// | [`Self::reader`] | the **edit epoch** | **O(document)** | any edit |
+/// | [`Self::links`] | `(page, epoch)` | O(annots on the page) | the page changes, or any edit |
+///
+/// `pdfce_core::outline::DestinationReader` has to flatten two document-wide
+/// tables before it can answer anything: the page-object → index map, and both
+/// §12.3.2.3 named-destination namespaces. The engine's own reply on shipping
+/// it put the point plainly — a proposed per-call signature *"would have
+/// rebuilt both on every call. A page with 200 links would have walked the page
+/// tree 200 times, and you would have discovered it as 'links are slow on big
+/// documents' months from now with no obvious cause."*
+///
+/// So the reader is held for as long as the document's structure is unchanged,
+/// and the per-page link list is rebuilt beside it whenever the operator turns
+/// a page.
+///
+/// # ★★ The reader is a SNAPSHOT and going stale is silent
+///
+/// It resolves against the page order it was built with. A page delete, a page
+/// insert or a new named destination invalidates it — and a stale one does not
+/// error, it answers *confidently and wrongly*, sending a link to the page that
+/// used to be at that index.
+///
+/// The epoch key is what prevents that, and it is why the reader is keyed on
+/// the epoch rather than held for the document's lifetime: **every** edit bumps
+/// `OpenDoc::edit_epoch`, so the reader cannot survive one. That is coarser
+/// than necessary — recolouring a path invalidates a reader nothing structural
+/// touched — and coarse in the safe direction. Rebuilding it is a page-tree
+/// walk; getting it wrong is a link that navigates somewhere plausible and
+/// false, which is the one failure this feature could ship that nobody would
+/// report as a bug.
+///
+/// # Why the whole `PageLinks` is kept, not just the navigable ones
+///
+/// Because `PageLinks::links_without_destination` is the count of `/Link`
+/// annotations carrying **neither** `/Dest` nor `/A` — clickable boxes that
+/// Table 173 gives no way to act. A caller that only saw the resolved list
+/// could not tell a page with no links from a page whose links are all broken,
+/// and those two want opposite sentences from the program.
+#[derive(Default)]
+pub(in crate::app) struct LinkCache {
+    /// The edit epoch [`Self::reader`] was built at.
+    pub(in crate::app) reader_for: Cell<Option<u64>>,
+    /// The document-wide destination resolver. See the type's docs.
+    pub(in crate::app) reader: RefCell<Option<DestinationReader>>,
+    /// The `(page index, edit epoch)` [`Self::links`] describes.
+    pub(in crate::app) built_for: Cell<Option<(usize, u64)>>,
+    /// That page's links, resolved.
+    pub(in crate::app) links: RefCell<Option<PageLinks>>,
+}
+
 #[derive(Default)]
 pub(in crate::app) struct FormRunCache {
     /// The `(page index, edit epoch)` the flags below describe.
@@ -555,6 +617,101 @@ impl OpenDoc {
             slot.as_ref().and_then(|built| built.as_ref().ok())
         })
         .ok()
+    }
+
+    /// **Every clickable link on `page_index`, and where each one goes.**
+    ///
+    /// The one resolution. The hover cursor, the click that follows a link and
+    /// anything that ever reports a document's broken links all read *this*
+    /// value, for the same reason [`Self::page_text`] is the one extraction:
+    /// two resolutions of one page are two chances for what the cursor promises
+    /// and what the click performs to disagree.
+    ///
+    /// # Returns
+    ///
+    /// `None` only when there is no such page. A page with **no** links returns
+    /// an empty [`PageLinks`], which is a different answer and a caller may
+    /// need the difference — see [`LinkCache`] on why the unresolvable ones are
+    /// counted rather than dropped.
+    ///
+    /// # Cost
+    ///
+    /// The first call for a `(page, epoch)` pays one `/Annots` walk plus, if
+    /// the epoch moved, one page-tree walk and one name-tree flatten for the
+    /// [`DestinationReader`]. Every call after it is two comparisons. See
+    /// [`LinkCache`] for why those two costs are keyed separately.
+    ///
+    /// ★ It is called from a **hover**, sixty times a second, which is why the
+    /// caching is not optional. The first sketch of this feature resolved links
+    /// per frame and would have walked the page tree of a 36-sheet drawing on
+    /// every mouse move.
+    ///
+    /// # Holding the `Ref`
+    ///
+    /// As [`Self::page_text`]: the return keeps a shared borrow of `*self`
+    /// alive, so a caller that needs `&mut OpenDoc` afterwards must drop it
+    /// first — or clone the one link it cares about, which is what
+    /// `crate::canvas::links` does.
+    #[must_use]
+    pub fn page_links(&self, page_index: usize) -> Option<Ref<'_, PageLinks>> {
+        self.ensure_page_links(page_index);
+        Ref::filter_map(self.links.links.borrow(), Option::as_ref).ok()
+    }
+
+    /// Build [`Self::page_links`] for `(page_index, epoch)` if it is not
+    /// already built. Idempotent, and two comparisons on every call after the
+    /// first.
+    fn ensure_page_links(&self, page_index: usize) {
+        // ★ The reader FIRST and on its own key. It is the O(document) half and
+        // it survives a page turn; the links below do not. See [`LinkCache`].
+        if self.links.reader_for.get() != Some(self.edit_epoch) {
+            self.links.reader_for.set(Some(self.edit_epoch));
+            // ★ The SESSION view, never the base document's — the same rule
+            // `ensure_page_objects` states at length. A reader built from the
+            // base revision would resolve against the page order before the
+            // operator's page deletes, which is precisely the stale-snapshot
+            // failure `DestinationReader`'s own docs warn about.
+            *self.links.reader.borrow_mut() = Some(DestinationReader::new(&self.session.view()));
+            // Force a rebuild of the page list too: it was resolved against the
+            // reader that has just been replaced.
+            self.links.built_for.set(None);
+        }
+        let key = (page_index, self.edit_epoch);
+        if self.links.built_for.get() == Some(key) {
+            return;
+        }
+        // Recorded BEFORE the work, exactly as `ensure_page_text` does: a page
+        // whose `/Annots` will not resolve fails deterministically, and
+        // retrying it every frame would burn a core to learn the same thing.
+        self.links.built_for.set(Some(key));
+        let built = self.pages.get(page_index).and_then(|page| {
+            let reader = self.links.reader.borrow();
+            reader.as_ref().map(|reader| {
+                pdfce_core::annot::page_link_destinations(&self.session.view(), page.id, reader)
+            })
+        });
+        if let Some(links) = &built {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                //
+                // ★ Emitted on a BUILD, never on a cache hit — so the number of
+                // these lines in a run is the number of resolutions actually
+                // paid for. That is the measurement a prose claim about cost
+                // would otherwise drift from, and this file has the same note
+                // on `page_text` for the same reason.
+                format!(
+                    "page-links page={page_index} links={} unresolvable={} named={}",
+                    links.links.len(),
+                    links.links_without_destination,
+                    self.links
+                        .reader
+                        .borrow()
+                        .as_ref()
+                        .map_or(0, DestinationReader::named_destination_count),
+                )
+            });
+        }
+        *self.links.links.borrow_mut() = built;
     }
 
     /// **Does `run` on the current page have no show operator to anchor on?**

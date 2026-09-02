@@ -163,6 +163,14 @@ pub mod fonts;
 pub mod formfield;
 pub mod forms;
 pub mod images;
+/// Every word the Recognise-text surface says — the dialog that runs OCR and
+/// discloses what it inferred, and the offer the Find bar makes on a page with
+/// no text on it. Consumed by `crate::dialogs::ocr` and `crate::find::bar`.
+/// ★ What the program says about a **link it cannot follow** — four
+/// sentences for four different causes, plus one for a `/Link` with no
+/// destination at all. A link that WORKS says nothing: it navigates, and
+/// that is the feedback. See its header.
+pub mod links;
 pub mod markup;
 /// ★ Every word the **maximum-zoom** control says — the popup behind the
 /// status bar's zoom readout (O24).
@@ -181,9 +189,6 @@ pub mod merge;
 /// custom fields and the one refusal. Consumed by
 /// `crate::dialogs::new_document`.
 pub mod new_document;
-/// Every word the Recognise-text surface says — the dialog that runs OCR and
-/// discloses what it inferred, and the offer the Find bar makes on a page with
-/// no text on it. Consumed by `crate::dialogs::ocr` and `crate::find::bar`.
 pub mod ocr;
 /// ★ The PAGE clipboard's four sentences — three of which are facts the
 /// operator cannot see. Its header carries why a page paste is rule 4's

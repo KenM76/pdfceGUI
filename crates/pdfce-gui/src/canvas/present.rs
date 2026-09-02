@@ -1004,6 +1004,18 @@ fn show_in(
         actions,
     );
 
+    // ★★ **The pointing hand over a followable link**, registered after the
+    // form widgets' own cursor pass and before the gesture layer runs — so
+    // `canvas::tool::cursor_for` still has the last word, which is right: an
+    // opinion it holds is about a gesture already under way and outranks a
+    // hover. See `canvas::links`' header on why this is the WHOLE of the
+    // pre-click affordance and why nothing is drawn into the page.
+    //
+    // ★ After forms rather than before, deliberately. A `/Widget` and a `/Link`
+    // overlapping is a form control inside a table of contents; the control is
+    // the more specific thing and its own cursor should survive.
+    links::cursor(ui.ctx(), doc, &page_views, caps.edit_content);
+
     // ★ The frame's geometry, recorded for the commands that arrive with none.
     // A zoom raised from a keyboard chord, the ribbon or the status bar has no
     // `Ui` and no page rect, and it must describe its anchor against the view

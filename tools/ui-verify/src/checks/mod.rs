@@ -249,6 +249,13 @@ pub mod bookmark_clipboard;
 pub mod cut_gate;
 pub mod field_clipboard;
 pub mod form_selection;
+/// ★★ **Clicking a `/Link`** — the two checks for a capability that did not
+/// exist in this shell at all until 2026-09-01, because a link's destination
+/// could not be READ. The second of the two is the one that matters: a viewer
+/// that treats all five `Destination` variants as navigable resolves the four
+/// it cannot perform to a defaulted page 0 and navigates anyway, which has no
+/// symptom an operator would report. Its header carries the argument.
+pub mod link_follow;
 /// ★ Markup ▸ Style — a ribbon group whose one item the manifest declared at S2
 /// and no renderer ever drew, so it shipped as a caption over an empty band.
 ///
@@ -1214,6 +1221,12 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // condition under test is a property of the open file, so it cannot be
         // reached by any further gesture within the first check's session.
         Box::new(unshare_form::TheUnshareDeclinesWhenNothingElseDrawsTheForm),
+        // The two link checks, before OCR: they are two launches and two clicks
+        // apiece against kilobyte fixtures, where the OCR checks below are a
+        // minute each. A run that fails on something cheap should fail before
+        // paying for something expensive.
+        Box::new(link_follow::ALinkGoesToThePageItNames),
+        Box::new(link_follow::ALinkItCannotFollowSaysSo),
         Box::new(ocr::OcrRecognisesAPageAndTheDocumentKeepsIt),
         // The three about a run in progress. After the one-page check, because
         // a build in which recognition does not work at all should say so

@@ -279,6 +279,22 @@ pub fn click(
         } else {
             None
         };
+    // ★★ The LINK under the pointer, resolved beside `annot_hit` and for the
+    // same reason: the arm that consumes it has to be an `if let`, so a click
+    // that hits no link falls through and means exactly what it meant before.
+    //
+    // ★ Hoisted rather than written as a guard in the ladder, which is also how
+    // this file's one previous compiler crash was avoided — a `let` chain
+    // inside an `else if` at that depth put rustc 1.97 over its own stack. The
+    // shape here matches `annot_hit` above, which is where it belonged anyway.
+    //
+    // The cost of computing it on a click an armed tool will take is one cache
+    // comparison: see `crate::app::cache::LinkCache`.
+    let link_hit = if caps.edit_content {
+        None
+    } else {
+        crate::canvas::links::under_pointer(doc, page_index, point)
+    };
     // A click that missed every annotation, in a mode that could have
     // hit one, **deselects**. Clicking away is the gesture every
     // operator tries first, and without this the outline would survive
@@ -421,6 +437,45 @@ pub fn click(
     // have taken away text selection in the same stroke. `annot_hit`
     // is therefore computed ahead of the ladder and this arm is an
     // `if let`, so a miss is not a branch at all.
+    // ★★★ **A LINK UNDER THE POINTER IS FOLLOWED** — the operator's question,
+    // 2026-09-01: *"does a clickable table of contents work?"*
+    //
+    // It did not. There was no link-following code path anywhere in this shell,
+    // because until the engine shipped `outline::DestinationReader` a link's
+    // destination **could not be read** — `Annotation::action_type` gives the
+    // `/S` name and nothing else, deliberately. See `canvas::links`' header.
+    //
+    // # Why it sits HERE — above the annotation arm and above text
+    //
+    // **Above `annot_hit`**, because a `/Link` IS an annotation and would
+    // otherwise be selected rather than followed in Review, where
+    // `caps.author_markup` is true. An operator reading a drawing package in
+    // Review expects a contents entry to take them to the sheet, not to put a
+    // selection outline round the words.
+    //
+    // **Above the text fall-through** for the same reason the image arm is:
+    // `takes_the_press` is true across the whole canvas in Read and Review, so
+    // a rung below it is a rung that never runs.
+    //
+    // **Below every armed tool**, which is this codebase's standing rule — a
+    // caret, a pen or a measure tool was armed on purpose and a link underneath
+    // must not steal the press.
+    //
+    // # ★★ `!caps.edit_content` — Edit SELECTS a link, it does not follow it
+    //
+    // In Edit a `/Link` is an annotation like any other and the operator is
+    // there to move, resize or delete it. A click that navigated away instead
+    // would make a link the one annotation in the document that cannot be
+    // edited. The same predicate, for the same reason, as `canvas::forms`'
+    // fill-versus-author split.
+    //
+    // # Additive, like the two arms below it
+    //
+    // A click that hits no link falls through and means exactly what it meant
+    // before — an annotation in Review, an image or text in Read.
+    // `under_pointer` is an `Option`, so a miss is not a branch at all.
+    } else if let Some(link) = link_hit.as_ref() {
+        crate::canvas::links::follow(link, doc, actions);
     } else if let Some(hit) = annot_hit {
         selection.select_annot(hit.clone());
         crate::diag::trace(|| {

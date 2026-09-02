@@ -216,7 +216,7 @@ Dragging a box in the margin is the gesture you would actually reach for, and it
 is **the same defect as O88**: the marquee only takes what it completely
 encloses. Tracked there, not duplicated here.
 
-## O91 — ⬜ **"the what's new pdf … might have a table of contents that you can click on"** — it does not work, and the reason is on the engine side
+## O91 — ✅ **SHIPPED AND DRIVEN 2026-09-01 (evening)** — a clickable table of contents works
 
 **Ken, 2026-09-01.** The second half of the same message as O90.
 
@@ -252,11 +252,70 @@ disclosure without navigation. Rejected: it advertises a capability that does
 not exist, and R9 says an unavailable capability renders **nothing**. The
 absence stays silent until the reader lands.
 
-### What lands the moment it does
+### ✅ The engine answered the same evening, and it shipped
 
-The shell side is **already built and already driven**, because O90 needed the
-same machinery. Hit-test the rect → call the new reader → feed the existing
-pipeline. Under a day.
+`pdfce-core` `Pass 222.0` (engine `94d640c`) added
+`outline::DestinationReader`, `annot::page_link_destinations`,
+`Annotation::destination`, five synthetic link fixtures and
+`pdfce-cli list-links`. `action_type` was left untouched, which was the right
+call and was the request's own argument: the fix is a second entry point, not a
+changed contract.
+
+**Clicking a link now navigates.** In Read and Review; in Edit a `/Link` stays
+an annotation you can move, resize and delete, which is the conventional split
+and is the same predicate the fill-versus-author split already uses.
+
+### ★★★ The part that is not "make links work"
+
+`Destination` has **five** variants and only one navigates. The failure this
+feature was most likely to ship is not *"links do nothing"* — that is loud, and
+somebody reports it in a minute. It is a viewer that treats all five as
+navigable, resolves the four it cannot perform to a defaulted page 0, and sends
+you confidently to the front of the document. **That has no symptom.** The
+cursor changes, the click lands, a page appears — and you conclude the
+document's links are wrong.
+
+So the four non-navigating cases each get **their own sentence**, off-canvas, on
+the click:
+
+| what it is | what it says |
+|---|---|
+| target page not in this document | the page was deleted, or this file is a range of a larger one |
+| a name nothing defines | the name table was lost when the file was made |
+| `/GoToR` — another file | names the file and the page, so you can open it |
+| `/URI`, `/JavaScript`, `/Launch` | says what it is; **recognised and disclosed, never executed** |
+
+### ★ The affordance is a cursor, and nothing is drawn on the page
+
+A pointing hand over a link that can be followed, and **nothing at all** over
+one that cannot — R9. No border, no tint, no dashed rectangle over the `/Rect`.
+A screenshot of the canvas is identical to a screenshot of the same document
+saved and reopened, which is rule 4's one-line test.
+
+★ The hand-cursor-plus-`action=GoTo` compromise above stays rejected, and for
+the reason it was rejected: it advertises a capability that does not exist. What
+ships instead is a sentence *after* you ask.
+
+### ★★ Evidence — and one falsification that FAILED and had to be repaired
+
+Two driven checks on the engine's own synthetic fixtures:
+`a_link_goes_to_the_page_it_names` and
+`a_link_it_cannot_follow_says_so_instead_of_jumping`.
+
+The second was falsified by planting the plausible wrong implementation — every
+destination fed to the navigator with a defaulted page 0 — **and it passed
+anyway.** The fixture opens on page 0, so a defaulted jump to page 0 moves
+nothing, and *"the page did not change"* was true of the broken build too.
+
+⇒ The check now **zooms in first**, so the view is nowhere near where any
+defaulted navigation would land, and asserts page, zoom **and** scroll offset
+are all unchanged. Re-planted: it fails. Restored: it passes. Without that
+repair it was a check that could not fail, which is not evidence.
+
+★ The engine's own fixture note asks for the property this rests on and it is
+worth repeating: **no link in those fixtures targets page 1**, because a fixture
+whose links all point at the first page passes against an implementation that
+resolved nothing at all.
 
 ### Not verified in Acrobat either
 

@@ -235,6 +235,14 @@ pub mod interact;
 // follows: that module is drivable by a headless `egui::Context`, this one
 // needs a window.
 pub mod keys;
+/// ★★ **Following a `/Link`** — the hit test, the pointing hand, and the
+/// four sentences for the four destinations this program cannot perform.
+/// New on 2026-09-01: until the engine shipped `DestinationReader` a
+/// link's destination could not be READ at all, so there was no
+/// link-following code path anywhere in the shell. Its header carries why
+/// collapsing the five destination variants into two behaviours is the
+/// defect, and why the affordance is a cursor and never a mark on the page.
+pub mod links;
 pub mod mapping;
 // Drawing a markup annotation where the operator points: the rubber band, the
 // four kinds it can author, and the raw endpoints an arrow's head depends on.
