@@ -16,6 +16,8 @@
 - [A measurement of the wrong surface looks exactly like a broken one](feedback_a_measurement_of_the_wrong_surface_looks_exactly_like_a_broken_one.md) — ask what a failing pixel check SAMPLED before asking what is broken.
 - [Disk is tight and target/ grows unbounded](project_disk_is_tight_and_target_grows_unbounded.md) — 50GB+ of stale cache a week; clear debug/doc routinely, never release.
 - [A backlog row is a record, not evidence](feedback_a_backlog_row_is_a_record_not_evidence.md) — verify absence claims against source; three docs said the rotate grip was missing a day after it shipped.
+- [A fixture that defeats a default does not defeat a starting state](feedback_a_fixture_that_defeats_a_default_does_not_defeat_a_starting_state.md) — an absence check is vacuous if the run already stands where the defect lands; plant it.
+- [A SKIP is not red, so a check can stop running unnoticed](feedback_a_skip_is_not_red_so_a_check_can_stop_running_unnoticed.md) — diff the SKIP set; and a one-extra-call fix needs a grep for every site.
 - [A check that cannot fail is not evidence](feedback_a_check_that_cannot_fail_is_not_evidence.md) — falsify before quoting green; make it SKIP when it never saw the mechanism.
 - [Ken's sentences are reports, not measurements](feedback_kens_sentences_are_reports_not_measurements.md) — "up to 800%" named an old setting, not a threshold; measure the boundary he names.
 - [When a measurement runs out, read a better instrument](feedback_when_a_measurement_runs_out_read_a_better_instrument.md) — an extreme-end failure is usually the harness's resolution; never widen the tolerance.
