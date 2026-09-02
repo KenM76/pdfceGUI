@@ -469,7 +469,7 @@ question above is undecided and is yours.
 ---
 
 
-## O88 — ◑ **BUILT AND UNIT-TESTED 2026-09-02, NOT DRIVEN** — a box can only select what it completely surrounds
+## O88 — ✅ **SHIPPED AND DRIVEN 2026-09-02** — a right-to-left box takes what it touches
 
 **Ken, 2026-09-01, on `TR-0461-1500-copy.pdf`:**
 
@@ -546,30 +546,76 @@ fails it.
 `SW41177` have `forms=0`, `ncored-benchmark` has 1, and `TRP5187 - Weber Supply`
 has 75.
 
-### ⬜ WHAT IS MISSING, and it is the part that decides the status
+### ✅ DRIVEN 2026-09-02, and getting there took three wrong diagnoses
 
-**It has never been driven, so under R1 it is not shipped.**
-`a_marquee_over_a_table_takes_its_text_as_well_as_its_lines` still fails, and it
-is failing on the **harness**, not on the feature:
+`a_marquee_over_a_table_takes_its_text_as_well_as_its_lines` **passes**, on your
+own drawing, and was **falsified**: with `mode_for` stubbed to return `Enclosed`
+for both directions it fails with *"THE BAND ENCLOSED THE TABLE AND SELECTED
+NOTHING"*; restored, it passes.
 
-- the trace carries **no `canvas-selection` line of any kind** and only sixteen
-  `canvas-pointer` ones, so **no rubber band ever begins**;
-- the check did not arm the Select tool. That was added 2026-09-02
-  (`arm_select_from_ribbon`) and **the run still selects nothing**, so there is a
-  second cause underneath it that has not been found;
-- ★★ its first failure was written off as *"the harness drove the band above the
-  canvas"* — true of that run, and it **masked this**. A check that fails for two
-  different reasons in two runs is one whose second diagnosis nobody looked for.
-  This is now the third.
+```
+marquee-mode crossing=true mode=touched hits=3 paths=2 text=1 other=0
+canvas-selection via=pv.marquee sel=3 level=Object first=object:7
+```
 
-⇒ **The next session's first job on this row is that check, not the feature.**
-Do not read the unit tests as evidence the gesture works end to end; they cover
-the rule and cannot see the chain in front of it, which is the exact distinction
-O93 was held open on.
+Paths **and** text — which is the kind you reported missing.
 
-★ A **second cause** remains recorded against this row from the original
+### ★★★ Three wrong diagnoses, and every one of them looked like the feature
+
+**1. "The harness drove the band above the canvas."** True of the first run — the
+file is ten pages shown continuously and the view had inherited a scroll — and
+fixed by fitting the page first. It also **masked the next two**.
+
+**2. The Select tool was never armed.** Fixed, and the check still selected
+nothing.
+
+**3. ★★★ The band's origin was on ink.** The trace carried
+`selection-set page=0 object=23 via=press` and **no marquee line at all**: the
+press selected the object under it and the drag became a *move*.
+`canvas::presspick` documents exactly this — *"a press on empty paper still
+marquees"* — and pressing on ink does not.
+
+★★ **"Empty" is far wider than it looks.** The pick tolerance is 4 *screen*
+pixels converted to page units, so at the fitted zoom this check drives (0.38×)
+it is over **ten page points**. The old origin sat 6 pt from the sheet border —
+visually in the margin, and inside the catch radius. The new one was chosen by
+rendering the page at 1 pt per pixel and looking: 80 pt clear of anything.
+
+⇒ **A check that fails for three different reasons in three runs is one whose
+later diagnoses nobody looked for.** Each fix was correct and each revealed the
+next.
+
+### ★★★ …and then the check's own oracle turned out to be an assumption
+
+It asserted a **count**, reasoning that *"a table's rules are one path object per
+line and its words are one text object per cell, so a band over this table should
+return well into double figures"*, failing anything under four.
+
+**Measured on that sheet: `objects n=25 paths=19 text=6`.** The *entire drawing*
+— two tables, a title block, an isometric view, dozens of labels — is
+**twenty-five objects**. A band returning three is a large fraction of the page,
+and the threshold was rejecting a correct result while calling it your defect.
+
+★★ It could never have expressed your complaint anyway. *"It only picks up the
+lines"* is a claim about **a kind being missing**. One path and one text is a
+pass; nine paths and no text is the defect — and a count ranks those two the
+wrong way round at every threshold.
+
+⇒ `canvas::marquee::select` now reports the breakdown from the provider's own
+classifier (`paths=`, `text=`, `other=`), and the check asserts **both kinds are
+present**. That is the first oracle here that can actually fail for the reason
+the check is named after.
+
+### ⬜ What is still not driven, and it is your own complaint
+
+**The enclosing direction is not driven, and cannot be on this sheet.** To
+surround a table hard against the edge the band must start outside the page, and
+every corner it could be started from is on ink — which is precisely what you
+reported. The crossing window is the answer to that, and it is what is driven.
+
+★ A **second cause** stays recorded against this row from the original
 diagnosis: a stale `/LW` can make a visible line unselectable, which presents
-identically to a marquee that missed it.
+identically to a band that missed it.
 
 ---
 

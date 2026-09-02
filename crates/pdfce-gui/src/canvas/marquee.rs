@@ -162,6 +162,34 @@ pub fn select(
         );
     }
     selection.marquee(page_index, &hits, shift);
+    // ★★★ **THE KINDS, NOT ONLY THE COUNT** — added 2026-09-02, and the
+    // reason is a check whose oracle turned out to be an assumption.
+    //
+    // `a_marquee_over_a_table_takes_its_text_as_well_as_its_lines` asserted a
+    // COUNT, reasoning that *"a table's rules are one path object per line and
+    // its words are one text object per cell, so a band over this table should
+    // return well into double figures"*. Measured on the operator's own sheet:
+    // that whole drawing — two tables, a title block, an isometric view,
+    // dozens of labels — decomposes into **25 objects, 19 paths and 6 text**.
+    // A band returning 3 is a substantial fraction of the sheet, and the
+    // threshold was rejecting a correct result.
+    //
+    // ★★ His complaint is about a KIND being missing — *"it only picks up the
+    // lines of each table"* — and a count cannot express that at any
+    // threshold. One path and one text is a pass; nine paths and no text is the
+    // defect, and the count ranks them the wrong way round.
+    //
+    // ★ `object_class` is the provider's own classifier, the same one the pick
+    // filter reads, so what this line reports and what a filter would exclude
+    // cannot disagree.
+    let (mut paths, mut text, mut other) = (0usize, 0usize, 0usize);
+    for hit in &hits {
+        match targets.and_then(|t| t.object_class(page_index, *hit)) {
+            Some(crate::canvas::pick::PickClass::Path) => paths += 1,
+            Some(crate::canvas::pick::PickClass::Text) => text += 1,
+            _ => other += 1,
+        }
+    }
     crate::diag::trace(|| {
         // ui-text-exempt: diagnostic trace, never displayed.
         //
@@ -171,7 +199,7 @@ pub fn select(
         // a window that happened to enclose everything -- which is exactly the
         // pair a driven check has to distinguish.
         format!(
-            "marquee-mode crossing={crossing} mode={} hits={}",
+            "marquee-mode crossing={crossing} mode={} hits={} paths={paths} text={text} other={other}",
             if crossing { "touched" } else { "enclosed" },
             hits.len()
         )
