@@ -289,7 +289,7 @@ Filed as `request_do_the_standards_constrain_the_spot_colorant_device_model.md`.
 
 ---
 
-## O99 — ⬜ **The tab-order list should be reorderable by dragging, with clear drop markers**
+## O99 — ⬜ **BLOCKED ON THE ENGINE, filed 2026-09-02** — the tab-order list cannot be reordered at all
 
 **Ken, 2026-09-02:**
 
@@ -304,6 +304,51 @@ rail, so that is the bar and the implementation to copy rather than reinvent.
 ★ The page rail already does drag-reorder with an insertion marker. Whatever it
 uses is the thing to reuse; a second drop-marker implementation on one surface is
 two behaviours to learn.
+
+### ★★★ There is no verb that can commit it
+
+Tab order on a page is the order of that page's **`/Annots` array** (§12.7.4.2).
+Every annotation verb the engine has was checked:
+
+| verb | what it does |
+|---|---|
+| `move_annotation(id, dx, dy)` | moves it **geometrically**. Not the array. |
+| `delete_annotation` | removes it |
+| `copy_annotations` / `cut_annotations` | the clipboard pair |
+| `reorder_pages(&[usize])` | pages, not annotations — and exactly the shape needed |
+
+**Nothing reorders `/Annots`, and there is no `/Tabs` setter either.**
+
+### ★★ Why it was not decomposed out of what exists
+
+The standing rule is to decompose rather than declare a blocker — three previous
+"blockers" here were not real — so both candidates were considered and both are
+destructive:
+
+- **Cut and re-paste in the new order** destroys and re-creates the widgets: new
+  object ids, a re-registration into `/AcroForm`, and the loss of `/AA` triggers
+  and any `/Parent` chain a radio group depends on. Dragging a row down one place
+  would quietly rebuild the form.
+- **Delete and re-add** is the same, worse — `add_text_field` authors a *new*
+  field from a spec, so everything not in that spec is gone.
+
+A reorder must move the reference and touch nothing else, which is the shape
+`reorder_pages` already has for pages.
+
+### ⬜ Filed, and NOTHING was built
+
+`request_a_pages_tab_order_cannot_be_changed_at_all.md`, asking for
+`reorder_annotations(page, &[usize])` with `reorder_pages`' contract — plus the
+one question that cannot be answered from outside: **should it also write
+`/Tabs /A`**, so the order you arranged is the order the file *states* rather than
+an order some readers happen to follow?
+
+★★ **The drag gesture was deliberately not built.** R9 says an unavailable
+capability renders **nothing**, and a drag with a drop marker that cannot commit
+is a control that lies — worse than the read-only list that is there. That is a
+change from how two earlier gaps were handled, where the shell half was built and
+left waiting; it is the right call here because **the gesture *is* the feature**.
+There is no useful half.
 
 ---
 
