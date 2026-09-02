@@ -91,6 +91,20 @@ pub mod vk {
     pub const H: u16 = 0x48;
     /// `Alt`, as a modifier. `Alt+Down` is one entry in the slice.
     pub const ALT: u16 = 0x12;
+    /// `F4`, for **`Alt+F4`** — the only way this harness can ask the
+    /// application to close **gracefully**.
+    ///
+    /// ★★★ Added 2026-09-02 for `page_display_preference`, and the distinction
+    /// is the whole reason it exists. Dropping a [`crate::launch::Session`]
+    /// **kills** the process, and a killed process runs no exit hook: eframe's
+    /// `on_exit` never fires, so the debounced layout flush never happens.
+    ///
+    /// A check that killed the window and then asserted the preference survived
+    /// would be asserting that the 750 ms debounce had already expired --
+    /// which is true on a slow run and false on a fast one, and is not the
+    /// property anybody cares about. The property is *"I changed it and closed
+    /// the program straight away"*, and only a real `WM_CLOSE` reproduces it.
+    pub const F4: u16 = 0x73;
 
     /// `Z`, for `Ctrl+Z` and `Ctrl+Shift+Z` — undo and redo.
     ///

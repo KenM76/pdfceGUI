@@ -1015,6 +1015,54 @@ build the pan froze the zoom and that number would not have moved.
 
 ---
 
+## O80 — ✅ **SHIPPED AND DRIVEN 2026-09-02** — a page-display choice reaches the next document
+
+### ✅ Driven, 2026-09-02 — and writing the check found a defect in the disclosure first
+
+`a_page_display_choice_survives_a_close_and_reaches_a_new_document` opens
+`four-pages.pdf`, presses **Facing** on the ribbon, closes the window
+**immediately with Alt+F4**, and then opens `paragraph.pdf` — **a document the
+program has never seen** — in a second process. It opens facing, from the
+standing preference.
+
+```
+page-display mode=facing source=preference ribbon-mode=read
+```
+
+**Falsified:** with the line that records the standing preference removed, it
+fails with *"THE PREFERENCE WAS FORGOTTEN"*. Restored, it passes.
+
+### ★★★ The trace could not tell the two answers apart, and was fixed first
+
+There are **three** tiers — the document's own record, the standing preference,
+the mode's rule — and the `page-display` line reported **two**. Anything that was
+not the document's record was called `source=mode-default`, so a display that
+came from **your preference** looked identical to one the mode had chosen.
+
+⇒ That is exactly the pair this check has to separate, so a check written against
+the old line would have passed against a build where the middle tier was never
+read. `source=preference` now exists. **Second time in three days that writing a
+driven check found a trace which could not distinguish the two states the check
+existed for** — the OCR tally and the marquee census were the others.
+
+### ★★ Why the close has to be Alt+F4 and not a kill
+
+Dropping the harness's session **kills** the process, and a killed process runs
+no exit hook. A check that killed the window and then found the preference intact
+would only be asserting that the 750 ms debounce had already expired — true on a
+slow run, false on a fast one. `Alt+F4` is a real `WM_CLOSE`, so `on_exit` runs.
+
+### ⬜ One half is NOT established, and the check says so in its own report
+
+`exit-flush layout-written=false`: the hook ran and the **layout** store had
+nothing pending, because this check changes a page display and the layout file
+carries the ribbon **mode**. So the *debounce rescue* is not exercised here — the
+hook being called is, and the preference surviving is. Exercising the rescue
+needs a mode change immediately before the close, which is a different property
+and belongs in its own check.
+
+<details><summary>The original entry</summary>
+
 ## O80 — ✅ BUILT 2026-08-31, not yet driven
 
 > **Two causes, and the second was a function written for an exit path that did
@@ -1091,6 +1139,8 @@ coincidence rather than by memory.
    it is this project's commonest defect shape.
 
 **Status:** not investigated.
+
+</details>
 
 ---
 

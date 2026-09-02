@@ -309,6 +309,13 @@ pub mod off_page_marquee;
 pub mod os_fonts_setting;
 pub mod page_cache;
 pub mod page_clipboard;
+/// ★★ **A page-display choice survives a close and reaches a new document** —
+/// `OPERATOR_REQUESTS.md` O80. A two-process check, and the close must be
+/// GRACEFUL: dropping a session kills the process, and a killed process runs
+/// no exit hook, so the debounced write that carries the preference never
+/// happens. Its header carries why the second document must be one the
+/// program has never seen.
+pub mod page_display_pref;
 pub mod page_ops;
 /// The **two** driven checks of *"give this page its own copy"*:
 /// `the_context_menu_gives_this_page_its_own_copy_of_a_shared_form` and
@@ -1233,6 +1240,9 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // minute each. A run that fails on something cheap should fail before
         // paying for something expensive.
         Box::new(off_page_marquee::ABandDraggedIntoTheMarginReachesAnObjectOffThePage),
+        // Two launches and an Alt+F4, so it is placed with the other
+        // multi-process checks rather than among the single-window ones.
+        Box::new(page_display_pref::APageDisplayChoiceSurvivesACloseAndReachesANewDocument),
         Box::new(link_follow::ALinkGoesToThePageItNames),
         Box::new(link_follow::ALinkItCannotFollowSaysSo),
         Box::new(ocr::OcrRecognisesAPageAndTheDocumentKeepsIt),

@@ -477,10 +477,36 @@ impl PdfceApp {
                     // ui-text-exempt: diagnostic trace, never displayed in the UI
                     "page-display mode={} source={} ribbon-mode={ribbon_mode}",
                     display.id(),
+                    // ★★★ **THREE tiers, and this line reported TWO** until
+                    // 2026-09-02.
+                    //
+                    // The resolution above is
+                    // `remembered.or(default_display).unwrap_or(mode rule)` --
+                    // document, then the operator's standing preference, then
+                    // the mode. The disclosure tested only `remembered` and
+                    // called everything else `mode-default`, so a display that
+                    // came from the STANDING PREFERENCE was reported as having
+                    // come from the mode's rule.
+                    //
+                    // ★★ That is not cosmetic. The standing preference is the
+                    // whole of O80 — *"it should remember my page display
+                    // preferences from my last closing of the program"* — and
+                    // its two possible states are "the preference was honoured"
+                    // and "there was no preference, so the mode decided". This
+                    // line rendered them identically, which means a driven
+                    // check of the feature had no oracle and would have passed
+                    // against a build where the middle tier was never read.
+                    //
+                    // ★ Found while writing that check, which is the second
+                    // time in three days: a trace that cannot separate the two
+                    // states a check must tell apart is a trace that has not
+                    // finished being written.
                     if remembered.is_some() {
-                        "document"
+                        "document" // ui-text-exempt: trace token, never displayed
+                    } else if default_display.is_some() {
+                        "preference" // ui-text-exempt: trace token, never displayed
                     } else {
-                        "mode-default"
+                        "mode-default" // ui-text-exempt: trace token, never displayed
                     },
                 )
             });
