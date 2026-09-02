@@ -68,9 +68,7 @@
 //! that was never blocked.
 
 use pdfce_core::settings::Settings;
-use pdfce_core::settings::presets::{
-    Evidence, PresetAction, PresetKey, RenderPreset, RenderStandard,
-};
+use pdfce_core::settings::presets::{Evidence, PresetKey, RenderPreset, RenderStandard};
 
 use super::Draft;
 
@@ -488,43 +486,29 @@ fn detail(ui: &mut egui::Ui, choice: Choice) {
             ui.label(egui::RichText::new(line).small().weak());
         }
 
-        // ★★★ THE `why` OF EVERY SET VALUE THAT IS A CLAIM ABOUT THE STANDARD.
+        // ★★★ THE `why` OF EVERY SET CLAIM ARRIVES IN `disclosures()` ABOVE —
+        // it did not, for one day, and this is the record of that.
         //
-        // Added 2026-09-02, and it closes a real hole rather than adding
-        // detail. `RenderPreset::disclosures()` emits an entry's `why` only for
-        // entries the preset LEAVES ALONE — read the engine's own
-        // implementation, the loop at the end filters on
-        // `PresetAction::LeaveAlone`. So the reasoning behind every value a
-        // preset actually SETS was unreachable from this window.
+        // On 2026-09-02 `RenderPreset::disclosures()` emitted an entry's `why`
+        // only for entries a preset LEAVES ALONE, so the reasoning behind every
+        // value a preset actually SETS never left the crate. That mattered
+        // because the engine's own shipping note for the spot axis asked us to
+        // show exactly that sentence — the two values render visibly
+        // differently, and pdfce's choice looks like a bug beside Acrobat's
+        // composite view unless the reason is on screen.
         //
-        // That was invisible until the seventh axis arrived, because until then
-        // every set value was `BestEffort` and the count sentence above
-        // ("N are pdfce's own engineering judgement") covered them honestly in
-        // aggregate. `spot_colorant_device_model` is `Implied` — a claim about
-        // the standard — and the engine's shipping note asked for its sentence
-        // by name, for a rule-4 reason: the two values render VISIBLY
-        // differently, and pdfce's choice shows a spot on its own plate where
-        // Acrobat's composite view shows it knocked out. An operator comparing
-        // the two sees pdfce being wrong, and nothing on screen would have said
-        // otherwise.
+        // This window worked around it in nine lines, reading `entries()`
+        // directly and filtering on
+        // `evidence.is_a_claim_about_the_standard()`. It was reported as a
+        // boundary finding rather than a Pass request, and it carried a test
+        // asserting the engine did NOT already emit these sentences — a
+        // tripwire pointing at its own deletion.
         //
-        // ★★ The filter is `is_a_claim_about_the_standard()`, NOT a list of
-        // keys, and that is the whole design. Naming `SpotColorantDeviceModel`
-        // here would be this window learning a fact about one axis — the same
-        // hard-coding R8 forbids in the ribbon, in a different room — and the
-        // next axis the engine adds would arrive silently. The principle is
-        // symmetrical with the count sentence: a value pdfce CHOSE is
-        // summarised as a number, and a value pdfce says the STANDARD implies
-        // must show its citation, because that is a claim someone may want to
-        // check.
-        //
-        // Bounded, measured rather than asserted: at most two such entries on
-        // any standard today, and `at_most_two_claims_are_shown_per_standard`
-        // holds the bound so a future preset cannot quietly turn this into the
-        // wall of text the summary line was introduced to avoid.
-        for line in claim_sentences(&preset) {
-            ui.label(egui::RichText::new(line).small().weak());
-        }
+        // The engine shipped the same rule, moved to where the data lives, the
+        // same day. The tripwire went red on `75a17ac` and the nine lines are
+        // gone. **A workaround outlives its cause only by neglect**, and the
+        // way to make that not happen is to write the condition for its removal
+        // as a failing test on the day you write the workaround.
 
         // ★★★ **How many other standards give the same answers**, measured
         // rather than asserted. See `identical_siblings`: today every one of
@@ -564,41 +548,6 @@ fn detail(ui: &mut egui::Ui, choice: Choice) {
             );
         }
     });
-}
-
-/// The `why` of every value a preset SETS whose evidence is a claim about the
-/// standard.
-///
-/// See [`detail`]'s ★★★ comment for the argument. In short: the engine's
-/// `disclosures()` carries the `why` only for keys a preset leaves alone, and a
-/// value the standard is said to IMPLY is exactly the kind of assertion an
-/// operator may want to check the citation on.
-///
-/// # Why the sentence is taken whole rather than trimmed
-///
-/// These are written by the engine with clause numbers in them, and one of them
-/// ends by saying no clause requires the value at all. Cutting a citation to fit
-/// a line would leave a claim standing without the thing that qualifies it.
-fn claim_sentences(preset: &RenderPreset) -> Vec<String> {
-    preset
-        .entries()
-        .iter()
-        .filter(|e| {
-            !matches!(e.action, PresetAction::LeaveAlone)
-                && e.evidence.is_a_claim_about_the_standard()
-        })
-        .map(|e| {
-            format!(
-                // ui-text-exempt: the engine's own sentence, shown verbatim.
-                // The label and the two separators are the whole of this
-                // window's contribution and they are punctuation.
-                "{} ({}) — {}",
-                operator_title(e.key),
-                e.evidence.label(),
-                e.why
-            )
-        })
-        .collect()
 }
 
 /// The operator-facing title for a settings key.
@@ -644,120 +593,107 @@ pub const REGION: &str = "settings.presets";
 #[cfg(test)]
 mod tests {
 
-    /// **★★ The claim sentences are bounded, and the bound is MEASURED.**
+    /// **★★★ The reasoning behind every SET claim reaches the operator — and
+    /// since 2026-09-02 it arrives in the engine's own `disclosures()`.**
     ///
-    /// `claim_sentences` shows the engine's full reasoning for every set value
-    /// that is a claim about the standard — citations, clause numbers and all,
-    /// around 200 characters each. That is the right thing to show and exactly
-    /// the wrong thing to show six of: the summary count sentence above it
-    /// exists because a six-row grid per standard, times ten standards, is a
-    /// wall nobody reads.
+    /// This test began life asserting the output of a nine-line workaround in
+    /// this window, because `disclosures()` emitted a `why` only for keys a
+    /// preset LEAVES ALONE. The engine shipped the same rule the same day; the
+    /// workaround is gone and this now points at the real thing.
     ///
-    /// Today the answer is at most two: PDF/X-4, -5g and -6 state a blending
-    /// space and a spot model; PDF/X-1a and -3 state only the spot model;
-    /// PDF/A-2 and -4 state only the blending space; PDF/A-1 and PDF/UA state
-    /// none. Measured on 2026-09-02 against engine `c7a774c`.
+    /// ★★ What it checks is deliberately the *content* that makes this a rule-4
+    /// disclosure — that another viewer will show these areas differently — and
+    /// not merely that some sentence mentioning spots appeared. The two values
+    /// render visibly differently, and without that sentence an operator
+    /// comparing pdfce with Acrobat sees pdfce being wrong on a page where it is
+    /// being deliberately more correct.
     ///
-    /// ★ The bound belongs to a REVISION, not to the design. If the engine
-    /// sources a third axis this fails, and the right response is to re-measure
-    /// and decide whether three still reads — not to raise the number to make
-    /// it pass, and not to switch the filter to a list of keys, which would
-    /// stop the next axis arriving at all.
-    #[test]
-    fn at_most_two_claims_are_shown_per_standard() {
-        for standard in RenderStandard::all() {
-            let preset = RenderPreset::for_standard(*standard);
-            let lines = claim_sentences(&preset);
-            assert!(
-                lines.len() <= 2,
-                "{} shows {} claim sentence(s): {lines:#?}. Re-measure and decide whether that \
-                 still reads before raising this bound.",
-                standard.as_str(),
-                lines.len()
-            );
-        }
-    }
-
-    /// **★★★ The sentence the engine asked for by name actually reaches the
-    /// window.**
-    ///
-    /// The engine's shipping note for the spot axis said one thing was owed on
-    /// our side: *"One thing to show: the entry's `why`... because the
-    /// divergence is invisible on the page and looks like somebody's bug."*
-    ///
-    /// It did not reach the window, because `RenderPreset::disclosures()` emits
-    /// a `why` only for keys a preset LEAVES ALONE, and PDF/X sets this one.
-    /// This is the assertion that it now does — and it deliberately checks for
-    /// the *content* that makes it a rule-4 disclosure (that another viewer
-    /// will show these areas differently), not merely that some sentence about
-    /// spots appeared.
-    ///
-    /// PDF/A is the counter-case in the same test, because the engine's reply
-    /// was explicit that PDF/A does NOT reach this axis: its Scope clause puts
-    /// the operational details of rendering outside itself, in every part from
-    /// 2005 to 2020. A window that showed the sentence for PDF/A too would be
-    /// asserting a requirement that does not exist.
+    /// PDF/A is the counter-case in the same test, because the engine's sourced
+    /// reply was explicit that PDF/A does not reach this axis: its Scope clause
+    /// excludes the operational details of rendering, in every part from 2005 to
+    /// 2020. Showing the sentence there would assert a requirement that does not
+    /// exist.
     #[test]
     fn a_pdf_x_preset_says_a_composite_viewer_will_differ_and_pdf_a_does_not() {
-        let x4 = claim_sentences(&RenderPreset::for_standard(RenderStandard::PdfX4)).join(" ");
+        let x4 = RenderPreset::for_standard(RenderStandard::PdfX4)
+            .disclosures()
+            .join(" ");
         assert!(
             x4.contains("knocked out"),
-            "PDF/X-4 does not tell the operator that another viewer will show these areas \
-             differently, which is the whole reason the engine asked for this sentence: {x4}"
+            "PDF/X-4 does not tell the operator that another viewer will show \
+             these areas differently, which is the whole reason the engine was \
+             asked for this sentence: {x4}"
         );
         assert!(
             x4.contains("No ISO 15930 clause requires this"),
             "the sentence lost the clause that keeps it from over-claiming: {x4}"
         );
-        let a2 = claim_sentences(&RenderPreset::for_standard(RenderStandard::PdfA2)).join(" ");
+        let a2 = RenderPreset::for_standard(RenderStandard::PdfA2)
+            .disclosures()
+            .join(" ");
+        // ★★★ PDF/A must not CLAIM the axis — but it SHOULD name it and say
+        // it does not reach it. The first version of this assertion demanded
+        // the word "spot" be absent, and went red on a correct build: the
+        // engine emits `spot_colorant_device_model` **left alone (sourced)**
+        // for PDF/A, explaining that ISO 19005's Scope clause excludes the
+        // operational details of rendering and that how a spot ink is shown
+        // on screen is not a PDF/A question.
+        //
+        // That is exactly the disclosure an operator wants, and asserting a
+        // WORD absent instead of a MEANING would have deleted it. The test
+        // for over-claiming is the device-simulation sentence, which is the
+        // thing PDF/X says and PDF/A must not.
         assert!(
-            !a2.to_lowercase().contains("spot"),
-            "PDF/A does not reach the spot axis — its Scope clause excludes the operational \
-             details of rendering — and this window is claiming it does: {a2}"
+            !a2.contains("knocked out"),
+            "PDF/A is claiming the spot device model, and no part of ISO 19005 \
+             reaches that axis: {a2}"
+        );
+        assert!(
+            a2.contains("left alone"),
+            "PDF/A says nothing about the axes it does NOT reach, so a blank in the grid \
+             reads as missing data rather than as not-applicable: {a2}"
         );
     }
 
-    /// **★ `claim_sentences` is load bearing, and this is what says so.**
+    /// **★★ A best-effort value is still summarised as a COUNT, not spelled
+    /// out** — which is the half of the rule that keeps the panel readable.
     ///
-    /// The whole justification for the function is that the engine's own
-    /// `disclosures()` does not carry these sentences — it emits a `why` only
-    /// for keys a preset LEAVES ALONE. If the engine ever widens that, this
-    /// window starts printing every claim twice, and a duplicated paragraph in
-    /// a disclosure reads as a rendering bug rather than as an integration
-    /// drift.
+    /// The distinction the engine adopted, in one sentence: *a count is an
+    /// honest summary of a judgement and not of a claim*. So a value pdfce
+    /// CHOSE where the standard is silent is reported as a number, and a value
+    /// pdfce says the standard IMPLIES must show its citation, because that is
+    /// something an operator may want to check.
     ///
-    /// So the failure is useful in both directions: red here means either the
-    /// engine widened `disclosures()` — in which case delete `claim_sentences`,
-    /// per the standing rule that a workaround outlives its cause only by
-    /// neglect — or this window grew a second path to the same string.
+    /// ★ Pinned because the obvious "improvement" is to print every `why`, and
+    /// that turns a disclosure into a wall of prose nobody reads — six entries
+    /// times ten standards. `image_minify` is best-effort on every PDF/X and
+    /// PDF/A preset and is the stable example to test against.
     #[test]
-    fn the_engines_own_disclosures_still_do_not_carry_these_sentences() {
+    fn a_best_effort_value_is_counted_and_not_spelled_out() {
         for standard in RenderStandard::all() {
             let preset = RenderPreset::for_standard(*standard);
             let disclosed = preset.disclosures().join(" ");
-            for line in claim_sentences(&preset) {
-                // Compare on a distinctive slice of the `why` rather than on
-                // the whole formatted line, which carries this window's own
-                // label and punctuation and so could never match.
-                let probe: String = line
-                    .chars()
-                    .rev()
-                    .take(60)
-                    .collect::<Vec<_>>()
-                    .into_iter()
-                    .rev()
-                    .collect();
-                assert!(
-                    !disclosed.contains(&probe),
-                    "{} now carries this sentence in its OWN disclosures, so this window prints it \
-                     twice. Delete `claim_sentences` if the engine has taken the job \
-                     over: {probe}",
-                    standard.as_str()
-                );
+            for entry in preset.entries() {
+                if entry.evidence == Evidence::BestEffort
+                    && !matches!(entry.action, PresetAction::LeaveAlone)
+                {
+                    let probe: String = entry.why.chars().take(50).collect();
+                    assert!(
+                        !disclosed.contains(&probe),
+                        "{} spells out a best-effort value's reasoning \
+                         instead of counting it, which is how this disclosure \
+                         becomes a wall nobody reads: {probe}",
+                        standard.as_str()
+                    );
+                }
             }
         }
     }
     use super::*;
+    // `PresetAction` is a TEST-only need since the engine took over emitting
+    // set entries' reasoning: the only remaining reader is the assertion that
+    // a best-effort value stays counted rather than spelled out.
+    use pdfce_core::settings::presets::PresetAction;
 
     /// **Applying a choice leaves the settings matching a choice with the same
     /// answers** — and that is deliberately weaker than "matching itself".
