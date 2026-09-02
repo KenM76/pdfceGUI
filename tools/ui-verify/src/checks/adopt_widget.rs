@@ -88,7 +88,7 @@ const INSERT_PATH_ENV: &str = "PDFCE_DIAG_INSERT_PATH";
 const MODE: &str = "edit";
 /// The command that opens the insert window, and the tab it lives on.
 ///
-/// """+star+""" `pages.insert_from_file` on the **Pages** tab, not `edit.insert_pages`.
+/// ★ `pages.insert_from_file` on the **Pages** tab, not `edit.insert_pages`.
 /// The first draft of this check guessed the latter and skipped with a list of
 /// the nine controls the Edit tab actually declares — which is `crate::checks`
 /// rule 5 working: a reason that says what it *did* find turns a wrong guess

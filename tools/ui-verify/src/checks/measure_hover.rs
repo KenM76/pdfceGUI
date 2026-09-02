@@ -179,7 +179,7 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     let page_rect = declared(&trace, ui_rect, PAGE)
         .ok_or_else(|| Error::new(format!("no `{PAGE}` region — no sheet is being drawn.")))?;
 
-    // """+star+star+""" SWEPT, not aimed, and the reason is that a single --doc-point
+    // ★★ SWEPT, not aimed, and the reason is that a single --doc-point
     // cannot know where ink is.
     //
     // The first draft computed one screen position from `--doc-point` and moved

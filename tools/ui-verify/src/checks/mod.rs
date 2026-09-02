@@ -369,6 +369,7 @@ pub mod print_paper;
 pub mod properties_metadata;
 pub mod qat_icons;
 pub mod read_mode;
+pub mod tab_order_drag;
 
 /// ★ `tools.render_diagnostics` — the inert control whose data was already
 /// being computed. `shell::commands::reach` called it *"the least defensible
@@ -932,6 +933,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // that declares no regions. The tiles themselves declare regions as of
         // 2026-08-18, which is what made this possible.
         Box::new(pages_drag::PagesDragShowsWhereItLands),
+        Box::new(tab_order_drag::TabOrderDragMovesAFieldAndShowsWhere),
         // The DXF export, wired 2026-08-19 after being the FIRST entry in
         // `reach`'s scaffold list. Beside the page checks because it is the
         // other verb that writes a file the operator hands to somebody else.
