@@ -289,6 +289,9 @@ pub enum Action {
     /// indistinguishable from a chord that never arrived, so — like
     /// [`Self::Find`] — this is answered above it, by name, on the trace.
     SaveCopy,
+    /// **Save As** (O95) — a separate act from [`Self::SaveCopy`], not a
+    /// configured one: [`crate::app::save::save_as`] carries the argument.
+    SaveAs,
 
     /// ★★★ **Save. In place. Over the file that was opened.**
     ///

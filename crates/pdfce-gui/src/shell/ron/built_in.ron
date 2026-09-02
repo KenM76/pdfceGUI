@@ -64,6 +64,7 @@
                     caption: "Save",
                     items: [
                         Command(id: "file.save"),
+                        Command(id: "file.save_as"),
                         Command(id: "file.save_copy"),
                         Command(id: "file.save_compacted"),
                     ],

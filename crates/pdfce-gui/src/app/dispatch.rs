@@ -368,6 +368,10 @@ impl PdfceApp {
                 },
             ),
             "file.save_copy" => actions.push(Action::SaveCopy),
+            // ★ Beside its sibling, and a different action: see
+            // `Action::SaveAs` for why the two are separate acts rather than
+            // one act with a flag.
+            "file.save_as" => actions.push(Action::SaveAs),
             // ★ **Undo and redo.** Registered since the ribbon landed, on the
             // quick-access toolbar in **every** mode, bound to `Ctrl+Z`,
             // `Ctrl+Y` and `Ctrl+Shift+Z` — and until 2026-08-14 they had **no

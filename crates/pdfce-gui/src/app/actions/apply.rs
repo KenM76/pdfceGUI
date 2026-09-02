@@ -185,42 +185,16 @@ impl PdfceApp {
             // ★ Save-in-place. A blank document with no file behind it never
             // reaches here: `dispatch` routes it to `file.save_copy` first,
             // because *"where does this go?"* is only the operator's to answer.
-            Action::Save => {
-                // ★★★ The signature guard, added 2026-08-28.
-                //
-                // `crate::dialogs::unsaved`'s shape exactly: `true` means *the
-                // question is on screen and you must stop*, and the save is now
-                // that window's to authorise. Read as *"did I interrupt you"*
-                // rather than *"may I proceed"* — the first fails closed, the
-                // second fails open; `DialogsState::ask_signature` argues it and
-                // `crate::dialogs::signature` carries the design. FIRST in the
-                // arm: it answers `false` for every state the body handles
-                // differently, so it skips nothing but the write.
-                if self.dialogs.ask_signature(
-                    &self.status,
-                    crate::dialogs::signature::PendingSave::InPlace,
-                ) {
-                    return;
-                }
-                // ★★ The body lives in `crate::app::lifecycle::write_in_place`
-                // so the window's answer resumes THIS save rather than re-raise
-                // the action into its own guard; that header carries the
-                // argument and the defect the `return` below closes.
-                self.write_in_place();
-                return;
-            }
-            Action::SaveCopy => {
-                // The same guard, and asked for a copy deliberately: the copy
-                // is the file the operator sends somewhere, and one pdfce calls
-                // invalidated is worse than an invalidated original still on
-                // disk.
-                if self
-                    .dialogs
-                    .ask_signature(&self.status, crate::dialogs::signature::PendingSave::Copy)
-                {
-                    return;
-                }
-                self.write_copy_somewhere();
+            // ★★ **The three saves**, all matched here for the same two
+            // reasons: each asks a signature question that must run before the
+            // document guard, and each returns rather than falling through.
+            //
+            // Their bodies are in `crate::app::actions::saving`, split out on
+            // 2026-09-02 under R2 — the same seam `destination` and `view`
+            // already are. Nothing about a save is decided in this file, which
+            // is this arm's whole shape: it is routing.
+            Action::Save | Action::SaveCopy | Action::SaveAs => {
+                super::saving::apply(self, &action);
                 return;
             }
             // ★ The third arm matched before the document guard, and it is
@@ -327,6 +301,7 @@ impl PdfceApp {
             | Action::InsertPagesFromOpenDocument { .. }
             | Action::Save
             | Action::SaveCopy
+            | Action::SaveAs
             | Action::Find(_) => {
                 // ui-text-exempt: a panic message, read from a stack trace by
                 // whoever moved one of these six arms. Never rendered.

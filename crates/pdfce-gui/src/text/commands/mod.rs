@@ -82,6 +82,11 @@ impl CommandText {
 /// Re-exported below, so nothing changed for a caller: every call site still
 /// writes `crate::text::commands::view_zoom_in()`. See that module's header
 /// for why the seam was drawn there and nowhere else.
+/// ★ The File tab's Save As copy, split out on 2026-09-02 under R2 — the same
+/// seam [`annotate`] and [`view`] already are. Re-exported so callers keep
+/// spelling it `text::commands::file_save_as`.
+mod file;
+pub use file::file_save_as;
 mod view;
 
 pub use view::*;

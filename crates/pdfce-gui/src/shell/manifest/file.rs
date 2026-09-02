@@ -170,6 +170,18 @@ pub(super) fn tab() -> Tab {
                 // group is one an operator arrives at deliberately.
                 [
                     command("file.save"),
+                    // ★ **Save as** between Save and Save a copy** — 2026-09-02,
+                    // O95 — and the position is the group's own stated order of
+                    // increasing consequence, not the end of the list.
+                    //
+                    // Save writes the file you have. Save As writes a different
+                    // file **and moves you to it**. Save a copy writes a
+                    // different file and leaves you where you are. Ordered by
+                    // "how far from the file I am editing does this leave me",
+                    // Save As sits between them — and it is also where Word,
+                    // Acrobat and every other editor put it, which is the
+                    // stronger argument: this is not a place to be original.
+                    command("file.save_as"),
                     command("file.save_copy"),
                     command("file.save_compacted"),
                 ],

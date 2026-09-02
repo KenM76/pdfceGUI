@@ -108,6 +108,34 @@ pub fn save_copy_dialog_title() -> &'static str {
     "Save a copy of this document"
 }
 
+/// The picker's heading for **Save As**, and the wording carries the difference.
+///
+/// ★★ *"Save this document as"* rather than *"Save a copy"*, because the two
+/// commands do different things and this heading is the last place the operator
+/// sees before bytes are written. A copy leaves them editing the original; this
+/// **moves the document** — the next `Ctrl+S` goes to the file they are about to
+/// name. A heading that said "copy" over a command that rebinds would be the
+/// program describing the safer of the two acts while performing the other.
+///
+/// ★ The receipt afterwards says which file they are now editing, for the same
+/// reason: the rebinding is invisible until the next save, and by then it is
+/// too late to be surprised by it.
+#[must_use]
+pub fn save_as_dialog_title() -> &'static str {
+    "Save this document as"
+}
+
+/// The receipt for a completed Save As, naming the file that is now open.
+///
+/// ★★★ It says **"you are now editing"**, not "saved". That is the whole
+/// difference between this command and Save a copy, it is the half the operator
+/// asked for by name, and it is not visible anywhere else on screen until the
+/// next save goes somewhere he did not expect.
+#[must_use]
+pub fn save_as_receipt(name: &str) -> String {
+    format!("Saved as {name}. You are now editing that file — the original is untouched.")
+}
+
 /// The receipt for a completed Save-in-place, naming the file it went into.
 ///
 /// # Why the file name is in it

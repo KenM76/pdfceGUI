@@ -133,6 +133,15 @@ pub(super) fn band() -> Vec<Command> {
             .with_icon("save")
             .enabled_when("doc.open"),
         command("file.save_copy", t::file_save_copy(), 110).enabled_when("doc.open"),
+        // ★ **Save As**, `OPERATOR_REQUESTS.md` O95 — beside Save a copy and
+        // not instead of it. The two are different acts (see `Action::SaveAs`),
+        // and every editor the operator uses offers both.
+        //
+        // ★ No icon, on the same reasoning `file.new` and `file.ocr` record:
+        // the icon directory is declared the operator's own art, every reuse
+        // here would mislead, and a control that draws its own words is better
+        // than a false provenance note.
+        command("file.save_as", t::file_save_as(), 113).enabled_when("doc.open"),
         // ★ `doc.open`, like its two neighbours, and NOT gated on the document
         // having anything to reclaim. A file with nothing unused still gets a
         // copy — the window says so — because an operator who asked for one is

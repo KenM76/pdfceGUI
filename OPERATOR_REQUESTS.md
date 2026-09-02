@@ -163,7 +163,7 @@ shape rule 4 exists to refuse.
 
 ---
 
-## O95 — ⬜ **Save As, and then keep editing the NEW file** — the thing every other program does
+## O95 — ◑ **BUILT 2026-09-02, NOT YET DRIVEN** — Save As, and then keep editing the NEW file
 
 **Ken, 2026-09-02:**
 
@@ -179,10 +179,50 @@ real commands with different meanings. Acrobat, Word and every editor he uses
 have both, and Save As **rebinds the document**: the title bar, the tab, the
 recent list and the next save all follow the new file.
 
-★★ What has to be checked before anything is built: whether `EditSession` can be
-re-pointed at a new path, or whether the shell has to close and reopen — and if
-it reopens, what happens to the **undo stack**, which an operator would expect to
-survive a Save As and would not expect to survive a close.
+### ✅ Built 2026-09-02
+
+**File ▸ Save ▸ Save as…**, between Save and Save a copy — which is the group's
+own stated order of increasing consequence and is also where Word and Acrobat
+put it.
+
+**The answer to the question above: nothing is closed and nothing is reopened.**
+`doc.path` is re-pointed and the session continues, so **the undo stack, the
+selection and the history all survive** — which is what every other editor does
+and what you would expect. A write-close-reopen would have discarded every undo
+step silently, which is a data loss with no warning on it.
+
+**Four things move, in one place** (`PdfceApp::save_as_somewhere`), because a
+document whose path moved while something else did not is a document whose next
+`Ctrl+S` writes a file you are not looking at:
+
+1. `doc.path` — the title and the tab both recompute from it every frame;
+2. `doc.saved_epoch` — the new file has every edit, so the document is clean and
+   the tab loses its unsaved marker;
+3. the recent list — you will look for the new name there;
+4. **a receipt**: *"Saved as X. You are now editing that file — the original is
+   untouched."* The rebinding is otherwise invisible until the next save, and by
+   then the surprise has happened.
+
+★ The signature question is asked as a **copy's**, not an in-place one, which
+reads like a mistake and is not: the question is about the bytes being written,
+and this writes a *new* file. There is a test whose only job is to say so.
+
+### ⬜ NOT DRIVEN
+
+Built, unit-tested and gated; **not driven**, because you are at the PC and the
+harness takes the real cursor. Under R1 that means not shipped.
+
+### ★★ What it cost, and it is a scheduling fact rather than a complaint
+
+Three files crossed the 1,500-line R2 ceiling at once, because they were at
+1,499 / 1,497 / 1,491 before this. Two were split along seams the tree already
+uses — `text/commands/file.rs` and `app/actions/saving.rs` — and the third,
+`app/actions/action.rs`, is now at **exactly 1,500**.
+
+⇒ **The next command added to `Action` forces a split of that enum.** The seam
+is ready and named: the five inline redaction variants should become a sub-enum
+like the ten that already are (`Annot`, `Page`, `Field`, `Vector`, …), which is
+about 100 lines moving and 11 call sites.
 
 ---
 

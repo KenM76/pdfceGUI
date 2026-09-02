@@ -309,7 +309,12 @@ mod tests {
         // The canvas senses input over the page rect only, so an object dragged
         // past the edge is unclickable, unbandable and unpainted — this is the
         // way back to it.
-        assert_eq!(registry().len(), 128);
+        // ★★ 128 → 129 on 2026-09-02: `file.save_as`. Ken: *"we need a Save As
+        // option so that we are then making edits in the save as file instead
+        // of the original just like other programs have it."* Save a copy
+        // already wrote the bytes; what it could not do was MOVE the document,
+        // so the next Ctrl+S went back to the file he was leaving.
+        assert_eq!(registry().len(), 129);
     }
 
     /// ★ **The icon-coverage split adds up to the registry.**
@@ -435,8 +440,13 @@ mod tests {
         // the thing a picture cannot show. A marquee glyph would say "rubber
         // band", which is the gesture this command exists to replace when the
         // rubber band cannot reach.
+        // ★ 21 → 22 on 2026-09-02: `file.save_as`, refused on the same
+        // reasoning `file.new` and `file.ocr` record. There is no conventional
+        // Save-As glyph — Word and Acrobat both present it as words — and every
+        // reuse would mislead: the disk of `save` says "save", which is the
+        // sibling command this one must not be confused with.
         assert_eq!(
-            refused, 21,
+            refused, 22,
             "commands with no icon, each argued at its registration"
         );
         // Each refusal is argued at its own registration and listed in the

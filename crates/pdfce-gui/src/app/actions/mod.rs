@@ -17,6 +17,11 @@
 #![doc = include_str!("OVERVIEW.md")]
 
 pub mod destination;
+/// ★ **The three saves**, split out of [`apply`] on 2026-09-02 under R2. All
+/// three ask a signature question before the document guard and hand off to
+/// `lifecycle`; its header carries why Save As asks the COPY question rather
+/// than the in-place one, which reads like a mistake and is not.
+mod saving;
 /// The sentences one edit owed, and the epoch rule that keeps them honest.
 /// Split out of this file under R2 when annotation selection needed the room;
 /// its own header carries the seam.

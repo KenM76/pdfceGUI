@@ -303,6 +303,96 @@ fn signature_note(doc: &OpenDoc) -> Option<String> {
 /// *do not destroy the document*. Returning a richer type so it could tell
 /// them apart would invite a branch that proceeded on one of them, and there
 /// is no member of that set it would be safe to proceed on.
+/// **Save As** — write the document somewhere new, and *keep editing THAT file*.
+///
+/// # ★★★ Why this is a different command from [`save_copy`], and not a flag
+///
+/// Operator, 2026-09-02, `OPERATOR_REQUESTS.md` O95:
+///
+/// > *"we need a Save As option so that we are then making edits in the save as
+/// > file instead of the original just like other programs have it."*
+///
+/// **The second half is the whole request.** `save_copy` already writes the
+/// bytes wherever he points it — what it does not do is *move the document*.
+/// The session stays bound to the original, so the next `Ctrl+S` goes straight
+/// back to the file he was trying to leave, which is the opposite of what he
+/// asked for and is a way to overwrite something by doing nothing wrong.
+///
+/// So the two are different **acts**, and every editor he uses has both:
+///
+/// | | writes | afterwards you are editing |
+/// |---|---|---|
+/// | **Save a copy** | a snapshot, somewhere else | **the original** |
+/// | **Save As** | the document, somewhere else | **the new file** |
+///
+/// ★★ Keeping both is deliberate. *Save a copy* is the right verb for "send
+/// this to somebody" and collapsing it into Save As would take that away; a
+/// single command with a checkbox would make the destructive difference a
+/// setting nobody reads.
+///
+/// # What this function does NOT do, and why the caller does it
+///
+/// It does not touch [`OpenDoc`]. It picks a path, writes there, and reports
+/// **where it wrote**. The rebinding — `doc.path`, `doc.saved_epoch`, the tab
+/// label, the window title, the recent list — happens in the caller, which
+/// holds `&mut` and can see all of them.
+///
+/// ★ That split is not tidiness. Rebinding is the dangerous half: a document
+/// whose path moved while its bytes did not is a document whose next `Ctrl+S`
+/// writes the wrong file. Keeping the write pure and the rebinding in one
+/// visible place means there is exactly one statement to read to know when the
+/// binding moves.
+///
+/// # Returns
+///
+/// `Some(path)` when the bytes reached that path, `None` when the operator
+/// cancelled, the picker is unavailable, or the write failed — the same three
+/// outcomes [`save_copy`] flattens to `false`, and flattened here for the same
+/// reason: **there is no member of that set on which it would be safe to
+/// rebind the document.**
+///
+/// # ★★ The undo stack survives, and that is a decision
+///
+/// Nothing is closed and nothing is reopened, so the session, its history and
+/// the operator's selection all continue. That is what every other editor does
+/// and it is what he would expect: Save As is a save, not a round trip. The
+/// alternative — write, close, reopen the new file — would silently discard
+/// every undo step, which is a data loss with no warning attached to it.
+pub fn save_as(doc: &OpenDoc) -> Option<std::path::PathBuf> {
+    let suggested = suggested_path(doc);
+    match files::pick_save_path(&suggested, crate::text::files::save_as_dialog_title()) {
+        Picked::Path(target) => {
+            if write_and_report(doc, &target) {
+                crate::diag::trace(|| {
+                    // ui-text-exempt: diagnostic trace, never displayed.
+                    //
+                    // ★★ The OLD path is on the line as well as the new one,
+                    // and that is the point of tracing this at all. "The
+                    // document moved" and "a copy was written" produce the
+                    // same `save-copy` line today; only the pair says which
+                    // file the next Ctrl+S will reach.
+                    format!(
+                        "save-as from={} to={}",
+                        doc.path.display(),
+                        target.display()
+                    )
+                });
+                Some(target)
+            } else {
+                None
+            }
+        }
+        Picked::Cancelled => None,
+        Picked::Unavailable => {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                "save-as-unavailable reason=no-picker-in-this-build".to_owned()
+            });
+            None
+        }
+    }
+}
+
 pub fn save_copy(doc: &OpenDoc) -> bool {
     let suggested = suggested_path(doc);
     match files::pick_save_path(&suggested, crate::text::files::save_copy_dialog_title()) {

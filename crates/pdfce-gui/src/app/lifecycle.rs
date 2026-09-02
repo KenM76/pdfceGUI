@@ -872,6 +872,68 @@ impl PdfceApp {
         }
     }
 
+    /// **Save As** — write the document somewhere new and rebind it there.
+    ///
+    /// # ★★★ The rebinding is the command, and it is four statements
+    ///
+    /// `save::save_as` writes the bytes; everything that makes this a *move*
+    /// rather than a copy is below, in one place, on purpose. A document whose
+    /// path moved while something else did not is a document whose next
+    /// `Ctrl+S` writes a file the operator is not looking at, so this is a
+    /// list to be read as a whole rather than four changes scattered across the
+    /// frame:
+    ///
+    /// 1. **`doc.path`** — the binding itself. The window title and the tab
+    ///    label are both recomputed from it every frame
+    ///    (`app::frame` and `app::doctabs`), so neither needs telling.
+    /// 2. **`doc.saved_epoch = doc.edit_epoch`** — the new file contains every
+    ///    edit, so the document is clean. Without this the tab keeps its unsaved
+    ///    marker over a file that is on disk and complete, and the unsaved-close
+    ///    guard would ask about a document with nothing outstanding.
+    /// 3. **the recent list** — he will look for the new name there, not the
+    ///    old one, and `Self::open_path` joins the list this same way.
+    /// 4. **a receipt**, because the rebinding is otherwise **invisible until
+    ///    the next save**, and by then the surprise has already happened.
+    ///
+    /// ★★ What is deliberately NOT here: any form of close or reopen. The
+    /// session, its undo history and the operator's selection all continue —
+    /// see [`crate::app::save::save_as`]'s own ★★ on why a round trip would be
+    /// an unannounced data loss.
+    ///
+    /// ★ And nothing is written to `viewer::remembered` for the new path. The
+    /// per-document page display belongs to a document the operator has
+    /// *looked at*; inventing an entry for a file that has existed for a
+    /// millisecond would put a record in that store for every Save As, and the
+    /// standing preference already answers for a file with no entry.
+    pub(super) fn save_as_somewhere(&mut self) {
+        let crate::app::state::Status::Open(doc) = &self.status else {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                "save-as-declined reason=no-document".to_owned()
+            });
+            return;
+        };
+        // The write first, and against `&*doc`: nothing is rebound until the
+        // bytes are somewhere. A `None` here is a cancel, an unavailable picker
+        // or a failed write, and `save_as` flattens the three for the reason
+        // its own docs give — there is no member of that set on which it would
+        // be safe to move the document.
+        let Some(target) = crate::app::save::save_as(doc) else {
+            return;
+        };
+        let name = target.file_name().map_or_else(
+            || target.display().to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        );
+        if let crate::app::state::Status::Open(doc) = &mut self.status {
+            doc.path = target.clone();
+            doc.saved_epoch = doc.edit_epoch;
+            let epoch = doc.edit_epoch;
+            crate::app::actions::record_note(epoch, crate::text::files::save_as_receipt(&name));
+        }
+        self.recent.remember(&target);
+    }
+
     /// **Perform the save the operator has just authorised over their
     /// signature.**
     ///
