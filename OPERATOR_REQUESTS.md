@@ -321,7 +321,7 @@ as a Pass request.
 
 ---
 
-## O99 — ◑ **BUILT 2026-09-02, NOT YET DRIVEN** — the tab-order list drags, with the caret
+## O99 — ✅ **DRIVEN 2026-09-02** — the tab-order list drags, with the caret
 
 **Ken, 2026-09-02:**
 
@@ -417,14 +417,29 @@ is what stops that reading as a bug in the drag. `set_page_tabs` is available fo
 the asking and is deliberately **not** asked for: the trigger would be an
 operator reporting that an arranged order did not survive into another reader.
 
-### What is left
+### ✅ Driven — and the feature was never the problem
 
-The driven check is written and has not been run — it moves the pointer across a
-panel, and Ken was at the PC. It runs on the next window.
+`tab_order_drag_moves_a_field_and_shows_where`. The caret is drawn 73 pt wide
+across the landing row, the release lands at gap 2, and the engine reports
+`entries=2 moved=2 non_widgets=0 pinned=0` — so the two fields swapped and no
+`/Link` or markup moved with them.
+
+★★★ It took four wrong diagnoses to get there and **not one was a defect in the
+drag**. The rows published a rectangle while scrolled out of view, so the pointer
+landed 37 pt below the window and the check reported "the row does not sense a
+drag" — about a row that senses fine. A ribbon press closed the panel it needed.
+The wheel was eaten by a nested scroll area. And the real cause was that the
+Forms pane is the bottom of three stacked panes, 396 pt tall, leaving about 42 pt
+for rows about 30 pt each — the content had **nowhere to go**, so no amount of
+scrolling could help. The check now drags the dock splitter, which is what an
+operator does when a docked list is too short.
+
+⇒ All four are written up in `D:/dev/rag/egui/`, because every one of them will
+happen again to the next check written against a docked panel.
 
 ---
 
-## O98 — ◑ **BUILT 2026-09-02, NOT YET DRIVEN** — the panel points, the canvas lights up
+## O98 — ✅ **DRIVEN 2026-09-02** — the panel points, the canvas lights up
 
 **Ken, 2026-09-02:**
 
@@ -486,7 +501,52 @@ pointer.
 
 ---
 
-## O97 — ◑ **BUILT 2026-09-02, NOT YET DRIVEN** — the display buttons are on two rows
+
+### ✅ Driven, and it works — `clicking_a_form_row_lights_the_field_on_the_page`
+
+Click a fill row, the canvas outlines that field: `field=FullName drawn=1
+candidates=1`. It asserts the starting state too (nothing lit before the click),
+so it cannot pass on a build that spotlights something unconditionally.
+
+★★ Four failures on the way there and **not one was this feature**. The rows
+published a rectangle while scrolled out of view so the pointer landed below the
+window; a ribbon press closed the panel it needed; the wheel was eaten by a
+nested scroll area; and the docked pane was too short for its content to exist
+in. All recorded in `D:/dev/rag/egui/`.
+
+### ⬜ ONE THING FOR YOU TO DECIDE — the spotlight does nothing in EDIT mode
+
+The canvas's entire form overlay is gated on the **Select tool**
+(`offered_in(tool)` is `CanvasTool::Select` and nothing else). Edit mode does not
+start there, so on entering it the overlay stops drawing: no wash, no spotlight,
+no clickable boxes. Measured — the canvas traced its last spotlight line at the
+exact frame the mode changed to edit.
+
+★ For the **wash** and the **click targets** that gate is defensible: "these are
+the boxes you can click" is only true under Select, so marking them under a tool
+that cannot click them would be a promise the app does not keep.
+
+⇒ **The spotlight is different, and that is the question.** It is a read-only cue
+driven entirely by the panel — you clicked a row, it says which box that row
+fills. Your words were *"when we have the fill form panel visible and I click on
+fields in it"*, with no mention of a tool. An operator filling a form from the
+panel while some other tool happens to be active gets nothing, and nothing
+explains why.
+
+★★ **Not changed, deliberately.** Ungating it would mean the canvas draws form
+boxes in modes where it currently draws none, which is a wider change than it
+looks and touches the wash's own reasoning. Two shapes if you want it:
+
+1. **Spotlight only, ungated** — the outline shows whatever the panel points at,
+   in any mode. Smallest change; the cue and the click-target stop agreeing.
+2. **Selecting a row switches the canvas to Select** — the panel's action
+   implies the tool. Bigger, and it moves the operator's tool without asking,
+   which this project usually refuses to do.
+
+The driven check runs in **review** mode so it measures the feature in the state
+it is designed for, and says so in its header rather than hiding the gap.
+
+## O97 — ✅ **DRIVEN 2026-09-02** — the display buttons are on two rows
 
 **Ken, 2026-09-02:**
 
