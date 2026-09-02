@@ -80,6 +80,19 @@ window is the answer, and it is what is driven.
 ★ A **second cause** stays on the O88 row from the original diagnosis: a stale
 `/LW` can make a visible line unselectable, which presents identically.
 
+### ★ Published — and FEATURES.md missed the ferry
+
+**`pdfceGUI1`, 2026-09-02 04:16**, engine `fd4b752`. `pdfceGUI2` still holds the
+22:55 build and is the fallback. The four key driven checks were re-run against
+that binary afterwards — marquee, both link checks, OCR progress — all pass.
+
+⬜ **The packaged `FEATURES.md` does not describe the marquee**, because the row
+was written *after* the package was built. The standing order is refresh
+`FEATURES.md` **then** package, and it was done the wrong way round. The row is
+in the tree now and will ship with the next build; the binary itself is correct.
+Recorded rather than quietly fixed, because "the docs shipped one release behind
+the code" is the kind of drift nobody notices from inside.
+
 ### ⬜ WHAT TO DO NEXT, in his likely order
 
 1. **O92's other half** — selecting an object dropped **off the side of the
