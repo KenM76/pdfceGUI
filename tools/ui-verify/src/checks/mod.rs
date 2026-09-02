@@ -372,6 +372,7 @@ pub mod properties_metadata;
 pub mod qat_icons;
 pub mod read_mode;
 pub mod tab_order_drag;
+pub mod title_build_stamp;
 
 /// ★ `tools.render_diagnostics` — the inert control whose data was already
 /// being computed. `shell::commands::reach` called it *"the least defensible
@@ -938,6 +939,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(tab_order_drag::TabOrderDragMovesAFieldAndShowsWhere),
         Box::new(forms_spotlight::ClickingAFormRowLightsTheFieldOnThePage),
         Box::new(display_two_rows::TheDisplayButtonsStackInTwoRows),
+        Box::new(title_build_stamp::TheTitleBarCarriesTheBuildTime),
         // The DXF export, wired 2026-08-19 after being the FIRST entry in
         // `reach`'s scaffold list. Beside the page checks because it is the
         // other verb that writes a file the operator hands to somebody else.
