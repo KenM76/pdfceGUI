@@ -114,7 +114,7 @@ you were not pointing at on a page of sparse OCR.
 **Evidence:** `text_on_a_scan_can_still_be_swept_over_the_image`. Commits
 `273d117`, `ebee870`.
 
-## O93 — ◑ **BUILT 2026-09-01, NOT DRIVEN** *(back-filled)* — OCR says what it is doing, and Stop and Cancel differ
+## O93 — ✅ **BUILT AND DRIVEN 2026-09-01** *(back-filled)* — OCR says what it is doing, and Stop and Cancel differ
 
 **Ken, 2026-09-01:**
 
@@ -130,15 +130,68 @@ keeps everything; **Cancel** discards. ★ Where both are pressed, **Cancel wins
 in either order** — unit-tested both ways, because a Stop arriving after a
 Cancel must not resurrect the work the Cancel threw away.
 
-### ⬜ What is missing, and it is the part that matters
+### ✅ Driven, on the operator's own scanned parts manual
 
-**It has never been driven.** It needs a scan with **no text layer**, and the
-`ocr-progress`, `ocr-stop` and `ocr-cancel` regions are published and waiting
-for a check nobody has written. Under R1 that means this row is **not** shipped:
-the units pass and the units cannot see the chain in front of the verb.
+**The fixture arrived on 2026-09-01:** *"there is a large document in the pdftest
+folder … that is all images with text you can try ocr on."* That is
+`Parts Manual TH83 Telehandler.pdf` — **883 pages, 266 MB, every page an image,
+`/Rotate 270`, not one extractable character anywhere in it.** Eight pages were
+extracted to `D:\Dev\pdfTests\scan	elehandler-8pages.pdf` and the whole
+manual measured at **2.6 s and ~440 recognised words a page**, which is where
+his *"I wouldn't do the entire thing as that takes ages"* comes from: the full
+manual is about **38 minutes**.
 
-⇒ **If you have a scanned multi-page PDF with no OCR on it, that is the fixture
-this needs.** Commit `45ae321`; controls made drivable in `ebee870`.
+**Three driven checks, in `tools/ui-verify/src/checks/ocr_progress.rs`**, each
+run twice — once on a committed eight-page synthetic fixture and once on his
+scan:
+
+| check | what it asserts | on his scan |
+|---|---|---|
+| `ocr_says_how_far_it_has_got_while_it_runs` | the tally is **drawn** and its numbers **advance** | 7 distinct values, 2,218 words / 12,431 chars |
+| `stopping_ocr_keeps_the_pages_it_had_already_done` | Stop ends early **and the session takes the pages** | stopped at 2 of 8, 758 words kept |
+| `cancelling_ocr_throws_away_what_it_had_done` | Cancel leaves **no** `ocr-applied` and **no** `ocr-layer` anywhere | abandoned at 2, nothing applied |
+
+★★ **The pair was falsified, not just passed.** `job.stop()` was temporarily
+replaced with `job.cancel()`, the workspace rebuilt, and the Stop check failed
+with *"STOP THREW THE WORK AWAY … the CANCEL path"*. Restored and green again.
+Without that, three green checks would only have shown that the two buttons do
+*something*.
+
+### ★★★ Two things the driving found that no unit test could
+
+**1. A rect is not an oracle for "the user can see it is working."** The dialog
+published where the progress label was drawn, and a build whose label read
+`Page 1 of 8` for the whole run would publish exactly the same rect — while
+being the frozen program the request is about. The shell now traces the
+**numbers** (`ocr-progress attempted= of= words= chars=`, on change) and the
+check asserts they move.
+
+**2. ★ Live progress was resting on a decorative widget.** egui is
+immediate-mode and idle; the OCR worker is on another thread and generates no
+input events, so **nothing was asking for the next frame.** It worked only
+because `egui::Spinner` calls `request_repaint()` for its own animation
+(egui 0.35, `widgets/spinner.rs:40`). Anyone swapping the spinner for a progress
+bar — a completely reasonable change — would have silently taken live progress
+with it and left every test green. `dialogs::ocr` now asks for the repaint
+itself and says why.
+
+### ★ And a check that had been quietly not running
+
+`ocr_recognises_a_page_and_the_document_keeps_it` was reporting **SKIP**, not
+PASS: at the window's default width the `file` tab's Recognise group
+**collapses**, so `ribbon.item.file.ocr` is never declared and the harness
+reported *"no control to click"* — which reads as the command having been
+removed. A SKIP is not red, so nothing prompted a look. `Session::maximize`'s
+own doc comment describes this precise symptom; the call site simply never got
+it. Both OCR check paths now maximize, and that check passes for the first time
+in an unknown number of runs.
+
+★ One measured behaviour that is **correct** and looks like a defect: the tally
+ends at **7 of 8**, never 8. `Job::poll` drains the channel, so the frame that
+reads the last page's report is the same frame that reads `Finished`; the dialog
+leaves the working phase before drawing it. The outcome then states the true
+totals. The check asserts a band (`>= scope - 1`) and its source carries the
+reasoning, so nobody re-tightens it.
 
 ## O92 — ◑ **PART SHIPPED 2026-09-01** *(back-filled)* — reaching an object dropped off the side of the page
 

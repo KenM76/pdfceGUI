@@ -235,7 +235,12 @@ fn digest(bytes: &[u8]) -> (usize, u64) {
 /// ribbon. Not folded into that module because it is the first check to need
 /// it: a second caller is the moment to move it, and moving it on the first
 /// would leave `driving` with an untested function.
-fn click_command(session: &Session, driver: &Driver, ui_rect: &str, id: &str) -> Result<()> {
+pub(super) fn click_command(
+    session: &Session,
+    driver: &Driver,
+    ui_rect: &str,
+    id: &str,
+) -> Result<()> {
     let region = format!("{}{id}", driving::ITEM_PREFIX);
     let trace = session.trace()?;
     let rect = driving::declared(&trace, ui_rect, &region).ok_or_else(|| {
@@ -276,7 +281,12 @@ fn click_command(session: &Session, driver: &Driver, ui_rect: &str, id: &str) ->
 }
 
 /// Click a tab by id.
-fn click_tab(session: &Session, driver: &Driver, ui_rect: &str, tab: &str) -> Result<()> {
+pub(super) fn click_tab(
+    session: &Session,
+    driver: &Driver,
+    ui_rect: &str,
+    tab: &str,
+) -> Result<()> {
     let region = format!("ribbon.tab.{tab}");
     let trace = session.trace()?;
     let rect = driving::declared(&trace, ui_rect, &region).ok_or_else(|| {
@@ -308,7 +318,12 @@ fn click_tab(session: &Session, driver: &Driver, ui_rect: &str, tab: &str) -> Re
 }
 
 /// Click a region the *application* declared (a dialog control), by name.
-fn click_region(session: &Session, driver: &Driver, ui_rect: &str, name: &str) -> Result<()> {
+pub(super) fn click_region(
+    session: &Session,
+    driver: &Driver,
+    ui_rect: &str,
+    name: &str,
+) -> Result<()> {
     let trace = session.trace()?;
     let rect = driving::declared(&trace, ui_rect, name).ok_or_else(|| {
         Error::new(format!(
@@ -450,6 +465,29 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     ));
     report.artifact(session.trace_path().to_path_buf());
     session.settle(40);
+    // ★★★ **MAXIMIZE, and this line is a repair.**
+    //
+    // Found on 2026-09-01 by writing `checks::ocr_progress` and watching it
+    // SKIP for a reason that turned out to apply to THIS check too: at the
+    // window's default width the `file` tab's **Recognise group collapses**,
+    // and a collapsed group declares `ribbon.group.file.recognise.collapsed`
+    // instead of `ribbon.item.file.ocr`. The harness then reports *"the
+    // application declared no `ribbon.item.file.ocr` region"* — which reads as
+    // the command having been removed, and is in fact the ribbon doing exactly
+    // what a ribbon is for.
+    //
+    // ★★ This check had therefore been reporting **SKIP** rather than PASS, and
+    // a SKIP is not a failure, so nothing was red and nothing prompted a look.
+    // `Session::maximize`'s own doc comment describes this precise symptom —
+    // *"would have been handed ten controls ending at `file.print`, and would
+    // have reported a shipped feature as missing"* — so the lesson was already
+    // written down and this call site simply never got it.
+    //
+    // Opt-in per check by design, because a maximised window is a different
+    // layout and several checks measure the layout. Nothing here does: this
+    // check's subject is a command, a dialog and a file on disk.
+    session.maximize();
+    session.settle(12);
 
     let trace = session.trace()?;
     if !trace.started(ctx.profile.vocab.start_event) {

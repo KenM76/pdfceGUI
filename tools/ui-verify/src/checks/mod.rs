@@ -271,6 +271,11 @@ pub mod measure_perimeter;
 pub mod new_document;
 pub mod new_document_size;
 pub mod ocr;
+/// ★ The three checks about a recognition run **while it is still running** —
+/// the tally advancing, Stop keeping the work, Cancel discarding it. Separate
+/// from [`ocr`] because all three need a multi-page run and that module's
+/// one-page fixture has no observable middle. Its header carries the argument.
+pub mod ocr_progress;
 /// ★ The **Pages tab**, all of which did nothing: six verbs registered, drawn,
 /// offered by a context menu and four of them bound to chords, with no dispatch
 /// arm between them. The only check in the suite whose subject is a
@@ -1210,6 +1215,12 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // reached by any further gesture within the first check's session.
         Box::new(unshare_form::TheUnshareDeclinesWhenNothingElseDrawsTheForm),
         Box::new(ocr::OcrRecognisesAPageAndTheDocumentKeepsIt),
+        // The three about a run in progress. After the one-page check, because
+        // a build in which recognition does not work at all should say so
+        // before three checks spend a minute apiece observing it not working.
+        Box::new(ocr_progress::OcrSaysHowFarItHasGot),
+        Box::new(ocr_progress::StoppingOcrKeepsWhatItHasDone),
+        Box::new(ocr_progress::CancellingOcrThrowsAwayWhatItHadDone),
         Box::new(text_tool::TextToolSelectsAndMarksInEdit),
         // Last, because it is the only check that TYPES. Everything above
         // either reads a trace or captures a window; this one presses a

@@ -269,6 +269,30 @@ pub struct OcrDialog {
     /// Kept so the trace fires on a change rather than on a frame. See
     /// [`Self::scope_group`].
     traced_scope: Vec<usize>,
+    /// The `attempted` count the last `ocr-progress` line reported.
+    ///
+    /// ★★★ **Why the numbers are traced at all, when the rect already is.**
+    ///
+    /// `crate::diag::ui_rect(REGION_PROGRESS, …)` says *a label was drawn
+    /// there*. That is enough to prove something is on screen and is **not**
+    /// enough to prove the thing the operator asked for. His words were *"gives
+    /// feedback on what it is doing … so that the user can see that it is doing
+    /// something and hasn't frozen"* — the subject of that sentence is the
+    /// numbers **moving**. A label reading `Page 1 of 8` for the whole run
+    /// declares a perfectly substantial rect on every frame and is exactly the
+    /// stall he is afraid of.
+    ///
+    /// So the driven check needs an oracle for the *content*, and a rect cannot
+    /// carry one. This line does: `ocr-progress attempted=… of=… words=…
+    /// chars=…`, and a check asserts that two of them differ.
+    ///
+    /// ★ Traced on **change**, for the reason [`Self::traced_scope`] already
+    /// gives at length: an identical line per frame for twenty seconds is a
+    /// haystack, not a diagnostic. `usize::MAX` is the "nothing traced yet"
+    /// sentinel rather than `0`, because `attempted == 0` is a real state the
+    /// label deliberately does not draw and a `0` sentinel would make the first
+    /// genuine `attempted = 0` unreportable if that policy ever changed.
+    traced_progress: usize,
     /// The transaction's state.
     phase: Phase,
     /// Set by the Close button, consumed by [`Self::show`].
@@ -387,6 +411,7 @@ impl OcrDialog {
             range: String::new(),
             skip_pages_with_text: true,
             traced_scope: Vec::new(),
+            traced_progress: usize::MAX,
             phase: Phase::Ready,
             close_requested: false,
         }
@@ -533,9 +558,43 @@ impl OcrDialog {
         ui.separator();
         ui.add_space(6.0);
 
+        // ★ Filled by the `Working` arm and consumed after the match, rather
+        // than traced where it is read.
+        //
+        // The match borrows `self.phase` immutably for the whole of its body,
+        // so nothing inside it may touch `self.traced_progress`. Threading the
+        // tally out through a local is the smallest way to keep both — the
+        // alternative, destructuring `self` into disjoint fields, would have to
+        // account for `self.ready(…)` in the arm above, which needs the whole
+        // of `self`.
+        let mut progress_seen: Option<(usize, usize, usize, usize)> = None;
+
         match &self.phase {
             Phase::Ready => self.ready(ui, doc),
             Phase::Working(job) => {
+                // ★★★ **Ask for the next frame explicitly, and do not rely on
+                // the spinner to do it.**
+                //
+                // The worker is on another thread and nothing it does generates
+                // an input event. egui is immediate-mode and idle: with no
+                // input and no repaint request, this window would draw ONCE at
+                // the moment the run started and then hold that frame until the
+                // operator moved the mouse over it — a stopped spinner above a
+                // progress line reading `Page 1 of 8`, which is a **pixel-exact
+                // rendition of the frozen application he asked us to rule out.**
+                //
+                // ★ It works today without this line, and that is the trap.
+                // `egui::Spinner` calls `ui.request_repaint()` itself because
+                // it is animated (egui 0.35, `widgets/spinner.rs:40`). So the
+                // whole visibility of this feature currently rests on a
+                // side effect of a decorative widget, and anyone replacing the
+                // spinner with a progress bar — a completely reasonable change,
+                // and one this dialog will plausibly get — would silently take
+                // the live progress with it and leave every unit test green.
+                //
+                // One redundant call per frame during a run costs nothing.
+                // Stating the dependency is the point.
+                ui.ctx().request_repaint();
                 ui.horizontal(|ui| {
                     ui.spinner();
                     ui.label(t::working());
@@ -558,6 +617,9 @@ impl OcrDialog {
                         tally.chars,
                     ));
                     crate::diag::ui_rect(REGION_PROGRESS, said.rect);
+                    // The numbers the label is showing, carried out of the
+                    // borrow so they can be traced. See `traced_progress`.
+                    progress_seen = Some((tally.attempted, tally.of, tally.words, tally.chars));
                 }
                 ui.add_space(8.0);
                 // ★★ STOP FIRST, and the order is the argument. It is the
@@ -635,6 +697,19 @@ impl OcrDialog {
             Phase::Refused(refusal) => {
                 ui.label(sentence(refusal));
             }
+        }
+
+        // ★★ The progress line's CONTENT, traced on change. See
+        // [`Self::traced_progress`] for why a rect alone is not an oracle for
+        // *"the user can see it is doing something"*.
+        if let Some((attempted, of, words, chars)) = progress_seen
+            && attempted != self.traced_progress
+        {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed.
+                format!("ocr-progress attempted={attempted} of={of} words={words} chars={chars}")
+            });
+            self.traced_progress = attempted;
         }
 
         ui.add_space(10.0);

@@ -221,6 +221,28 @@ pub(crate) const MUST_RECOGNISE: [&str; 3] = ["DRAWING", "41177", "REVISION"];
 /// Where the generated fixture lives, relative to the workspace root.
 pub(crate) const FIXTURE_NAME: &str = "synthetic-image-only.pdf";
 
+/// The multi-page fixture, for the checks about a run **in progress**.
+pub(crate) const MULTIPAGE_NAME: &str = "synthetic-image-only-8pages.pdf";
+
+/// How many sheets [`MULTIPAGE_NAME`] carries.
+///
+/// ★ **Eight, and the number was measured rather than chosen.** One page of
+/// this fixture recognises in roughly a second in a release build, and a page
+/// of the operator's own scanned parts manual measured **2.6 s** through
+/// `pdfce-cli ocr`. Eight pages is therefore a run of eight to twenty seconds:
+///
+/// * long enough that a driven check can watch `attempted` climb, press Stop
+///   with pages still to go, and have the result be unambiguous — a Stop that
+///   lands on the last page is indistinguishable from a run that finished;
+/// * short enough that three driven checks over it cost under a minute, which
+///   is what keeps them in the ordinary sweep rather than in a "slow" tier
+///   nobody runs.
+///
+/// It is also **not** a round number by accident: it matches the eight pages
+/// extracted from the operator's manual for the real-material run, so the two
+/// reports are read side by side without arithmetic.
+pub(crate) const MULTIPAGE_PAGES: usize = 8;
+
 /// The workspace root, from this crate's manifest directory.
 pub(crate) fn workspace_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -231,6 +253,11 @@ pub(crate) fn workspace_root() -> PathBuf {
 /// The generated fixture's path.
 pub(crate) fn fixture_path() -> PathBuf {
     workspace_root().join("fixtures").join(FIXTURE_NAME)
+}
+
+/// The multi-page fixture's path.
+pub(crate) fn multipage_path() -> PathBuf {
+    workspace_root().join("fixtures").join(MULTIPAGE_NAME)
 }
 
 /// A minimal one-page PDF carrying [`LINES`] as real text.
@@ -340,6 +367,53 @@ fn assemble(objects: &[(u32, Vec<u8>)], root: u32) -> Vec<u8> {
 /// XObject is defined on the unit square (§8.9.4), so the whole of placement is
 /// the one `cm` matrix that scales it to the page box.
 fn image_only_pdf(grey: &[u8], width: u32, height: u32) -> Vec<u8> {
+    image_only_pdf_pages(grey, width, height, 1)
+}
+
+/// The same document with `pages` identical sheets, all sharing **one** image.
+///
+/// # ★★★ Why a multi-page image-only fixture has to exist
+///
+/// The one-page fixture is the right subject for *"did the recogniser read this
+/// page"*. It is the wrong subject for everything the operator asked for on
+/// 2026-09-01 — *"pages done, words/characters detected … a cancel and stop
+/// button"* — because **every one of those is a statement about a run in
+/// progress**, and a one-page run has no observable middle. It is started and
+/// then it is finished; a Stop pressed during it can only ever race the single
+/// page, and a progress line that draws once carries no evidence that it
+/// advances.
+///
+/// So this exists to give the driven checks a run with a **middle**:
+/// [`MULTIPAGE_PAGES`] sheets, recognised one after another, long enough that a
+/// harness can see `attempted` climb and can press Stop with pages still to go.
+///
+/// # Why the pages are identical, which looks like a shortcut and is not
+///
+/// Each page is the same rendered notes sheet, and every page dictionary points
+/// at the **same** image XObject. Three consequences, all wanted:
+///
+/// * the file is ~40 kB rather than ~300 kB, because the pixels are stored once
+///   — a fixture that has to be committed should not be a third of a megabyte;
+/// * every page recognises to the **same word count**, so a check can assert
+///   the totals are consistent with the pages attempted rather than having to
+///   accept any number at all;
+/// * a page that is skipped or dropped is visible as an arithmetic hole rather
+///   than as a plausible smaller number.
+///
+/// ★ The pages sharing an XObject is *also* representative: it is what a real
+/// scanner-produced PDF does not do, but what every stamp, logo and repeated
+/// figure in a real document does, and a recogniser that assumed one image per
+/// page would break on both.
+///
+/// # What it still does not establish
+///
+/// The same caveat the one-page fixture carries, and it is not weakened by
+/// there being more of them: this is a **rendered** page, not a scan. No
+/// scanner noise, no skew, no JPEG ringing, no uneven lighting. It establishes
+/// the plumbing of a multi-page run. It establishes nothing about recognition
+/// quality, and the driven checks say so in their own reports.
+fn image_only_pdf_pages(grey: &[u8], width: u32, height: u32, pages: usize) -> Vec<u8> {
+    assert!(pages >= 1, "a document needs at least one page");
     let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
     std::io::Write::write_all(&mut encoder, grey).expect("in-memory write cannot fail");
     let compressed = encoder.finish().expect("in-memory flush cannot fail");
@@ -351,30 +425,56 @@ fn image_only_pdf(grey: &[u8], width: u32, height: u32) -> Vec<u8> {
     // comment.
     let content = format!("q {PAGE_W} 0 0 {PAGE_H} 0 0 cm /Im0 Do Q\n");
 
-    let objects: Vec<(u32, Vec<u8>)> = vec![
+    // Object numbering, and it must stay contiguous and ascending because
+    // `assemble` writes a classic xref table that assumes exactly that.
+    //
+    //   1                  catalog
+    //   2                  page tree
+    //   3 ..= 2 + pages    the page dictionaries
+    //   3 + pages          the shared content stream
+    //   4 + pages          the shared image
+    let first_page = 3u32;
+    let content_obj = first_page + pages as u32;
+    let image_obj = content_obj + 1;
+
+    let kids: String = (0..pages as u32)
+        .map(|i| format!("{} 0 R ", first_page + i))
+        .collect();
+
+    let mut objects: Vec<(u32, Vec<u8>)> = vec![
         (1, b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()),
-        (2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec()),
         (
-            3,
+            2,
             format!(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PAGE_W} {PAGE_H}] \
-                 /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>"
+                "<< /Type /Pages /Kids [{}] /Count {pages} >>",
+                kids.trim_end()
             )
             .into_bytes(),
         ),
-        (4, stream_object(b"", content.as_bytes())),
-        (
-            5,
-            stream_object(
-                format!(
-                    "/Type /XObject /Subtype /Image /Width {width} /Height {height} \
-                     /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode"
-                )
-                .as_bytes(),
-                &compressed,
-            ),
-        ),
     ];
+    for i in 0..pages as u32 {
+        objects.push((
+            first_page + i,
+            format!(
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {PAGE_W} {PAGE_H}] \
+                 /Resources << /XObject << /Im0 {image_obj} 0 R >> >> \
+                 /Contents {content_obj} 0 R >>"
+            )
+            .into_bytes(),
+        ));
+    }
+    objects.push((content_obj, stream_object(b"", content.as_bytes())));
+    objects.push((
+        image_obj,
+        stream_object(
+            format!(
+                "/Type /XObject /Subtype /Image /Width {width} /Height {height} \
+                 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode"
+            )
+            .as_bytes(),
+            &compressed,
+        ),
+    ));
     assemble(&objects, 1)
 }
 
@@ -385,6 +485,24 @@ fn image_only_pdf(grey: &[u8], width: u32, height: u32) -> Vec<u8> {
 /// repository — `tests::the_fixture_contains_no_text_operator_at_all` runs on
 /// every `cargo test` and needs the bytes, not the file.
 pub(crate) fn build() -> Vec<u8> {
+    let (grey, w, h) = raster();
+    image_only_pdf(&grey, w, h)
+}
+
+/// The same, with [`MULTIPAGE_PAGES`] sheets — see [`image_only_pdf_pages`].
+pub(crate) fn build_multipage() -> Vec<u8> {
+    let (grey, w, h) = raster();
+    image_only_pdf_pages(&grey, w, h, MULTIPAGE_PAGES)
+}
+
+/// Rasterize the source page once. Shared by both builders.
+///
+/// Split out when the multi-page fixture arrived, so that the two documents are
+/// **the same pixels** by construction rather than by two call sites happening
+/// to pass the same DPI. A one-page and an eight-page fixture that disagreed
+/// about the raster would make their word counts incomparable, and comparing
+/// them is half of what the multi-page checks do.
+fn raster() -> (Vec<u8>, u32, u32) {
     let doc = pdfce_core::document::Document::from_bytes(source_pdf())
         .expect("the hand-written source PDF must parse");
     let pages = pdfce_core::page_tree::pages(&doc).expect("one page");
@@ -392,7 +510,7 @@ pub(crate) fn build() -> Vec<u8> {
         .expect("a page of Helvetica must rasterize");
     let (w, h) = (rendered.pixmap.width(), rendered.pixmap.height());
     let grey = super::greyscale(rendered.pixmap.data(), w, h);
-    image_only_pdf(&grey, w, h)
+    (grey, w, h)
 }
 
 #[cfg(test)]
@@ -417,6 +535,98 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, &bytes).unwrap();
         println!("wrote {} ({} bytes)", path.display(), bytes.len());
+    }
+
+    /// ★ **Regenerate `fixtures/synthetic-image-only-8pages.pdf`.**
+    ///
+    /// ```text
+    /// cargo test -p pdfce-gui --lib write_synthetic_image_only_multipage -- --ignored
+    /// ```
+    #[test]
+    #[ignore = "writes into fixtures/; run deliberately"]
+    fn write_synthetic_image_only_multipage() {
+        let bytes = build_multipage();
+        let path = multipage_path();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, &bytes).unwrap();
+        println!("wrote {} ({} bytes)", path.display(), bytes.len());
+    }
+
+    /// ★★★ **The multi-page fixture really has eight pages, and the engine
+    /// agrees.**
+    ///
+    /// Pinned because the whole value of that fixture is the page COUNT, and
+    /// the count is produced by hand-written object numbering with a classic
+    /// xref table — the one part of this module where an off-by-one produces a
+    /// file that still opens. A `/Count 8` over seven `/Kids` is a document
+    /// most readers will show, and every driven check over it would then be
+    /// asserting against a denominator that is a lie.
+    ///
+    /// Parsed by `pdfce_core` rather than grepped, deliberately: the question
+    /// is *what will the application see*, and the application sees whatever
+    /// the page-tree walker sees.
+    #[test]
+    fn the_multipage_fixture_has_the_page_count_it_claims() {
+        let bytes = build_multipage();
+        let doc = pdfce_core::document::Document::from_bytes(bytes)
+            .expect("the generated multi-page fixture must parse");
+        let pages = pdfce_core::page_tree::pages(&doc).expect("its page tree must walk");
+        assert_eq!(
+            pages.len(),
+            MULTIPAGE_PAGES,
+            "the page tree must hand back exactly the pages the /Count claims"
+        );
+    }
+
+    /// ★★ **Eight pages cost barely more than one, because the image is shared.**
+    ///
+    /// The property that makes committing this fixture reasonable. Asserted as
+    /// a ratio rather than an absolute size so it survives a change to the
+    /// raster DPI: if somebody later gives each page its own copy of the
+    /// pixels, the eight-page file becomes ~8× the one-page file and this
+    /// fails, which is the moment to notice — not at the next `git push`.
+    #[test]
+    fn the_multipage_fixture_shares_one_image_rather_than_copying_it() {
+        let one = build().len();
+        let eight = build_multipage().len();
+        assert!(
+            eight < one * 2,
+            "eight pages sharing one image XObject must not approach eight times the size of \
+             one: one page is {one} bytes and eight are {eight}, a ratio of {:.2}. A ratio near \
+             8 means every page got its own copy of the pixels.",
+            eight as f64 / one as f64
+        );
+        assert!(
+            eight > one,
+            "it must still be bigger — {eight} vs {one} — or the extra page dictionaries were \
+             never written and the /Count is describing objects that do not exist"
+        );
+    }
+
+    /// The multi-page fixture is image-only too.
+    ///
+    /// ★ Separate from [`the_fixture_contains_no_text_operator_at_all`] rather
+    /// than folded into it. The two documents are built by two functions, and
+    /// the assertion that matters — *any text on this page came from the
+    /// recogniser* — has to hold of the one the checks actually drive. A shared
+    /// test over only the one-page build would leave the eight-page build
+    /// unasserted while looking like it covered both.
+    #[test]
+    fn the_multipage_fixture_contains_no_text_operator_either() {
+        let bytes = build_multipage();
+        let text = String::from_utf8_lossy(&bytes);
+        // The image stream is binary and may contain anything, so the search is
+        // for the text-OBJECT delimiters, which the content stream would carry
+        // and which compressed pixel data has no reason to spell.
+        let content = format!("q {PAGE_W} 0 0 {PAGE_H} 0 0 cm /Im0 Do Q");
+        assert!(
+            text.contains(&content),
+            "the shared content stream must be exactly the one `Do`"
+        );
+        assert!(
+            !text.contains(" BT\n") && !text.contains("\nBT "),
+            "no text object may appear in the multi-page fixture"
+        );
     }
 
     /// ★★ **The fixture contains no text-showing operator anywhere.**
