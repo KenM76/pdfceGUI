@@ -419,3 +419,47 @@ pub const fn tab_order_register_no_type() -> &'static str {
 pub fn tab_order_unclaimed_row_named(page_number: usize, position: usize, name: &str) -> String {
     format!("Page {page_number}, box {position} — will register as \u{201c}{name}\u{201d}")
 }
+
+/// **A reorder moved things that are not form fields** — `OPERATOR_REQUESTS.md`
+/// O99.
+///
+/// ★★★ The disclosure the operator would never predict. `/Annots` order is
+/// **paint order** as well as tab order, so arranging a tab sequence can change
+/// which annotation is drawn on top where two overlap. They asked to reorder a
+/// list of fields and got a z-order change; the sentence says so in their terms
+/// rather than in the file's.
+#[must_use]
+pub fn reorder_moved_non_widgets(count: usize) -> String {
+    format!(
+        "{count} other annotation(s) on this page — links, comments or markup — moved as \
+         well. The order you set is also the order things are drawn in, so where two of them \
+         overlap, which one is on top may have changed."
+    )
+}
+
+/// **Some entries could not be moved** — O99.
+///
+/// ★ A list that did not fully take, said rather than discovered. These are
+/// entries written into the page as direct dictionaries: they have no object id
+/// to be named by, so they stay where they are and the rest flow around them.
+/// Rare, and produced by a handful of writers.
+#[must_use]
+pub fn reorder_pinned(count: usize) -> String {
+    format!(
+        "{count} item(s) on this page could not be moved and stayed where they were — they \
+         are written into the page in a form that has no name to refer to. Everything else \
+         moved around them."
+    )
+}
+
+/// **The page's annotation list was shared and had to be copied** — O99.
+///
+/// ★ Nothing is wrong and nothing is lost. It is a structural change to the file
+/// the operator did not ask for, which is the whole reason it is disclosed: this
+/// project's rule is that a side effect they cannot see still owes a sentence
+/// off-canvas.
+#[must_use]
+pub const fn reorder_copied_shared_array() -> &'static str {
+    "This page shared its annotation list with another page, so the list was copied before it \
+     was reordered. The other page is unchanged."
+}

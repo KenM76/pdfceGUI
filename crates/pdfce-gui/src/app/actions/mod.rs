@@ -17,6 +17,10 @@
 #![doc = include_str!("OVERVIEW.md")]
 
 pub mod destination;
+/// ★ **Reordering a page's annotations** — O99. Split out of [`forms`] on
+/// 2026-09-02 under R2; its header carries why the disclosures are the
+/// interesting part rather than the call.
+pub(super) mod reorder;
 /// ★ **The three saves**, split out of [`apply`] on 2026-09-02 under R2. All
 /// three ask a signature question before the document guard and hand off to
 /// `lifecycle`; its header carries why Save As asks the COPY question rather

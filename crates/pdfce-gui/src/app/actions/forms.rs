@@ -375,6 +375,44 @@ pub enum FieldAction {
         /// Vertical displacement, PDF points. **Positive is up.**
         dy: f64,
     },
+    /// **Put a page's annotations in a new order** — `OPERATOR_REQUESTS.md` O99.
+    ///
+    /// The operator: *"the tab order list is supposed to be able to be reordered
+    /// by dragging and dropping rows around like we can with pages in the page
+    /// preview."*
+    ///
+    /// # ★★★ Object ids, not indices, and the engine asked for it by name
+    ///
+    /// `EditSession::reorder_annotations` takes `&[ObjId]`. Its shipping note
+    /// says why in one sentence: *"the index you hold is almost never a raw
+    /// `/Annots` index — `page_annotations` skips null and non-dictionary
+    /// entries, so the numberings diverge on exactly the malformed files where a
+    /// guess costs most."*
+    ///
+    /// ★★ The tab-order panel's `TabRow::position` is emphatically **not** an
+    /// address: 1-based, widgets only, and a label an operator counts while
+    /// tabbing. `TabRow::id` is the address, and it exists for this variant.
+    ///
+    /// # ★ Why it is a FieldAction and not a top-level `Action`
+    ///
+    /// Because it is a form verb raised by the Forms panel, which is what this
+    /// sub-enum is for — and because `Action` sits at exactly its 1,500-line R2
+    /// ceiling, so a variant added there would force a refactor to buy room for
+    /// something that already has a home. The sub-enum is the established
+    /// pattern (`Annot`, `Page`, `Vector`, `Text`, `Write`, …) and this is the
+    /// case it was made for.
+    ReorderAnnotations {
+        /// The page, 0-based.
+        page: usize,
+        /// Every **indirect** entry of that page's `/Annots`, each once, in the
+        /// wanted order.
+        ///
+        /// ★ *Every* entry, not only the widgets the panel lists. The engine
+        /// validates a permutation and refuses a partial one, which is right:
+        /// a list that omitted the links and the markup would be asking to
+        /// move them somewhere unstated.
+        order: Vec<pdfce_core::object::ObjId>,
+    },
     /// **Delete one widget of the selected field**, leaving the field itself.
     DeleteWidget {
         /// The field's fully-qualified name.
@@ -618,6 +656,9 @@ pub(super) fn apply(doc: &mut OpenDoc, action: FieldAction) {
             dy,
         } => move_widget(doc, &field, widget, dx, dy),
         FieldAction::DeleteWidget { field, widget } => delete::widget(doc, &field, widget),
+        FieldAction::ReorderAnnotations { page, order } => {
+            super::reorder::reorder_annotations(doc, page, &order);
+        }
         // ★ The arm changes no document and bumps no epoch, so it does not go
         // near `vector_edit`; the deletion does, like every other structural
         // form verb. See `groups`' header for why a query needs to be an action

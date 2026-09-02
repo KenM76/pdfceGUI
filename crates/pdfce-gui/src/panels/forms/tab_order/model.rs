@@ -356,6 +356,21 @@ impl PageTabs {
 /// short strings at most.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TabRow {
+    /// **The annotation's object id** — what a reorder is expressed in.
+    ///
+    /// ★★★ Added 2026-09-02 with `OPERATOR_REQUESTS.md` O99, and the engine
+    /// asked for it by name: `EditSession::reorder_annotations` takes
+    /// `&[ObjId]`, **not indices**, and its reply says why in one sentence —
+    /// *"the index you hold is almost never a raw `/Annots` index:
+    /// `page_annotations` skips null and non-dictionary entries, so the
+    /// numberings diverge on exactly the malformed files where a guess costs
+    /// most."*
+    ///
+    /// ★★ [`Self::position`] is therefore **not** an address. It is a number an
+    /// operator counts while tabbing, it is 1-based, it counts widgets only,
+    /// and passing it to the engine would be wrong on three axes at once. This
+    /// field is the address; that one is the label.
+    pub id: ObjId,
     /// **1-based** position among the *widgets* on this page.
     ///
     /// Among the widgets rather than among all annotations, because that is the
@@ -682,6 +697,8 @@ pub fn collect<G: ObjectGraph + ?Sized>(
             };
             let field = &fields[field_index];
             page.rows.push(TabRow {
+                // ★ The address a reorder is expressed in — see the field.
+                id,
                 // 1-based, and among the WIDGETS — so it is the number an
                 // operator counts while tabbing.
                 position: widget_ordinal,
