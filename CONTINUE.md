@@ -105,13 +105,45 @@ field name to egui's temp store, the canvas reads it while painting. Unit tests
 are structurally blind to the *join*, which is the only part that breaks.
 `canvas/form_marks.rs` is the R2 split that came with it.
 
+### ✅ Every O95–O102 row now has a driven check, and FOUR run without the pointer
+
+`title_build_stamp`, `field_shading` and `preset_group_reachable` were written
+and **run** this tick — green against a scratch copy of the release build, with
+him at the machine. `font_folders_lands_on_the_fonts_setting` already could and
+nobody had noticed. `PDFCE_DIAG_VIEWPORT` lays out a real window without taking
+focus, and `PDFCE_DIAG_INVOKE` raises a command at startup; between them a
+surprising amount is verifiable with no desktop at all.
+
+★★★ **Two of the checks I wrote this tick were wrong rather than the code**, and
+both had the same shape — *a measurement aimed at the wrong surface looks
+exactly like a broken feature*:
+
+- `check-stale-blockers` fired on a row that was **correct**, because the
+  request had been *answered* ("scheduled as a Pass") without the Pass landing.
+- `preset_group_reachable` demanded the presets **row**, which ships inside a
+  deliberately-collapsed group; its failure text would have sent somebody to
+  undo a decision made on 2026-08-26 for a measured reason.
+
+⇒ Ask what a failing assertion actually **sampled** before asking what is broken.
+
+### ★★ The benchmark fixture moved and every document still pointed at the old path
+
+`ncored-benchmark-cad-drawing.pdf` is in `D:\Dev\pdfTests\`, not
+`D:\Dev\temp\pdfce\`. Named in `BENCHMARK.md` twice — once inside a runnable
+command — plus `GUI_ROADMAP.md` and `HANDOFF.md`. All corrected.
+
+Found because one of the new checks **SKIPPED** and the skip was chased rather
+than accepted. **A SKIP is not red**: every check taking `--pdf` had quietly
+stopped being evidence, and a sweep would report that in the same tone it uses
+for the hundred checks that legitimately need a pointer.
+
 ### ⬜ WHAT TO DO NEXT
 
 1. **The moment he is away from the PC: run the whole ui-verify sweep.** Five or
    six features are BUILT-not-DRIVEN, which under R1 means not shipped —
-   `tab_order_drag` and `clicking_a_form_row_lights_the_field_on_the_page` are
-   **written and never once executed**; O96 field shading, O97 two-row buttons
-   and O101 the build stamp have **no check at all** and need one written, plus the older backlog O78, O69, O68, O65, O72–O75, O62.
+   `tab_order_drag`, `clicking_a_form_row_lights_the_field_on_the_page` and
+   `the_display_buttons_stack_in_two_rows` are **written and never once
+   executed** — they need the pointer. plus the older backlog O78, O69, O68, O65, O72–O75, O62.
    **Falsify the new ones**, do not just watch them go green.
 2. **O89 is HIS decision** — three candidate fixes for the text-colour route,
    and the choice is not ours to make.

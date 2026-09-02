@@ -8,9 +8,16 @@
 > replies are consumed, and one of them found a hole in the engine's own API.
 >
 > ⬜ **The single biggest thing waiting is a MACHINE WINDOW, not a decision.**
-> Five or six features are BUILT-not-DRIVEN, which under R1 means **not
-> shipped**. The moment he says he is away from the PC, run the whole ui-verify
-> sweep and falsify the new checks. Do not drive while he is at the machine.
+> Every O95–O102 row now has a driven check; **three still need the pointer** and
+> have never been executed (`tab_order_drag`, the forms spotlight, the two-row
+> display buttons), along with the older backlog. The moment he says he is away
+> from the PC, run the sweep and **falsify** the new checks rather than watching
+> them go green. Do not drive while he is at the machine.
+>
+> ★ **Four checks now run with NO input at all** — `PDFCE_DIAG_VIEWPORT` lays out
+> a real window without taking focus and `PDFCE_DIAG_INVOKE` raises a command at
+> startup. More of the suite could probably be converted; it is the cheapest
+> coverage available, because it needs no window in his day.
 >
 > ★★ **And one finding to carry, because it recurs:** two pieces of prose in the
 > tab-order panel became *the exact opposite of the truth* the moment the engine
