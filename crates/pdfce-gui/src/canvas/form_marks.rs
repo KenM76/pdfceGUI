@@ -47,6 +47,15 @@ use crate::canvas::strip::PageView;
 // ui-text-exempt: trace slot name, never displayed
 const SPOTLIGHT_SLOT: &str = "canvas-form-spotlight";
 
+/// The trace slot for the fillable-field wash — `OPERATOR_REQUESTS.md` O96.
+///
+/// Its own slot, for [`SPOTLIGHT_SLOT`]'s reason: the wash changes when the
+/// document or the page set does, and the spotlight changes every time the
+/// operator moves between rows. One shared `trace_changed` slot would make each
+/// suppress the other's line.
+// ui-text-exempt: trace slot name, never displayed
+const SHADE_SLOT: &str = "canvas-form-shade";
+
 /// **Outline the field the Forms panel is pointing at** — O98.
 ///
 /// ★★ **Every widget of that field**, not one. A field may be painted in
@@ -130,13 +139,39 @@ pub(super) fn shade(ui: &egui::Ui, doc: &OpenDoc, pages: &[PageView], list: &[Wi
     // would be wrong for the reason `OpenDoc::prefs` states: this is drawn per
     // frame and a preference that changed mid-frame would flicker.
     if !doc.prefs.shade_form_fields {
+        // ★★ Traced as a STATE, not as a silence. "The operator turned the wash
+        // off" and "the wash is on and found nothing to paint" both draw
+        // nothing, and a check that could not tell them apart would report a
+        // working build broken on a document with no form — or, far worse,
+        // report a build with the feature dead as working because the fixture
+        // had no fields either.
+        crate::diag::trace_changed(SHADE_SLOT, || {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            "canvas-form-shade on=0 drawn=0 boxes=0".to_owned()
+        });
         return;
     }
     let painter = ui.painter().clone();
     let visuals = ui.visuals();
+    let mut drawn = 0usize;
     for view in pages {
         for widget_box in list.iter().filter(|b| b.page == view.page) {
             crate::canvas::overlay::draw_field_shade(&painter, visuals, &view.map, widget_box.rect);
+            drawn += 1;
         }
     }
+    crate::diag::trace_changed(SHADE_SLOT, || {
+        format!(
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            //
+            // ★ `boxes=` is the whole census and `drawn=` is what this frame
+            // painted, and they differ legitimately: a box on a page that is
+            // scrolled out of view is in the census and is not drawn. Carrying
+            // both is what lets a check say "the wash is on, the document has
+            // fields, and none of them were painted" — which is the one shape
+            // that is actually a defect.
+            "canvas-form-shade on=1 drawn={drawn} boxes={}",
+            list.len()
+        )
+    });
 }

@@ -351,6 +351,7 @@ pub mod save_as;
 pub mod unshare_form;
 
 pub mod display_two_rows;
+pub mod field_shading;
 pub mod forms_spotlight;
 /// ★ `file.print` — the dialog that told every operator this build could not
 /// print, on a machine with twelve printers, in a build that had the printing
@@ -940,6 +941,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(forms_spotlight::ClickingAFormRowLightsTheFieldOnThePage),
         Box::new(display_two_rows::TheDisplayButtonsStackInTwoRows),
         Box::new(title_build_stamp::TheTitleBarCarriesTheBuildTime),
+        Box::new(field_shading::FillableFieldsAreShadedOnThePage),
         // The DXF export, wired 2026-08-19 after being the FIRST entry in
         // `reach`'s scaffold list. Beside the page checks because it is the
         // other verb that writes a file the operator hands to somebody else.

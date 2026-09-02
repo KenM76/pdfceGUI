@@ -568,6 +568,49 @@ would not track light and dark. Hyperlink is the theme's *"this is interactive"*
 role and that is what a fillable field is. The alpha is lower than the marquee's,
 because this sits under the field's own text for as long as the document is open.
 
+### ✅ DRIVEN 2026-09-02 — and it runs without touching the pointer
+
+`fillable_fields_are_shaded_on_the_page`. The preference defaults to on and the
+fixture opens on the page with the fields, so nothing has to be clicked; with
+`PDFCE_DIAG_VIEWPORT` the window lays out without taking focus. One of only two
+checks in the suite that can run while you are using the machine.
+
+★★ The trace had to learn to distinguish **three** states first, because drawing
+nothing is the outcome of all three and only one is a defect: the wash turned
+off, the wash on with no fields in the document, and the wash on with fields
+present and none painted. Before it carried `on=` and `boxes=` as well as
+`drawn=`, a build with the feature entirely dead would have looked identical to
+a correct build run against a document with no form.
+
+Falsified by disabling the wash and rebuilding — red, with the right diagnosis.
+
+### ⬜ AN OPEN QUESTION THE CHECK SURFACED, and it is YOURS to settle
+
+The fixture carries **two** widgets and the wash paints **one**. That is not a
+bug: the text field has no `/AP` `/N`, so the page draws nothing there, the
+canvas census deliberately excludes it, and the Forms panel already discloses it
+off-canvas with the remedy named — *"N field(s) are not drawn on the page, so
+they cannot be clicked there. Fill one here and it becomes drawn."*
+
+⇒ But your words were *"like acrobat does"*, and a field that draws **nothing**
+is arguably the field that most needs a wash saying *"you can type here"* — it
+is exactly the invisible-field case the feature exists for.
+
+★★ **Not acted on, and deliberately.** Two reasons:
+
+1. It is a real design question rather than a defect. Widening the wash to
+   undrawn fields would mark boxes that **cannot be clicked**, so the mark would
+   promise a gesture that is not there — which is its own R9 problem, pointed
+   the other way.
+2. I have **not verified what Acrobat actually does here.** It is installed, and
+   checking needs the screen. Asserting its behaviour from memory is precisely
+   the failure this project forbids, so it is recorded as a question rather than
+   as a finding.
+
+If it should change, the shape is probably *"wash the undrawn ones too, in a
+different weight"* — but that is a call about your own workflow, not one to make
+from a fixture.
+
 ---
 
 ## O95 — ◑ **BUILT 2026-09-02, NOT YET DRIVEN** — Save As, and then keep editing the NEW file
