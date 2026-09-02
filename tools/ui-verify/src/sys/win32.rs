@@ -39,16 +39,17 @@ use windows_sys::Win32::Graphics::Gdi::{
     CreateCompatibleDC, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits, ReleaseDC,
     SRCCOPY, SelectObject,
 };
+use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     KEYEVENTF_KEYUP, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_RIGHTDOWN,
     MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_WHEEL, keybd_event, mouse_event,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GA_ROOT, GetAncestor, GetClassNameW, GetClientRect, GetCursorPos,
-    GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, SW_MAXIMIZE,
-    SW_SHOW, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetCursorPos, SetForegroundWindow, SetWindowPos,
-    ShowWindow, WindowFromPoint,
+    BringWindowToTop, EnumWindows, GA_ROOT, GetAncestor, GetClassNameW, GetClientRect,
+    GetCursorPos, GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
+    SW_MAXIMIZE, SW_SHOW, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetCursorPos, SetForegroundWindow,
+    SetWindowPos, ShowWindow, WindowFromPoint,
 };
 
 use crate::coords::WindowFrame;
@@ -232,11 +233,81 @@ pub fn window_frame(w: WindowHandle) -> Result<WindowFrame> {
 /// created behind an already-maximised window, so the capture photographed
 /// whoever owned those pixels.
 pub fn raise_window(w: WindowHandle) {
-    // SAFETY: `w` is a handle this module produced. Both calls are
-    // side-effect-only and tolerate a stale handle by returning false.
+    // ★★★ `AttachThreadInput` AROUND THE RAISE, and it is not defensive
+    // decoration — it is the documented way this call is allowed to succeed.
+    //
+    // Windows refuses `SetForegroundWindow` to a process that does not already
+    // own the foreground. This harness is exactly that process: it launches the
+    // application and then asks, from the outside, for it to come forward. The
+    // sanctioned workaround is to attach this thread's input queue to the
+    // thread that currently owns the foreground, which makes the two count as
+    // one input context for the duration, and detach again immediately.
+    //
+    // ★★ Found on 2026-09-02, and the symptom is why it is worth the unsafe
+    // block. A sweep stalled with every input check reporting *"the foreground
+    // is held by BluetoothNotificationAreaIconWindowClass"* — an **invisible**
+    // 136 x 39 explorer tray helper at the origin. The harness's own advice was
+    // *"dismiss it and run again"*, which is unactionable for a window with no
+    // pixels, and its one retry did not help because the condition is not a
+    // race: a bare `SetForegroundWindow` from a background process is simply
+    // refused, and whatever holds the foreground keeps it.
+    //
+    // ★ This is also the likely root of the older measurement recorded in
+    // `Driver::raise_and_confirm_at`: a full sweep reporting 45 of 127 checks
+    // skipped on *"could not be brought to the front"*, each passing when
+    // re-run alone. That was patched with a single retry, which treats a
+    // permissions rule as a timing one. The retry stays — it costs nothing and
+    // covers the genuine churn case — but this is the mechanism.
+    //
+    // SAFETY: every call is side-effect-only and tolerates a stale handle by
+    // returning false. The attach is unconditionally undone on both paths, so
+    // the input queues cannot be left joined.
     unsafe {
+        let ours = GetCurrentThreadId();
+        let fg = GetForegroundWindow();
+        let theirs = if fg.is_null() {
+            0
+        } else {
+            GetWindowThreadProcessId(fg, std::ptr::null_mut())
+        };
+        let attached = theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, 1) != 0;
         ShowWindow(w.hwnd(), SW_SHOW);
+        BringWindowToTop(w.hwnd());
         SetForegroundWindow(w.hwnd());
+        if attached {
+            AttachThreadInput(ours, theirs, 0);
+        }
+
+        // ★★★ THE ALT NUDGE, and it is the only thing that actually recovered a
+        // stuck foreground — measured 2026-09-02, after `AttachThreadInput`
+        // alone did not.
+        //
+        // Windows grants `SetForegroundWindow` to a process that has received
+        // recent user input. Synthesising a bare Alt press-and-release is the
+        // long-standing way to satisfy that rule from a harness: it is input,
+        // it targets nothing, and Alt on its own opens no menu.
+        //
+        // ★★ The condition that forced it: an **invisible** 136 x 39 explorer
+        // tray helper (`BluetoothNotificationAreaIconWindowClass`) took the
+        // foreground and would not yield — not to a retry, not to
+        // `AttachThreadInput`, and not to an explicit `SetForegroundWindow`
+        // from an elevated shell. The harness's own advice was *"dismiss it and
+        // run again"*, which is unactionable for a window with no pixels. It
+        // recurred within a minute of being cleared by hand, so a sweep could
+        // not be run at all without this.
+        //
+        // ★ Guarded on failure, so the ordinary path never synthesises input.
+        // A harness that pressed Alt before every raise would be injecting a
+        // keystroke into the application it is measuring, which is exactly the
+        // kind of side effect that makes a check's result mean something else.
+        if GetForegroundWindow() != w.hwnd() {
+            const VK_MENU: u8 = 0x12;
+            keybd_event(VK_MENU, 0, 0, 0);
+            std::thread::sleep(std::time::Duration::from_millis(40));
+            keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0);
+            std::thread::sleep(std::time::Duration::from_millis(60));
+            SetForegroundWindow(w.hwnd());
+        }
     }
 }
 

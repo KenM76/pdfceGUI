@@ -97,6 +97,8 @@ const PANEL_ITEM: &str = "ribbon.item.view.panel_forms";
 /// before, on the OCR check, where a collapsed ribbon group made a working
 /// command look absent.
 const HEADER: &str = "forms.tab_order.header";
+/// The Forms panel's dock body — an on-screen-by-construction scroll target.
+const PANEL_BODY: &str = "dock.body.view.panel_forms";
 /// The prefix of the per-row regions: `page.row`, both 0-based.
 const ROW: &str = "forms.tab_order.row.";
 /// The insertion caret's region.
@@ -222,9 +224,65 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     crate::checks::driving::click_mode_segment(&session, &driver, ui_rect, MODE)?;
 
     // --- 1: the Forms panel, then the Tab-order section --------------------
-    open_from_tab(&session, &driver, ui_rect, "view", PANEL_ITEM)?;
-    session.settle(24);
+    // ★★★ ONLY IF IT IS NOT ALREADY THERE — a panel toggle that is already on
+    // CLOSES the thing this check needs.
+    //
+    // `crate::checks::pages_drag` carries the same guard and the same sentence,
+    // and this check shipped without it. The symptom was not "the panel is
+    // missing": the Forms panel is in the default layout, the ribbon press shut
+    // it, a later press or a re-dock reopened it **somewhere else**, and the
+    // section header was read at x = 3126 and clicked at x = 786. The click
+    // landed on nothing, the Tab-order section stayed collapsed, and the check
+    // reported zero rows — which reads as "the feature is not there".
+    if declared(&session.trace()?, ui_rect, PANEL_BODY).is_none() {
+        open_from_tab(&session, &driver, ui_rect, "view", PANEL_ITEM)?;
+        session.settle(24);
+    }
+    // ★★★ GIVE THE PANE ROOM BEFORE OPENING THE SECTION.
+    //
+    // Measured 2026-09-02: the Forms panel is the BOTTOM of three stacked panes
+    // in the right dock — 396 points tall. The tab-order section sits below the
+    // whole-form controls, and once its explainer, count and separator are laid
+    // out there are roughly 42 points left for a list of rows about 30 points
+    // each. `ui_rect_visible` publishes nothing for a row that is mostly
+    // clipped, correctly, so the check saw an empty list and no amount of
+    // scrolling helped: the content is not scrolled away, it has nowhere to go.
+    //
+    // ★★ Scrolling was tried first and failed twice, each time for a different
+    // and instructive reason — the panel's centre lands on the fill list's OWN
+    // nested scroll area, so the wheel moved that instead; and the section
+    // header publishes through plain `ui_rect`, so a stale rectangle sent the
+    // wheel outside the window. Both are recorded in `scroll_rows_into_view`,
+    // which is kept because a taller pane still needs it on a long form.
+    //
+    // Dragging the splitter is what an operator does when a docked list is too
+    // short, it uses regions the dock already publishes, and it leaves the
+    // window in a state where the feature under test is actually usable —
+    // which is the state worth measuring.
+    enlarge_forms_pane(&session, &driver, ui_rect)?;
     open_tab_order(&session, &driver, ui_rect)?;
+
+    // ★★★ SCROLL THE PANEL UNTIL THE ROWS ARE ON SCREEN, and this is not
+    // housekeeping — it is the precondition the whole check rests on.
+    //
+    // The Tab-order section sits below the fill list and the groups in a docked
+    // panel with its own scroll area. Measured 2026-09-02 on a two-field form:
+    // its rows lay at y = 1406 in a client area 1369 points tall — off the
+    // bottom of the window on a 3440 x 1440 display, and further off on
+    // anything smaller.
+    //
+    // ★★ Until the rows published through `ui_rect_visible` this was INVISIBLE.
+    // They published a rectangle regardless of the clip, the harness converted
+    // it to a screen point below the window, pressed there, and reported *"the
+    // row does not sense a drag"* — a confident, specific, entirely wrong defect
+    // report about working code. The fix on the application side makes the
+    // absence honest; this is the fix on the harness side that makes the check
+    // able to proceed.
+    //
+    // Scrolled at the panel's own centre, a few notches at a time, stopping as
+    // soon as the rows appear. Bounded rather than looping: a panel that never
+    // yields a row is a finding, not a reason to spin.
+    scroll_rows_into_view(&session, &driver, ui_rect)?;
 
     let trace = session.trace()?;
     let rows = declared_names(&trace, ui_rect, ROW);
@@ -399,6 +457,97 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     report.note("no non-widget annotation changed index, so paint order is untouched");
 
     Ok(None)
+}
+
+/// Drag the dock splitter above the Forms pane upward, so the panel has room.
+///
+/// The splitter is resolved by **geometry** rather than by name: whichever
+/// published `…split.row.N` region sits immediately above the Forms panel body
+/// is the one that controls its top edge. Naming `dock.right.0.split.row.1`
+/// would bake in which dock the panel happens to live in and which of three
+/// stacked panes it is, both of which are layout that can legitimately change.
+///
+/// Silent when there is no splitter above it — a panel that is already the only
+/// pane in its dock needs no help, and the caller's own assertions report the
+/// case where the rows still do not appear.
+fn enlarge_forms_pane(session: &Session, driver: &Driver, ui_rect: &str) -> Result<()> {
+    let trace = session.trace()?;
+    let Some(body) = declared(&trace, ui_rect, PANEL_BODY) else {
+        return Ok(());
+    };
+    // The nearest splitter whose bottom edge is at or above the panel's top.
+    let Some(split) = declared_names(&trace, ui_rect, "dock.")
+        .into_iter()
+        .filter(|n| n.contains(".split.row."))
+        .filter_map(|n| declared(&trace, ui_rect, &n))
+        .filter(|r| r.max.y <= body.min.y + 1.0)
+        .max_by(|a, b| a.max.y.total_cmp(&b.max.y))
+    else {
+        return Ok(());
+    };
+    // The dock the panel lives in, so the target is expressed against the
+    // layout rather than as a fixed pixel offset that a different display would
+    // put somewhere else.
+    let Some(dock) = declared_names(&trace, ui_rect, "dock.")
+        .into_iter()
+        .filter(|n| n.matches('.').count() == 1)
+        .filter_map(|n| declared(&trace, ui_rect, &n))
+        .find(|d| d.min.x <= body.min.x + 1.0 && d.max.x + 1.0 >= body.max.x)
+    else {
+        return Ok(());
+    };
+    let frame = session.frame()?;
+    let from = frame.declared_center(split);
+    // A quarter of the way down the dock: above every splitter, inside the
+    // topmost pane, and far enough that the drag comfortably clears egui's
+    // click/drag threshold.
+    let to = frame.declared_at(dock, 0.5, 0.25);
+    driver.drag(from, to)?;
+    session.settle(20);
+    Ok(())
+}
+
+/// Scroll the Forms panel until the tab-order rows publish a visible rectangle.
+///
+/// Returns as soon as at least [`MIN_ROWS`] rows are on screen. If the panel
+/// runs out of scroll without producing them, the caller's own check reports
+/// that — this function does not decide it is a failure, because "the section
+/// is empty on this document" and "the section is below the fold" are different
+/// findings and only the caller knows which it was looking for.
+fn scroll_rows_into_view(session: &Session, driver: &Driver, ui_rect: &str) -> Result<()> {
+    const NOTCHES: i32 = -3;
+    const TRIES: usize = 12;
+    for _ in 0..TRIES {
+        let trace = session.trace()?;
+        if declared_names(&trace, ui_rect, ROW).len() >= MIN_ROWS {
+            return Ok(());
+        }
+        // ★★★ THE WHEEL GOES OVER THE SECTION HEADER, NOT THE PANEL'S CENTRE —
+        // because the panel contains NESTED scroll areas.
+        //
+        // The Forms panel's body is one `ScrollArea`; the fill list and the
+        // tab-order list each have another inside it. A wheel event is consumed
+        // by the innermost scrollable under the pointer, so aiming at the
+        // panel's centre — which lands on the fill list — scrolled the fill
+        // list and left the panel exactly where it was. Measured: twelve
+        // notches, zero movement, zero rows.
+        //
+        // The section header is a plain widget in the OUTER area, so the wheel
+        // over it moves the panel. It is validated against the panel body first
+        // because the header publishes through plain `ui_rect` and its
+        // rectangle survives going out of view — an unchecked stale rect would
+        // send the wheel outside the window again.
+        let Some(body) = declared(&trace, ui_rect, PANEL_BODY) else {
+            return Ok(());
+        };
+        let target = declared(&trace, ui_rect, HEADER)
+            .filter(|h| h.min.y >= body.min.y && h.max.y <= body.max.y)
+            .unwrap_or(body);
+        let at = session.frame()?.declared_center(target);
+        driver.scroll_at(at, NOTCHES)?;
+        session.settle(10);
+    }
+    Ok(())
 }
 
 /// The fixture, relative to the engine repository's synthetic corpus.

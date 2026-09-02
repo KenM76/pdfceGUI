@@ -64,15 +64,39 @@ use crate::launch::{LaunchSpec, Session};
 use crate::report::CheckReport;
 
 /// The mode the Forms panel is reachable from.
-const MODE: &str = "edit";
+const MODE: &str = "review";
 /// The ribbon item that opens the Forms panel, and the tab it lives on.
 const PANEL_ITEM: &str = "ribbon.item.view.panel_forms";
 /// The prefix of the fill list's per-row regions; the 0-based index follows.
 const ROW: &str = "forms.fill.row.";
+/// The Forms panel's dock body — on screen by construction.
+const PANEL_BODY: &str = "dock.body.view.panel_forms";
+/// The Select tool, which is the only tool the canvas offers form boxes under.
+const TOOL_SELECT: &str = "ribbon.item.view.tool_select";
 /// The canvas's spotlight trace.
 const SPOTLIGHT: &str = "canvas-form-spotlight";
 /// The fixture: two widgets on one page, both visible at once.
-const FIXTURE: &str = "forms/demo-form.pdf";
+/// The fixture — **this project's own**, not the engine's, and that is a
+/// finding rather than a preference.
+///
+/// ★★★ Not one form fixture in `D:\Dev\pdfceixtures\syntheticorms\` carries a
+/// plain text field with an `/AP` `/N` appearance stream. Measured 2026-09-02
+/// across all eighteen: `demo-form` and `radio-choice-form` have text fields
+/// with **no** appearance, `rich-field-form`'s one paint-ready text field is
+/// **rich text** (which the canvas declines by design), and every other
+/// paint-ready widget is a 12 x 12 check box or radio.
+///
+/// That matters because the canvas census refuses a widget with no appearance
+/// (`NotOnCanvas::NoAppearance`) — the page draws nothing there, so there is
+/// nothing to outline. On every engine fixture the spotlight is therefore
+/// *unable* to light the one row the panel offers, and the check could only
+/// ever have failed. It is the check being unable to reach the feature, not
+/// the feature being broken: exactly the shape this whole afternoon has been
+/// about.
+///
+/// So this is 1,129 hand-written bytes: one page, one text field, one real
+/// appearance stream. `fixtures/off-page-object.pdf` is the precedent.
+const FIXTURE: &str = "text-field-with-appearance.pdf";
 
 /// See the module documentation.
 pub struct ClickingAFormRowLightsTheFieldOnThePage;
@@ -155,8 +179,33 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     let driver = Driver::new(session.window());
 
     crate::checks::driving::click_mode_segment(&session, &driver, ui_rect, MODE)?;
-    open_from_tab(&session, &driver, ui_rect, "view", PANEL_ITEM)?;
-    session.settle(24);
+    // ★ ONLY IF IT IS NOT ALREADY THERE — a panel toggle that is already on
+    // CLOSES the thing this check needs. `crate::checks::pages_drag` carries the
+    // same guard; `tab_order_drag` shipped without it and spent an afternoon
+    // reporting a working feature as missing.
+    if declared(&session.trace()?, ui_rect, PANEL_BODY).is_none() {
+        open_from_tab(&session, &driver, ui_rect, "view", PANEL_ITEM)?;
+        session.settle(24);
+    }
+
+    // ★★★ THE SELECT TOOL, EXPLICITLY — and this is a finding about the
+    // feature, not merely a step.
+    //
+    // The canvas's whole form overlay is gated on `offered_in(tool)`, which is
+    // `CanvasTool::Select` and nothing else. Edit mode does not start there, so
+    // on entering it the overlay stops drawing entirely: no wash, no spotlight,
+    // no form boxes. Measured 2026-09-02 — the canvas traced its last spotlight
+    // line at the exact frame `mode-changed to=edit` appeared, 260 lines before
+    // the panel first wrote a field into the channel.
+    //
+    // ⇒ The check selects the tool so it measures the feature in the state the
+    // feature is designed for. **The gap this leaves is recorded rather than
+    // papered over**: an operator who opens the Forms panel with any other tool
+    // active gets no highlight when they click a row, and nothing says why.
+    // Whether the spotlight — a read-only cue driven entirely by the panel —
+    // should depend on the canvas tool at all is an operator question, filed in
+    // `OPERATOR_REQUESTS.md` O98 rather than decided here.
+    select_tool(&session, &driver, ui_rect)?;
 
     let trace = session.trace()?;
     let rows = declared_names(&trace, ui_rect, ROW);
@@ -185,15 +234,31 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     }
     report.note("nothing is spotlighted before the click");
 
-    // --- click the first row's value box ----------------------------------
-    let first = declared(&trace, ui_rect, &format!("{ROW}0")).ok_or_else(|| {
+    // --- click a row's value box -------------------------------------------
+    //
+    // ★★ THE FIRST ROW THAT IS ACTUALLY DECLARED, not `{ROW}0`, and resolved
+    // from the SAME trace snapshot the names came from.
+    //
+    // Hard-coding index 0 made this SKIP with the self-contradictory pair
+    // *"1 fillable row(s) on screen"* immediately followed by *"no
+    // `forms.fill.row.0` region"*. Both were true: the panel had scrolled
+    // between the two reads, row 0 had left the viewport and a later row had
+    // entered it. A region name carries an index into the form, not a promise
+    // about what is on screen, and two `session.trace()` calls are two moments.
+    let name = rows
+        .first()
+        .cloned()
+        .ok_or_else(|| Error::new("no fillable row region on screen".to_owned()))?;
+    let first = declared(&trace, ui_rect, &name).ok_or_else(|| {
         Error::new(format!(
-            "no `{ROW}0` region — the first fillable row is not on screen. Declared: {}.",
+            "`{name}` was named in this trace and could not then be resolved \
+             from it. The two reads are the same snapshot, so this should be \
+             impossible. Declared: {}.",
             list(&rows)
         ))
     })?;
     let at = session.frame()?.declared_center(first);
-    report.note(format!("clicking row 0 at ({}, {})", at.x(), at.y()));
+    report.note(format!("clicking `{name}` at ({}, {})", at.x(), at.y()));
     driver.click_at(at)?;
     session.settle(24);
 
@@ -238,11 +303,37 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     Ok(None)
 }
 
-/// Resolve [`FIXTURE`] under the engine repository's synthetic corpus.
+/// Make the Select tool active, because the canvas's form overlay is gated on
+/// it — see the call site.
+///
+/// Silent when the item is not on screen: the caller's own assertions report
+/// the consequence, and a missing ribbon item is a different finding from a
+/// spotlight that does not light.
+fn select_tool(session: &Session, driver: &Driver, ui_rect: &str) -> Result<()> {
+    // ★ The View tab has to be brought forward first. The panel guard above
+    // deliberately does NOT click it when the panel is already open — pressing
+    // a panel toggle that is on closes it — and a ribbon item on a tab that is
+    // not showing publishes no region at all. The first version of this helper
+    // looked for the tool without doing that, found nothing, and silently did
+    // nothing, so the check went on measuring the wrong state.
+    let trace = session.trace()?;
+    if let Some(tab) = declared(&trace, ui_rect, "ribbon.tab.view") {
+        driver.click_at(session.frame()?.declared_center(tab))?;
+        session.settle(14);
+    }
+    let trace = session.trace()?;
+    if let Some(item) = declared(&trace, ui_rect, TOOL_SELECT) {
+        driver.click_at(session.frame()?.declared_center(item))?;
+        session.settle(16);
+    }
+    Ok(())
+}
+
+/// Resolve [`FIXTURE`] under this project's own `fixtures/`.
 ///
 /// Read-only, as everything under `D:\Dev\pdfce` is until fold-in day.
 fn form_fixture() -> Option<std::path::PathBuf> {
-    let path = std::path::Path::new("D:/Dev/pdfce/fixtures/synthetic").join(FIXTURE);
+    let path = std::path::Path::new("fixtures").join(FIXTURE);
     path.is_file().then_some(path)
 }
 

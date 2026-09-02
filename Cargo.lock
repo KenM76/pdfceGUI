@@ -1540,7 +1540,7 @@ dependencies = [
 [[package]]
 name = "iccce-cmm"
 version = "0.3.0"
-source = "git+https://github.com/KenM76/iccce.git?tag=v0.3.0#a4d9003bf87c61299fa1c6f9c2e2ffffa30de0c3"
+source = "git+https://github.com/KenM76/iccce.git?rev=a4d9003bf87c61299fa1c6f9c2e2ffffa30de0c3#a4d9003bf87c61299fa1c6f9c2e2ffffa30de0c3"
 dependencies = [
  "iccce-color",
  "iccce-profile",
@@ -1549,12 +1549,12 @@ dependencies = [
 [[package]]
 name = "iccce-color"
 version = "0.3.0"
-source = "git+https://github.com/KenM76/iccce.git?tag=v0.3.0#a4d9003bf87c61299fa1c6f9c2e2ffffa30de0c3"
+source = "git+https://github.com/KenM76/iccce.git?rev=a4d9003bf87c61299fa1c6f9c2e2ffffa30de0c3#a4d9003bf87c61299fa1c6f9c2e2ffffa30de0c3"
 
 [[package]]
 name = "iccce-profile"
 version = "0.3.0"
-source = "git+https://github.com/KenM76/iccce.git?tag=v0.3.0#a4d9003bf87c61299fa1c6f9c2e2ffffa30de0c3"
+source = "git+https://github.com/KenM76/iccce.git?rev=a4d9003bf87c61299fa1c6f9c2e2ffffa30de0c3#a4d9003bf87c61299fa1c6f9c2e2ffffa30de0c3"
 
 [[package]]
 name = "icu_collections"
@@ -2391,8 +2391,8 @@ dependencies = [
 
 [[package]]
 name = "pdfce-core"
-version = "0.21.0"
-source = "git+file:///D:/Dev/pdfce?branch=main#c7a774c7aed68aea923be5d1ac089029bbccc114"
+version = "0.22.0"
+source = "git+file:///D:/Dev/pdfce?branch=main#8e09705914be05d45114692d20d95ef4c5852969"
 dependencies = [
  "aes",
  "brotli",
@@ -2430,8 +2430,8 @@ dependencies = [
 
 [[package]]
 name = "pdfce-print"
-version = "0.21.0"
-source = "git+file:///D:/Dev/pdfce?branch=main#c7a774c7aed68aea923be5d1ac089029bbccc114"
+version = "0.22.0"
+source = "git+file:///D:/Dev/pdfce?branch=main#8e09705914be05d45114692d20d95ef4c5852969"
 dependencies = [
  "thiserror 2.0.20",
  "windows",
@@ -2439,8 +2439,8 @@ dependencies = [
 
 [[package]]
 name = "pdfce-render"
-version = "0.21.0"
-source = "git+file:///D:/Dev/pdfce?branch=main#c7a774c7aed68aea923be5d1ac089029bbccc114"
+version = "0.22.0"
+source = "git+file:///D:/Dev/pdfce?branch=main#8e09705914be05d45114692d20d95ef4c5852969"
 dependencies = [
  "iccce-cmm",
  "iccce-profile",

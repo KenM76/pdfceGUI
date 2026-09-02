@@ -171,6 +171,10 @@ const MAX_LIST_HEIGHT: f32 = 260.0;
 /// The region the collapsing header publishes, so a driven check can open it.
 const REGION_HEADER: &str = "forms.tab_order.header"; // ui-text-exempt: trace region name, never displayed
 
+/// The trace slot for whether the section is expanded.
+// ui-text-exempt: trace slot name, never displayed
+const OPEN_SLOT: &str = "forms-tab-order-open";
+
 const MAX_TRACED_ROWS: usize = 200;
 
 /// Draw the Tab order section.
@@ -295,6 +299,32 @@ pub(super) fn section(
                 });
         });
     crate::diag::ui_rect(REGION_HEADER, header.header_response.rect);
+    // ★★★ WHETHER THE SECTION IS OPEN, as its own trace line.
+    //
+    // Added 2026-09-02 after a driven check spent an afternoon unable to tell
+    // three states apart, all of which look like "no rows on screen":
+    //
+    //   * the section is collapsed (it ships that way, deliberately);
+    //   * it is open and its rows are clipped by a short docked pane;
+    //   * it is open, on screen, and genuinely has no rows.
+    //
+    // A rectangle for the header answers none of them — the header is drawn in
+    // all three. `openness` is `egui`'s own animated 0..=1, so `> 0.99` is
+    // "fully open" rather than "mid-animation", which matters because a check
+    // reads the trace one frame after clicking.
+    crate::diag::trace_changed(OPEN_SLOT, || {
+        // ui-text-exempt: diagnostic trace, never displayed in the UI
+        format!(
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            "forms-tab-order-open open={} rows_drawn={}",
+            u8::from(header.openness > 0.99),
+            if header.openness > 0.99 {
+                listing.total_rows()
+            } else {
+                0
+            }
+        )
+    });
 
     if let Some(page) = go {
         actions.push(Action::GoToPage(page));
@@ -398,23 +428,74 @@ fn page_block(
         // away, through the SAME tooltip the fill rows use, so a name copied
         // out of either list is the same string.
         let label = row.label.as_deref().unwrap_or(row.field.as_str());
-        // ★ `Sense::drag()` on a label, rather than `dnd_drag_source`.
+        // ★ No `dnd_drag_source`. egui 0.35's built-in drag-and-drop paints the
+        // dragged widget under the cursor as a floating preview, which is the
+        // wrong affordance for a *list reorder*: the operator is not carrying
+        // the row somewhere, they are choosing a boundary, and the thing that
+        // has to be legible is the boundary. The page rail made the same call,
+        // and the operator's own words are "clear markers of where the field is
+        // going to move to" — the marker is the feature; the ghost competes.
         //
-        // egui 0.35's built-in drag-and-drop paints the dragged widget under
-        // the cursor as a floating preview. That is the wrong affordance for a
-        // *list reorder*: the operator is not carrying the row somewhere, they
-        // are choosing a boundary, and the thing that has to be legible is the
-        // boundary. The page rail made the same call, and the operator's own
-        // words are "clear markers of where the field is going to move to" —
-        // the marker is the feature; the floating ghost competes with it.
+        // ★★★ A PLAIN LABEL, THEN `ui.interact` OVER ITS RECT — and this is the
+        // fix for a drag that did not start at all.
+        //
+        // The first version was `Label::new(..).sense(Sense::drag())`, which is
+        // the obvious spelling and produced a row that sensed **nothing**: the
+        // driven check pressed on it, dragged 39 pt down and no
+        // `tab-order-drag-begin` was ever traced. Every unit test stayed green,
+        // because the permutation arithmetic is reached only by a gesture.
+        //
+        // `crate::panels::pages` — the panel this is deliberately copying — has
+        // always used `ui.interact(rect, id, Sense::click_and_drag())` with a
+        // stable id, and that is the shape that works inside a `ScrollArea`.
+        // Copying a panel's *look* and not its *mechanism* is how this got
+        // written; the check is what caught it.
+        //
+        // ★ `click_and_drag`, not `drag`: a row is also a click target for a
+        // tooltip, and a `Sense::drag()`-only widget swallows the press without
+        // ever reporting the click.
+        let placed = ui.add(egui::Label::new(t::tab_order_row(row.position, label)));
         let response = ui
-            .add(egui::Label::new(t::tab_order_row(row.position, label)).sense(egui::Sense::drag()))
+            .interact(
+                placed.rect,
+                // ui-text-exempt: an egui id salt, never displayed.
+                ui.id()
+                    .with(("pdfce-tab-order-row", page.page_index, index)),
+                egui::Sense::click_and_drag(),
+            )
             .on_hover_text(t::form_field_row_tooltip(&row.field));
-        crate::diag::ui_rect(
+        // ★★★ `ui_rect_visible`, NOT `ui_rect`, and getting this wrong cost an
+        // afternoon of chasing a phantom.
+        //
+        // These rows live in a `ScrollArea` inside a docked panel, at the
+        // bottom of a section that itself sits below the fill list. On a real
+        // document they are frequently **off the bottom of the window** —
+        // measured 2026-09-02: rows published at y = 1406 in a client area
+        // 1369 points tall.
+        //
+        // Published unconditionally, that rectangle is a lie a driven check
+        // cannot detect. The harness read it, converted it to a screen point 37
+        // points below the window, and pressed there — so the row was never
+        // hovered, no drag began, and the check reported *"the row does not
+        // sense a drag"*: a confident, specific and entirely wrong defect report
+        // about working code.
+        //
+        // `ui_rect_visible` intersects with the clip rectangle and publishes
+        // NOTHING when the row is out of view, which turns that silent
+        // mis-aim into an honest "the row is not on screen". This panel already
+        // learnt the same lesson once — `register::rows` records a click on a
+        // published rectangle hitting nothing at all, 36 page-blocks down a
+        // scroll area — and the fill rows added on the same day got it right.
+        crate::diag::ui_rect_visible(
             &format!("{}{}.{index}", drag::REGION_ROW_PREFIX, page.page_index),
             response.rect,
+            ui.clip_rect(),
         );
-        if response.drag_started() {
+        // ★ `drag_started_by(Primary)`, not `drag_started()` — the page rail's
+        // reason, unchanged: egui's plain predicate is true for the middle
+        // button too, and a right-press that wandered a few pixels before
+        // releasing would start a reorder the operator meant as a context menu.
+        if response.drag_started_by(egui::PointerButton::Primary) {
             drag::begin(
                 ui.ctx(),
                 drag::Drag {
