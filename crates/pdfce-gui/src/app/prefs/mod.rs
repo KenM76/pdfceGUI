@@ -296,6 +296,40 @@ pub struct Prefs {
     /// See [`WheelPaging`] for why the choice exists only under
     /// `PageDisplay::Single` and `Facing`.
     pub wheel_paging: WheelPaging,
+    /// **Wash the fillable fields, so you can see what can be typed into** —
+    /// `OPERATOR_REQUESTS.md` O96.
+    ///
+    /// Ken, 2026-09-02: *"in our display section we should have an option to
+    /// shade the form fields like acrobat does."*
+    ///
+    /// # ★★★ Why this is not the thing rule 4 forbids, and the distinction is
+    /// exact
+    ///
+    /// The standing rule is *applied content renders exactly as saved content
+    /// will render* — no badge, tint or provisional styling drawn into the page.
+    /// This looks like a tint over part of the page and is **not** one, for a
+    /// reason that has to be stated rather than assumed:
+    ///
+    /// **A field is a control, not content.** The wash is the affordance that
+    /// says *this box accepts typing*, which is the same class as the pointing
+    /// hand `canvas::forms` already puts over a widget and the same class as a
+    /// snap indicator. It says nothing about pdfce's confidence in anything and
+    /// marks no inference.
+    ///
+    /// ★★ The property that keeps it honest is where it is drawn: it is painted
+    /// by the canvas **overlay**, over the finished page texture, and reaches
+    /// no rasterizer. It cannot appear in a print, an export, a Save, or a
+    /// `render-page`. The one-line test rule 4 is judged by — *would a
+    /// screenshot of the canvas differ from a screenshot of the same document
+    /// saved and reopened?* — answers **yes and that is correct here**, because
+    /// what differs is a control's affordance rather than pdfce marking its own
+    /// uncertainty.
+    ///
+    /// ★ **On by default, which is Acrobat's answer** and the useful one: an
+    /// operator who does not know a form is fillable is the person this exists
+    /// for, and they will not go looking for a setting to reveal it. Somebody
+    /// who wants the page clean turns it off once.
+    pub shade_form_fields: bool,
     /// ★★★ **How a document the program has never seen is laid out** —
     /// `OPERATOR_REQUESTS.md` O80.
     ///
@@ -495,6 +529,9 @@ impl Default for Prefs {
             use_os_fonts: false,
             opening_fit: OpeningFit::default(),
             wheel_paging: WheelPaging::default(),
+            // ★ True, which is Acrobat's answer — see the field's ★ on why the
+            // default is the useful one rather than the unobtrusive one.
+            shade_form_fields: true,
             // ★ `None` — "he has not said" — so a fresh profile keeps
             // `MODES_AND_PANELS.md`'s per-mode rule. See the field.
             default_page_display: None,
@@ -796,6 +833,20 @@ impl Prefs {
                         line,
                     }),
                 },
+                // ★ `opening::bool_from_key`, which is the file's existing
+                // vocabulary — `true`/`false` and nothing else. A key that also
+                // accepted `yes` would be a second dialect in one file, and the
+                // strictness is deliberate: that function's own header records
+                // why a lenient reading here is worse than a reported bad
+                // value.
+                "shade_form_fields" => match opening::bool_from_key(value) {
+                    Some(on) => prefs.shade_form_fields = on,
+                    None => notes.push(PrefNote::BadValue {
+                        key: key.to_owned(),
+                        value: value.to_owned(),
+                        line,
+                    }),
+                },
                 "wheel_paging" => match WheelPaging::from_key(value) {
                     Some(w) => prefs.wheel_paging = w,
                     None => notes.push(PrefNote::BadValue {
@@ -1006,6 +1057,21 @@ impl Prefs {
         // ui-text-exempt: a file KEY, as above.
         out.push_str("paste_chords = ");
         out.push_str(self.paste_chords.key());
+        out.push('\n');
+        // ui-text-exempt: settings-file COMMENT text. Read in a text editor,
+        // never rendered by this program.
+        out.push_str(
+            "# shade_form_fields: wash the fillable fields so you can see what\n\
+             # accepts typing, the way Acrobat does. On screen only - it never\n\
+             # reaches a print, an export or a saved file. true or false.\n",
+        );
+        // ui-text-exempt: a file KEY, as above.
+        out.push_str("shade_form_fields = ");
+        out.push_str(if self.shade_form_fields {
+            "true"
+        } else {
+            "false"
+        });
         out.push('\n');
         // ui-text-exempt: a file KEY, as above.
         out.push_str("wheel_paging = ");

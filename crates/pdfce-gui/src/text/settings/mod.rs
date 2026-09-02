@@ -77,10 +77,15 @@
 pub mod bytes;
 pub mod extract;
 pub mod look;
+/// ★ The two print-ready colour controls and the field wash, split out of
+/// [`look`] on 2026-09-02 under R2. Its header says which of the three is there
+/// for a weak reason and should move out first if the module grows.
+pub mod print_colour;
 
 pub use bytes::*;
 pub use extract::*;
 pub use look::*;
+pub use print_colour::*;
 
 use egui_shell::theme::Preset;
 use pdfce_core::settings::StoreKind;
@@ -519,7 +524,13 @@ mod tests {
     // the coverage gate two files away fired on the same `cargo update` — the
     // pair working as designed, one demanding the control and one demanding
     // the copy.
-    const SETTINGS_COUNT: usize = 29;
+    // ★ 29 → 30 on 2026-09-02: `shade_form_fields`. Ken: *"in our display
+    // section we should have an option to shade the form fields like acrobat
+    // does."* Note this one is a SHELL preference rather than an engine
+    // setting, so the sibling coverage test in `dialogs::settings` — which
+    // enumerates the engine's store — could never have demanded it. This
+    // catalog is the only instrument that covers both.
+    const SETTINGS_COUNT: usize = 30;
 
     /// The `(title, silence, radius)` triple for every setting in the window.
     ///
@@ -566,6 +577,12 @@ mod tests {
                 spot_model_title(),
                 spot_model_silence(),
                 spot_model_radius(),
+            ),
+            // ★ A shell preference, not an engine setting — see SETTINGS_COUNT.
+            (
+                field_shade_title(),
+                field_shade_silence(),
+                field_shade_radius(),
             ),
             (
                 cmyk_ceiling_title(),

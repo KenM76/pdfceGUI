@@ -96,6 +96,52 @@ in commit messages, where you cannot see them and a cold session does not look.
 back-filled, and are marked as back-filled so the dates are not read as evidence
 of a process that worked.
 
+## O101 — ◑ **BUILT 2026-09-02, NOT YET DRIVEN** — the build time in the top bar
+
+**Ken, 2026-09-02:** *"also in the next release add the local compilation time
+to the top bar at the end of the date you added."*
+
+### ✅ Built
+
+The title now reads `… — 2026-09-02 06:25` where it read `… — 2026-09-02`.
+
+★★ **He is closing a loop his own reports opened.** The date went into the title
+on 2026-09-01 after he spent a morning reporting a defect that had been fixed,
+against a build he did not know was old. **Two rows have now been closed by
+"you were running an old build"** — O85 and O87 — and on a day with several
+publishes the date alone cannot tell them apart. A date answers *is this
+today's*; a date and a time answer *is this the one I just installed*, which is
+the question that was actually being got wrong.
+
+### ★★ The zone is shown only when it is NOT local, and that is the subtlety
+
+`PDFCE_BUILD_TIME` has two producers and they disagree about zone:
+
+| producer | stamp | zone |
+|---|---|---|
+| `package-portable.py` | `2026-09-02 06:25 +0100` | **local** — Python knows the offset |
+| `build.rs` fallback | `2026-09-02 06:25 UTC` | UTC, and labelled so |
+
+A packaged build's time is local, so the offset is noise to somebody standing in
+that zone and is dropped. A dev build's is UTC, and showing `06:25` bare would
+invite reading an hour that is not the wall clock — so `UTC` is kept.
+`build.rs`'s own sentence is the rule: *a stamp that says the wrong hour is worse
+than one that says a true hour in a named zone.*
+
+★ That is also the assertion that would fail against the obvious simpler
+implementation — truncate to sixteen characters and stop — and it has its own
+test for exactly that reason.
+
+★ Still derived by truncation from the one value with one producer, so the title
+cannot disagree with what About shows.
+
+### ⬜ NOT DRIVEN
+
+Four unit tests over the rule; the title itself is a window property and wants a
+driven check. Waiting on the pointer.
+
+---
+
 ## O100 — ◑ **SURFACED 2026-09-02; the preset half is an ENGINE question, filed** — new colour-rendering options
 
 **Ken, 2026-09-02:**
@@ -240,7 +286,7 @@ are away.
 
 ---
 
-## O96 — ⬜ **Shade the form fields, like Acrobat** — a Display option
+## O96 — ◑ **BUILT 2026-09-02, NOT YET DRIVEN** — the fillable fields are shaded
 
 **Ken, 2026-09-02:**
 
@@ -250,14 +296,33 @@ are away.
 **Not investigated.** Acrobat draws a pale blue wash over every fillable field so
 you can see at a glance what can be typed into, with a preference to turn it off.
 
-★★ **This one needs care against rule 4.** The standing rule is *applied content
-renders exactly as saved content will render* — no tint drawn into the page. A
-field shade is **not** that: it is an affordance for a control, not a mark on
-content, and it is exactly what Acrobat does. But it must be **off the saved
-document** — it must never reach a print, an export or a rasterised page — and
-the toggle must be a display setting rather than a document property. Worth
-stating before it is built, because "draw a wash over part of the page" is the
-shape rule 4 exists to refuse.
+### ✅ Built 2026-09-02
+
+**Settings ▸ Display ▸ Show which boxes can be filled in**, on by default, which
+is Acrobat's answer and the useful one: the operator who does not know a form is
+fillable is the person this exists for, and they will not go looking for a
+setting to reveal it.
+
+### ★★★ How it stays inside rule 4, stated rather than assumed
+
+The standing rule is *applied content renders exactly as saved content will
+render*. This looks like a tint over part of the page and is not one:
+
+**A field is a control, not content.** The wash is the affordance that says *this
+box accepts typing* — the same class as the pointing hand that already appears
+over a widget, and the same class as a snap indicator. It marks no inference and
+says nothing about pdfce's confidence in anything.
+
+★★ The property that keeps that true is **where it is painted**: in the canvas
+overlay, over the finished page texture, first so every other overlay lands on
+top of it. It reaches no rasterizer, so it cannot appear in a print, an export, a
+Save or a `render-page`. The radius line says so in the operator's own words.
+
+★ The colour is the theme's **hyperlink** role at low alpha — not `selection`,
+which would make every fillable field look selected, and not a literal, which
+would not track light and dark. Hyperlink is the theme's *"this is interactive"*
+role and that is what a fillable field is. The alpha is lower than the marquee's,
+because this sits under the field's own text for as long as the document is open.
 
 ---
 

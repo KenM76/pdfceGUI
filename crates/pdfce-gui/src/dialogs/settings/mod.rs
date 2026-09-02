@@ -625,6 +625,7 @@ pub fn show(
                     display::wheel_paging(ui, &mut draft.working_prefs);
                     display::paste_chords(ui, &mut draft.working_prefs);
                     ui.add_space(10.0);
+                    display::field_shade(ui, &mut draft.working_prefs);
                     display::page_chrome(ui, &mut draft.working_prefs);
                 });
                 widgets::group(ui, "saving", t::group_saving(), false, |ui| {

@@ -275,6 +275,30 @@ pub fn wheel_paging(ui: &mut Ui, prefs: &mut Prefs) {
 /// read as an argument for turning guides on, which it is not; it is a fact
 /// about what pdfce will do regardless. Same distinction the replacement-text
 /// bound makes, and `widgets::disclosure` exists for exactly this.
+/// **Shade the fillable fields** — `OPERATOR_REQUESTS.md` O96.
+///
+/// ★ In *Display* rather than in a Forms group, which is where he asked for it
+/// (*"in our display section"*) and is also right: it changes nothing about the
+/// form and everything about what the page looks like. An operator turning it
+/// off is tidying their view, not altering how fields behave.
+///
+/// [`crate::app::prefs::Prefs::shade_form_fields`] carries why a wash over part
+/// of a page is an affordance rather than the content marking rule 4 forbids.
+pub fn field_shade(ui: &mut Ui, prefs: &mut Prefs) {
+    widgets::header(
+        ui,
+        t::field_shade_title(),
+        t::field_shade_silence(),
+        t::field_shade_radius(),
+    );
+    widgets::toggle(
+        ui,
+        &mut prefs.shade_form_fields,
+        t::field_shade_label(),
+        Some(t::field_shade_note()),
+    );
+}
+
 pub fn page_chrome(ui: &mut Ui, prefs: &mut Prefs) {
     widgets::header(
         ui,

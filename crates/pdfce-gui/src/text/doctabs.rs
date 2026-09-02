@@ -168,24 +168,60 @@ pub fn window_title(active: Option<&Path>, count: usize) -> String {
 /// window list. If a report can be about the wrong build, the build has to be
 /// on the outside of the window.
 ///
-/// ★★ The DAY, not the full timestamp. A title bar is read at a glance and
-/// competes with the document's name for width; the question it has to answer
-/// is *"is this today's?"*, and a date answers that. The exact minute and the
-/// commit are in About, which is where somebody comparing two builds precisely
-/// would go.
+/// ★★★ **The day AND the local time** — 2026-09-02, on the operator's ask:
+/// *"add the local compilation time to the top bar at the end of the date you
+/// added."*
 ///
-/// ★ Derived by truncation rather than by a second source. `PDFCE_BUILD_TIME`
-/// is one value with one producer; taking its first ten characters cannot
-/// disagree with what About shows, and a second stamp computed elsewhere
+/// It was the date alone, on the reasoning that a title is read at a glance and
+/// the question is *"is this today's?"*. That reasoning was incomplete, and the
+/// record says so: **two reports have now been closed by "you were running an
+/// old build"** (O85 and O87), and on a day when several builds are published
+/// the date cannot separate them. A date answers *is this today's*; a date and a
+/// time answer *is this the one I just installed*, which is the question that
+/// was actually being got wrong.
+///
+/// # ★★ The zone is shown when it is NOT local, and that is the whole subtlety
+///
+/// `PDFCE_BUILD_TIME` has two producers and they disagree about zone:
+///
+/// | producer | stamp | zone |
+/// |---|---|---|
+/// | `tools/package-portable.py` | `2026-09-02 06:25 +0100` | **local** — Python knows the offset |
+/// | `build.rs`'s fallback | `2026-09-02 06:25 UTC` | UTC, and labelled so |
+///
+/// A packaged build's time is local, so the offset adds nothing to somebody
+/// standing in that zone and is dropped. A dev build's is UTC, and showing
+/// `06:25` bare would invite reading an hour that is not the wall clock — so
+/// `UTC` is kept. **A stamp that says the wrong hour is worse than one that says
+/// a true hour in a named zone**, which is `build.rs`'s own sentence about why
+/// the fallback labels itself.
+///
+/// ★ Still derived by truncation from the one value with one producer, so it
+/// cannot disagree with what About shows. A second stamp computed elsewhere
 /// eventually would.
 fn build_day() -> &'static str {
-    let stamp = env!("PDFCE_BUILD_TIME");
-    // `YYYY-MM-DD…`. Falls back to the whole string rather than to a
-    // placeholder: an unexpected format should still show SOMETHING datelike,
-    // because the failure this guards against is a title with no build in it.
-    match stamp.char_indices().nth(10) {
-        Some((at, _)) => &stamp[..at],
-        None => stamp,
+    stamp_for_title(env!("PDFCE_BUILD_TIME"))
+}
+
+/// [`build_day`]'s rule, over a stamp passed in so it can be tested.
+///
+/// ★ Every unrecognised shape falls through to the whole string rather than to a
+/// placeholder: the failure this guards against is a title with **no build in
+/// it**, and something datelike is always better than nothing.
+fn stamp_for_title(stamp: &'static str) -> &'static str {
+    // `YYYY-MM-DD HH:MM` is sixteen characters. Anything shorter is not a shape
+    // this function knows, so it is shown whole.
+    let Some((minute_end, _)) = stamp.char_indices().nth(16) else {
+        return stamp;
+    };
+    // ★ The zone is whatever follows, and only a NON-local one is kept. `UTC`
+    // is the fallback's label; a numeric offset means the packager set it from
+    // the machine's own clock and the operator is already standing in it.
+    let zone = stamp[minute_end..].trim();
+    if zone.starts_with('+') || zone.starts_with('-') || zone.is_empty() {
+        &stamp[..minute_end]
+    } else {
+        stamp
     }
 }
 
@@ -378,4 +414,68 @@ pub const fn drag_refused_self_copy() -> &'static str {
 #[must_use]
 pub fn drag_target_refused(reason: &str) -> String {
     format!("Those pages could not be placed here. {reason}")
+}
+
+#[cfg(test)]
+mod title_stamp_tests {
+    use super::stamp_for_title;
+
+    /// ★★★ **A packaged build shows the time and drops the offset.**
+    ///
+    /// The operator's ask (2026-09-02) and the common case: `package-portable`
+    /// stamps local time with a numeric offset, and the offset is noise to
+    /// somebody standing in that zone. What matters is that **the minutes are
+    /// there** — two of his reports have been closed by *"you were running an
+    /// old build"*, and on a day with several publishes the date alone cannot
+    /// separate them.
+    #[test]
+    fn a_packaged_stamp_shows_the_local_time_without_its_offset() {
+        assert_eq!(
+            stamp_for_title("2026-09-02 06:25 +0100"),
+            "2026-09-02 06:25"
+        );
+        assert_eq!(
+            stamp_for_title("2026-09-02 06:25 -0400"),
+            "2026-09-02 06:25"
+        );
+    }
+
+    /// ★★ **A dev build KEEPS its `UTC`, and that is the point of the rule.**
+    ///
+    /// `build.rs`'s fallback computes UTC because it has no date crate and
+    /// cannot know the machine's offset. Showing `06:25` bare would invite
+    /// reading an hour that is not the wall clock — and `build.rs`'s own
+    /// sentence is that *a stamp that says the wrong hour is worse than one that
+    /// says a true hour in a named zone*.
+    ///
+    /// This is the assertion that would fail against the obvious simpler
+    /// implementation — truncate to sixteen characters and stop — which is why
+    /// it is here.
+    #[test]
+    fn an_unlocalised_stamp_keeps_its_zone() {
+        assert_eq!(
+            stamp_for_title("2026-09-02 06:25 UTC"),
+            "2026-09-02 06:25 UTC"
+        );
+    }
+
+    /// ★ Anything unrecognised is shown whole rather than replaced.
+    ///
+    /// The failure this guards against is a title with **no build in it**. A
+    /// stamp in a shape this function does not know is still information; a
+    /// placeholder is not.
+    #[test]
+    fn an_unexpected_shape_is_shown_whole() {
+        assert_eq!(stamp_for_title("unknown"), "unknown");
+        assert_eq!(stamp_for_title(""), "");
+        assert_eq!(stamp_for_title("2026-09-02"), "2026-09-02");
+    }
+
+    /// ★ The date still leads, so the title is sortable by eye.
+    #[test]
+    fn the_date_still_comes_first() {
+        let out = stamp_for_title("2026-09-02 06:25 +0100");
+        assert!(out.starts_with("2026-09-02"));
+        assert!(out.contains("06:25"), "the time is the whole point: {out}");
+    }
 }

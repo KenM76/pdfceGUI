@@ -888,6 +888,53 @@ pub fn draw_marquee(painter: &Painter, visuals: &Visuals, mapping: &PageMapping,
     );
 }
 
+/// **Wash a fillable field**, so the operator can see what accepts typing.
+///
+/// `OPERATOR_REQUESTS.md` O96 — *"in our display section we should have an
+/// option to shade the form fields like acrobat does."*
+///
+/// # ★★★ Why this is an affordance and not the tint rule 4 forbids
+///
+/// The standing rule is *applied content renders exactly as saved content will
+/// render*. A field is **not content**: it is a control, and this wash is the
+/// same class of thing as the pointing hand `crate::canvas::forms` already puts
+/// over a widget. It marks no inference and says nothing about pdfce's
+/// confidence in anything.
+///
+/// ★★ The property that keeps that true is **where it is painted**: here, in the
+/// canvas overlay, over the finished page texture. It reaches no rasterizer, so
+/// it cannot appear in a print, an export, a Save or a `render-page`.
+///
+/// # The colour, and why it is derived rather than named
+///
+/// The theme's own **hyperlink** colour at a low alpha. Not `selection`, which
+/// is what a selected object wears and would make every fillable field look
+/// selected; and not a literal, which would not track light and dark. Hyperlink
+/// is the theme's "this is interactive, click it" role and that is exactly what
+/// a fillable field is.
+///
+/// ★ [`FIELD_WASH_ALPHA`] is lower than the marquee's, deliberately. A band is
+/// transient and the operator is looking *at* it; this sits under the page's own
+/// content for as long as the document is open, and a wash that made a filled
+/// field's own text harder to read would have traded one legibility problem for
+/// another.
+pub fn draw_field_shade(painter: &Painter, visuals: &Visuals, mapping: &PageMapping, rect: Rect) {
+    let screen = mapping.rect_to_screen(rect);
+    painter.rect_filled(
+        screen,
+        CornerRadius::ZERO,
+        at_alpha(visuals.hyperlink_color, FIELD_WASH_ALPHA),
+    );
+}
+
+/// The alpha [`draw_field_shade`] washes a field at.
+///
+/// ★ 28, against the marquee's 48. See that function's ★ for why lower: this one
+/// is on screen for as long as the document is open and sits under the field's
+/// own text, where the band is transient and has nothing under it that has to
+/// stay readable.
+const FIELD_WASH_ALPHA: u8 = 28;
+
 /// The rubber-band's fill: the theme's selection colour at low alpha.
 ///
 /// Derived from the theme rather than named, so it tracks light and dark

@@ -692,6 +692,24 @@ pub(super) fn overlay(
         return;
     }
 
+    // ★★★ **THE FIELD WASH** — `OPERATOR_REQUESTS.md` O96, *"an option to shade
+    // the form fields like acrobat does."*
+    //
+    // FIRST in this function, so every other overlay this module draws — the
+    // focused editor, the selection outline, the grips — lands on top of it. A
+    // wash painted last would sit over the caret and the text the operator is
+    // typing, which is the one thing that must stay legible.
+    //
+    // ★★ Drawn here rather than by the page rasterizer, and that is what keeps
+    // it inside rule 4: it is over the finished texture, so it reaches no
+    // print, no export, no Save and no `render-page`.
+    //
+    // ★ Gated on the preference only. `offer` above has already established
+    // that this mode fills forms, that annotations are visible and that the
+    // document is not certified — so a field that is not fillable here is a
+    // field this function has already returned before reaching.
+    shade(ui, doc, pages, list);
+
     // The focused field's editor FIRST, so that a click on another field is
     // seen by the editor it is leaving (as a focus loss, hence a commit)
     // before it is read as a request to focus something else.
@@ -1033,6 +1051,32 @@ fn kind_label(kind: &BoxKind) -> &'static str {
         BoxKind::Text { .. } => "text",   // ui-text-exempt: trace token
         BoxKind::Check { .. } => "check", // ui-text-exempt: trace token
         BoxKind::Radio { .. } => "radio", // ui-text-exempt: trace token
+    }
+}
+
+/// **Wash every fillable field on screen** — `OPERATOR_REQUESTS.md` O96.
+///
+/// The whole of the feature's drawing. `crate::canvas::overlay::draw_field_shade`
+/// owns the colour and the alpha and argues both; this owns *which* boxes and
+/// *whether at all*.
+///
+/// ★ One painter per page view rather than one for the lot, because a box's rect
+/// is in its own page's space and `PageMapping` is per page — the same reason
+/// [`cursor`] walks the views rather than the boxes.
+fn shade(ui: &egui::Ui, doc: &OpenDoc, pages: &[PageView], list: &[WidgetBox]) {
+    // ★ `doc.prefs`, which is the snapshot taken when the document opened —
+    // the same field `canvas::paging` reads for the wheel gesture. A live read
+    // would be wrong for the reason `OpenDoc::prefs` states: this is drawn per
+    // frame and a preference that changed mid-frame would flicker.
+    if !doc.prefs.shade_form_fields {
+        return;
+    }
+    let painter = ui.painter().clone();
+    let visuals = ui.visuals();
+    for view in pages {
+        for widget_box in list.iter().filter(|b| b.page == view.page) {
+            crate::canvas::overlay::draw_field_shade(&painter, visuals, &view.map, widget_box.rect);
+        }
     }
 }
 
