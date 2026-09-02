@@ -365,6 +365,7 @@ pub mod forms_spotlight;
 /// Drag a page thumbnail to a new position, and see where it will land
 /// before letting go.
 pub mod pages_drag;
+pub mod preset_group_reachable;
 pub mod print_dialog;
 pub mod print_paper;
 /// The Properties panel's document-metadata half: a title typed into it
@@ -942,6 +943,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(display_two_rows::TheDisplayButtonsStackInTwoRows),
         Box::new(title_build_stamp::TheTitleBarCarriesTheBuildTime),
         Box::new(field_shading::FillableFieldsAreShadedOnThePage),
+        Box::new(preset_group_reachable::TheStandardsPresetsGroupIsReachable),
         // The DXF export, wired 2026-08-19 after being the FIRST entry in
         // `reach`'s scaffold list. Beside the page checks because it is the
         // other verb that writes a file the operator hands to somebody else.
