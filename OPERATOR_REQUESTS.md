@@ -80,6 +80,100 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O91 — ⬜ **"the what's new pdf … might have a table of contents that you can click on"** — it does not work, and the reason is on the engine side
+
+**Ken, 2026-09-01.** The second half of the same message as O90.
+
+> *"also I don't think I have an example in that folder, but I think the what's
+> new pdf on the desktop might have a table of contents that you can click on
+> and be sent to the appropriate section. I could be wrong though as I am not at
+> the PC to try. anyway, it didn't do that in ours, but I didn't confirm in
+> Adobe either."*
+
+**You are right that it does not, and the shell-side cause is total: there is no
+link-following code path at all.** Not a broken one — none. Clicking a `/Link`
+does nothing, and nothing is drawn to suggest it would.
+
+### Why it is not a shell fix
+
+A `/Link` annotation's **destination cannot be read**. `pdfce-core`'s
+`Annotation` carries `action_type` — the `/S` name, so `GoTo` — by an explicit
+and documented decision (*"the `/S` NAME only, deliberately — not the action
+dictionary"*), which is the right model for `list-annotations`, whose job is to
+print one token of disclosure. It is the wrong model for a viewer, whose entire
+job with a `GoTo` is to **perform** it. `outline.rs` exposes no public
+destination parser to point at an arbitrary `/D`, and the shell has no raw
+object-graph access — nor should it, or the §12.3.2.2 name-tree walk would exist
+twice and the two copies would drift.
+
+Filed 2026-09-01 as
+`request_a_links_destination_cannot_be_read_so_a_table_of_contents_is_dead.md`.
+
+### ★ What I could have shipped and deliberately did not
+
+A hand cursor over the link's rect plus *"action=GoTo"* in the status line —
+disclosure without navigation. Rejected: it advertises a capability that does
+not exist, and R9 says an unavailable capability renders **nothing**. The
+absence stays silent until the reader lands.
+
+### What lands the moment it does
+
+The shell side is **already built and already driven**, because O90 needed the
+same machinery. Hit-test the rect → call the new reader → feed the existing
+pipeline. Under a day.
+
+### Not verified in Acrobat either
+
+You said you had not confirmed it there. Neither have I — and I could not find a
+link-bearing PDF anywhere in `pdfTests\` or on your desktop; every annotation in
+both is a `Widget`. If you have a file where Acrobat's TOC works, that is the
+fixture this needs.
+
+## O90 — ✅ **FIXED 2026-09-01** — a bookmark lands on the detail it names
+
+**Ken, 2026-09-01:**
+
+> *"in Acrobat clicking on the nested bookmarks in the drawing package takes you
+> to a zoomed in area of the page for the drawing bookmark that was clicked on.
+> when we click on ours it just jumps us to the correct page, but doesn't send
+> us to the spot on the page the bookmark actually points to."*
+
+**Exactly right, and it was one discarded field.** `Destination::Page` carries
+both a `page_index` and a `view`, and the panel matched
+`Some(Destination::Page { page_index, .. })`. The `..` was your zoom.
+
+### Why it looked like the outline was fine
+
+On `TR-0461-1500-copy.pdf` — your own drawing — sheet 1 has two nested
+bookmarks pointing at *different* rectangles:
+
+```text
+  "Drawing View64"  /FitR 493, 119, 1104, 558
+  "Drawing View65"  /FitR  76, 119,  687, 558
+```
+
+Both arrived in the same place, which is indistinguishable from both being
+broken. ★ It is also why a check asserting *"the page changed"* would have
+**passed against the defect** — the page was always right. The new one asserts
+the zoom rose instead.
+
+### Evidence
+
+`a_bookmark_lands_on_the_detail_it_names` — opens your A1 sheet, clicks
+"Drawing View64", and measures the canvas: **0.382× fitted → 0.766× framed**.
+Shipped to `pdfceGUI1` 2026-09-01 19:57.
+
+★ The first run of that check FAILED at 0.382 → 0.382 — because I had rebuilt
+the harness and not the shell. Recorded because it is the second time this week
+a stale binary produced a confident wrong diagnosis.
+
+### Please check
+
+Whether the *other* nested bookmarks in your drawing package land where you
+expect. All five destination kinds are handled, but only `/FitR` is exercised by
+your fixture, and `/XYZ` — the one Acrobat writes most — is the one carrying the
+null-versus-zero rule that is easiest to get backwards.
+
 ## O89 — ◑ **"I don't see where I am able to edit the color of text, vectors, etc."** — one half is hidden, the other does not exist
 
 **Ken, 2026-09-01.** Two different answers in one sentence.
