@@ -547,6 +547,12 @@ fn operator_title(key: PresetKey) -> &'static str {
         PresetKey::ImageMinify => t::minify_title(),
         PresetKey::CmykIntent => t::cmyk_intent_title(),
         PresetKey::Separations => t::separations_title(),
+        // ★ Added 2026-09-02, the same day the engine gained the axis. This
+        // test is the fourth time it has caught a key the engine added and this
+        // shell had not been taught — the shipping reply for that Pass calls it
+        // out by name: their preset grid predates the setting and nobody
+        // revisited it, and our coverage contract is what noticed.
+        PresetKey::SpotColorantDeviceModel => t::spot_model_title(),
         // ui-text-exempt: the engine's own key name, shown only when this shell
         // has not yet been taught a title for a key the engine added.
         other => other.as_str(),
