@@ -317,6 +317,14 @@ pub mod page_clipboard;
 /// program has never seen.
 pub mod page_display_pref;
 pub mod page_ops;
+/// ★★ **Closing the program asks before losing unsaved work** —
+/// `OPERATOR_REQUESTS.md` O102. It drives the one state no other check ever
+/// constructed: a document with an unsaved edit at the moment of close.
+pub mod quit_unsaved;
+/// ★★ **Save As rebinds the document** — O95. Its oracle is the ORIGINAL
+/// file's digest after a LATER save, because every cheaper oracle passes
+/// against the defect it exists to catch.
+pub mod save_as;
 /// The **two** driven checks of *"give this page its own copy"*:
 /// `the_context_menu_gives_this_page_its_own_copy_of_a_shared_form` and
 /// `the_unshare_declines_when_nothing_else_draws_the_form`.
@@ -1243,6 +1251,10 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // Two launches and an Alt+F4, so it is placed with the other
         // multi-process checks rather than among the single-window ones.
         Box::new(page_display_pref::APageDisplayChoiceSurvivesACloseAndReachesANewDocument),
+        Box::new(save_as::SaveAsRebindsTheDocument),
+        // Last of the new group: it is TWO launches and it presses Alt+F4,
+        // so a run that fails on something cheaper should fail first.
+        Box::new(quit_unsaved::ClosingTheProgramAsksBeforeLosingUnsavedWork),
         Box::new(link_follow::ALinkGoesToThePageItNames),
         Box::new(link_follow::ALinkItCannotFollowSaysSo),
         Box::new(ocr::OcrRecognisesAPageAndTheDocumentKeepsIt),

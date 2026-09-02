@@ -97,7 +97,7 @@ pub const REGION_SAVE: &str = "unsaved.save_copy"; // ui-text-exempt: trace regi
 /// ★ Its absence in the trace is the assertion a driven check wants: this
 /// button is drawn if and only if more than one document is dirty, so a run
 /// with one dirty document must show no such region at all.
-const REGION_SAVE_ALL: &str = "unsaved-save-all"; // ui-text-exempt: trace region name, never displayed
+pub const REGION_SAVE_ALL: &str = "unsaved.save_all"; // ui-text-exempt: trace region name, never displayed
 
 /// The **Save-over-the-open-file** button's region — `OPERATOR_REQUESTS.md` O65.
 ///

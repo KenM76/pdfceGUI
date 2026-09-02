@@ -132,6 +132,10 @@ pub mod unembed;
 /// and must not become the fix, and why the first button says *Save a copy…*
 /// rather than *Save*.
 pub mod unsaved;
+/// ★ Raising and draining the unsaved question — split out of this file on
+/// 2026-09-02 under R2. Its header carries the three-answer shape that makes it
+/// a real seam, and the defect the middle answer cost.
+mod unsaved_host;
 
 /// ★ The Set-scale dialog — what a dimension's number *means*.
 ///
@@ -394,6 +398,21 @@ pub struct DialogsState {
     /// It is cleared by its own answer instead, in `PdfceApp`'s drain, which is
     /// the only place that can know the question was finished with.
     unsaved: Option<unsaved::UnsavedDialog>,
+    /// **The operator answered Cancel**, parked because the window is dropped
+    /// on that answer and the answer must outlive it.
+    ///
+    /// ★★★ `UnsavedDialog::answered` reports whether an OUTCOME is parked, and
+    /// a Cancel parks none — it closes the window and nothing else. So the
+    /// retire rule correctly drops the dialog on a Cancel, and without this the
+    /// fact that the operator said *no* went with it.
+    ///
+    /// ★★ Invisible until O102's quit cycle needed it. Every previous caller
+    /// treats a Cancel as *"nothing happened"* — true for a tab close, where the
+    /// tab simply stays. The cycle has to STOP, and *"they cancelled"* and
+    /// *"they have not answered yet"* are the two states it must tell apart or
+    /// it re-asks forever. The driven check saw exactly that: two
+    /// `unsaved-asked` lines and no `quit-cancelled`.
+    unsaved_cancelled: bool,
 
     /// The signature warning that stands in front of an invalidating save,
     /// when one is open.
@@ -917,6 +936,18 @@ impl DialogsState {
             .as_mut()
             .is_some_and(|d| retire(d.show(ctx), d.answered()))
         {
+            // ★★★ **Park the cancellation before the window goes.** A Cancel
+            // parks no outcome, so `retire` correctly drops the dialog and the
+            // fact that the operator said *no* would go with it. The field's own
+            // doc comment carries why that was invisible until O102's quit cycle
+            // needed it, and what the driven check saw.
+            if self
+                .unsaved
+                .as_ref()
+                .is_some_and(unsaved::UnsavedDialog::was_cancelled)
+            {
+                self.unsaved_cancelled = true;
+            }
             self.unsaved = None;
         }
         // ★ LAST of all, one place beyond the unsaved question, and the
@@ -1034,91 +1065,6 @@ impl DialogsState {
         let answer = self.unsaved.as_mut()?.take_outcome()?;
         self.unsaved = None;
         Some(answer)
-    }
-
-    /// **Ask about `intent` if the open document has unsaved edits.**
-    ///
-    /// Returns `true` when the question was raised and the caller must
-    /// **stop** — the intent is now this window's to resume. `false` means
-    /// there was nothing to ask about and the caller proceeds unchanged.
-    ///
-    /// # ★ Why the return value is "did I interrupt you" rather than "may I
-    /// proceed"
-    ///
-    /// Both spellings work and only one of them is safe to get wrong. A guard
-    /// read as *"may I proceed"* fails **open** when somebody inverts it or
-    /// forgets it: the document is destroyed. This one fails **closed** — a
-    /// missing `if` means the question is asked and its answer resumes the
-    /// intent anyway, so the operator sees one redundant prompt rather than
-    /// losing their afternoon.
-    ///
-    /// The already-open guard matters more here than on any other dialog in
-    /// this struct: without it, a keymap chord repeated while the question is
-    /// on screen would replace the pending intent with a second one, and the
-    /// operator would answer a question about Close and get an Open.
-    pub fn ask_unsaved(&mut self, status: &Status, intent: unsaved::PendingIntent) -> bool {
-        if self.unsaved.is_some() {
-            // Already asking. Swallow the second request rather than stacking
-            // it: the operator is looking at a question and has not answered
-            // it, and the honest reading of a second press is impatience.
-            crate::diag::trace(|| {
-                // ui-text-exempt: diagnostic trace, never displayed.
-                "unsaved-ask-ignored reason=already-asking".to_owned()
-            });
-            return true;
-        }
-        let Some(dialog) = unsaved::ask_for(status, intent) else {
-            return false;
-        };
-        crate::diag::trace(|| {
-            // ui-text-exempt: diagnostic trace, never displayed.
-            "unsaved-asked".to_owned()
-        });
-        self.unsaved = Some(dialog);
-        true
-    }
-
-    /// [`Self::ask_unsaved`], told how many documents are dirty.
-    ///
-    /// ★ The quit cycle's entry point (`OPERATOR_REQUESTS.md` O102). The count
-    /// decides only whether the *Save all* button is drawn; everything else is
-    /// identical, which is why this delegates rather than duplicating the
-    /// already-asking guard that the one above argues for at length.
-    pub fn ask_unsaved_in_cycle(
-        &mut self,
-        status: &Status,
-        intent: unsaved::PendingIntent,
-        dirty: usize,
-    ) -> bool {
-        if self.unsaved.is_some() {
-            return true;
-        }
-        let Some(dialog) = unsaved::ask_for_cycle(status, intent, dirty) else {
-            return false;
-        };
-        crate::diag::trace(|| {
-            // ui-text-exempt: diagnostic trace, never displayed.
-            format!("unsaved-asked cycle=true dirty={dirty}")
-        });
-        self.unsaved = Some(dialog);
-        true
-    }
-
-    /// **Was the unsaved question answered with Cancel?**
-    ///
-    /// ★ Drained by the quit cycle, which needs to know that the operator said
-    /// no — a Cancel closes the window and parks no outcome, so
-    /// `take_unsaved_answer` reports nothing at all and the cycle would
-    /// otherwise re-ask on the very next frame, forever.
-    pub fn unsaved_cancelled(&mut self) -> bool {
-        let cancelled = self
-            .unsaved
-            .as_ref()
-            .is_some_and(unsaved::UnsavedDialog::was_cancelled);
-        if cancelled {
-            self.unsaved = None;
-        }
-        cancelled
     }
 
     /// Drop the state of every dialog that is about the open document.
