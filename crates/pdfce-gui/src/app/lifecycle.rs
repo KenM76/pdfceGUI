@@ -695,6 +695,22 @@ impl PdfceApp {
                 // satisfy a `match`.
                 _ => false,
             }),
+            // ★★★ **Save all** — `OPERATOR_REQUESTS.md` O102. Every dirty
+            // document that has a file, written in place, then this one's
+            // question is answered too.
+            //
+            // ★★ `Some(false)` when ANY of them failed, so the guard below
+            // abandons the whole resume. That is the conservative direction and
+            // it is the one this arm's neighbours already take: a save that did
+            // not happen must never be a route to discarding the work it was
+            // supposed to preserve, and on a quit the thing being resumed is
+            // *closing the program*.
+            //
+            // ★ Documents with no file are NOT written and are not failures:
+            // they need a destination, which is a question only the operator
+            // can answer, so the cycle asks about them individually afterwards.
+            // That is Word's behaviour and the only honest one.
+            Outcome::SaveAll => Some(self.save_every_dirty_document()),
             Outcome::Discard => None,
         };
         if written == Some(false) {

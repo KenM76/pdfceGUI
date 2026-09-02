@@ -140,6 +140,14 @@ pub mod persistence;
 pub mod pickstore;
 
 pub mod prefs;
+/// The documents this operator had open: the capped, persisted list and the
+/// ribbon control that draws it.
+/// ★★ **Closing the program without losing anybody's work** —
+/// `OPERATOR_REQUESTS.md` O102. The window's ✕ had no prompt at all: eframe's
+/// close request was never read, so one keystroke ended the process with every
+/// unsaved document still unsaved. Its header carries why the cycle is derived
+/// from the document set each frame rather than remembered as a queue.
+pub mod quitting;
 /// ★ The shell's OWN preferences — how pdfce draws, as distinct from how it
 /// reads and writes PDFs.
 ///
@@ -153,8 +161,6 @@ pub mod prefs;
 /// answered on the status row. Its header carries the engine's own account of
 /// why a scan that under-reports reads as a clean bill of health.
 pub mod reachout;
-/// The documents this operator had open: the capped, persisted list and the
-/// ribbon control that draws it.
 pub mod recent;
 /// Writing a copy of the open document to a file the operator names — the body
 /// of `file.save_copy`. Why the save mode is **incremental**, why nothing on
@@ -281,6 +287,13 @@ pub struct PdfceApp {
     /// otherwise. It is a position in the operator's strip, not an index into
     /// [`Self::parked`] — see [`documents`] §1 for the picture.
     pub active_slot: usize,
+    /// **Whether a quit is in progress** — `OPERATOR_REQUESTS.md` O102.
+    ///
+    /// ★ One boolean. The cycle's queue is derived from the document set every
+    /// frame rather than remembered, because a remembered queue is a second
+    /// model of that set and every answer in the cycle — a save, a discard, a
+    /// close — changes it. See [`quitting`].
+    pub quitting: quitting::Quitting,
 
     /// The shell definition — tabs, groups, modes, QAT, keymap — as data.
     ///
@@ -892,6 +905,10 @@ impl PdfceApp {
         }
 
         Self {
+            // ★ Down, always. A fresh application is not quitting — see
+            // `quitting`'s own test, which pins that because the failure
+            // mode of the opposite is trying to quit on the first frame.
+            quitting: quitting::Quitting::default(),
             status: Status::default(),
             // The operator's saved selection filter, or everything the shell
             // can pick if they have never set one. Never fails; see

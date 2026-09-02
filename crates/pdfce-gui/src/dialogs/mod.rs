@@ -1078,6 +1078,49 @@ impl DialogsState {
         true
     }
 
+    /// [`Self::ask_unsaved`], told how many documents are dirty.
+    ///
+    /// ★ The quit cycle's entry point (`OPERATOR_REQUESTS.md` O102). The count
+    /// decides only whether the *Save all* button is drawn; everything else is
+    /// identical, which is why this delegates rather than duplicating the
+    /// already-asking guard that the one above argues for at length.
+    pub fn ask_unsaved_in_cycle(
+        &mut self,
+        status: &Status,
+        intent: unsaved::PendingIntent,
+        dirty: usize,
+    ) -> bool {
+        if self.unsaved.is_some() {
+            return true;
+        }
+        let Some(dialog) = unsaved::ask_for_cycle(status, intent, dirty) else {
+            return false;
+        };
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed.
+            format!("unsaved-asked cycle=true dirty={dirty}")
+        });
+        self.unsaved = Some(dialog);
+        true
+    }
+
+    /// **Was the unsaved question answered with Cancel?**
+    ///
+    /// ★ Drained by the quit cycle, which needs to know that the operator said
+    /// no — a Cancel closes the window and parks no outcome, so
+    /// `take_unsaved_answer` reports nothing at all and the cycle would
+    /// otherwise re-ask on the very next frame, forever.
+    pub fn unsaved_cancelled(&mut self) -> bool {
+        let cancelled = self
+            .unsaved
+            .as_ref()
+            .is_some_and(unsaved::UnsavedDialog::was_cancelled);
+        if cancelled {
+            self.unsaved = None;
+        }
+        cancelled
+    }
+
     /// Drop the state of every dialog that is about the open document.
     ///
     /// One place, so a document-scoped dialog added later cannot be forgotten

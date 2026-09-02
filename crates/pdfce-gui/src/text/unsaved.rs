@@ -115,6 +115,20 @@ pub const fn save_button() -> &'static str {
     "Save"
 }
 
+/// **Save all** — `OPERATOR_REQUESTS.md` O102.
+///
+/// ★★ The count is **in the label**, not implied. *"Save all"* over a modal
+/// asking about one document is ambiguous — all of what? — and the operator is
+/// being asked this while trying to leave. *"Save all 4"* answers the question
+/// the button raises, in the button.
+///
+/// ★ Drawn only when the count is above one, so the singular case never occurs
+/// and is not worded for. `UnsavedDialog::body` carries that decision.
+#[must_use]
+pub fn save_all_button(count: usize) -> String {
+    format!("Save all {count}")
+}
+
 /// The non-destructive button.
 ///
 /// The ellipsis is doing real work: it promises a file picker, which is exactly

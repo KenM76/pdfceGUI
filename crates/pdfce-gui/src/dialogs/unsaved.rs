@@ -92,6 +92,13 @@ pub const REGION_BODY: &str = "dialog:unsaved"; // ui-text-exempt: trace region 
 /// The region the *Save a copy…* button publishes.
 pub const REGION_SAVE: &str = "unsaved.save_copy"; // ui-text-exempt: trace region name, never displayed
 
+/// The **Save all** control, published only while it is drawn.
+///
+/// ★ Its absence in the trace is the assertion a driven check wants: this
+/// button is drawn if and only if more than one document is dirty, so a run
+/// with one dirty document must show no such region at all.
+const REGION_SAVE_ALL: &str = "unsaved-save-all"; // ui-text-exempt: trace region name, never displayed
+
 /// The **Save-over-the-open-file** button's region — `OPERATOR_REQUESTS.md` O65.
 ///
 /// Its own name rather than sharing [`REGION_SAVE`], because the two buttons
@@ -233,6 +240,23 @@ pub enum Outcome {
     SaveCopy,
     /// Go ahead and lose the edits.
     Discard,
+    /// ★★★ **Save every document with unsaved work, in place** —
+    /// `OPERATOR_REQUESTS.md` O102.
+    ///
+    /// The operator: *"have a save all button that saves all changed
+    /// documents."* It is what makes the quit cycle bearable — without it,
+    /// somebody with six dirty documents answers six questions.
+    ///
+    /// ★★ **Offered only when more than one document is dirty.** With one, it
+    /// is the same act as [`Self::SaveInPlace`], and a second button meaning
+    /// the same thing is one the operator has to stop and think about on a
+    /// modal that is standing between them and their work.
+    ///
+    /// ★ It saves **in place**, so it reaches only documents that have a file.
+    /// A never-saved document needs a destination, which is a question only the
+    /// operator can answer — the cycle asks about those individually
+    /// afterwards, which is Word's behaviour and the only honest one.
+    SaveAll,
 }
 
 /// The dialog's live state.
@@ -262,6 +286,14 @@ pub struct UnsavedDialog {
     /// and the operator already has the control that fixes it, one button to
     /// the right.
     has_file: bool,
+    /// ★★ **How many documents are dirty**, so the *Save all* button knows
+    /// whether it would do more than *Save*.
+    ///
+    /// Captured at open time, like [`Self::edits`] and for the same reason: it
+    /// is a statement about the moment the operator was asked. `1` is the
+    /// single-document case and is what every caller outside the quit cycle
+    /// passes — a tab close is about one document however many are open.
+    dirty_documents: usize,
     /// Set by a button, drained by the owner.
     outcome: Option<Outcome>,
     /// Set by Cancel and by the window's ✕.
@@ -272,13 +304,42 @@ impl UnsavedDialog {
     /// Ask about `intent`, with `edits` unsaved changes at stake.
     #[must_use]
     pub fn new(intent: PendingIntent, edits: u64, has_file: bool) -> Self {
+        Self::for_cycle(intent, edits, has_file, 1)
+    }
+
+    /// The same, told how many documents are dirty — the quit cycle's
+    /// constructor.
+    ///
+    /// ★ A second constructor rather than a parameter on the first, so that
+    /// every existing caller keeps saying what it means (*"this is about one
+    /// document"*) without being edited, and the one caller that is part of a
+    /// cycle says so. `new` delegates, so there is one initialiser.
+    #[must_use]
+    pub fn for_cycle(
+        intent: PendingIntent,
+        edits: u64,
+        has_file: bool,
+        dirty_documents: usize,
+    ) -> Self {
         Self {
             intent,
             edits,
             has_file,
+            dirty_documents,
             outcome: None,
             cancelled: false,
         }
+    }
+
+    /// **Did the operator answer Cancel?**
+    ///
+    /// ★ Read by the quit cycle. A Cancel parks no outcome — it closes the
+    /// window and nothing else — so `take_outcome` reports nothing, which is
+    /// indistinguishable from *"they have not answered yet"*. The cycle needs
+    /// the difference, or it re-asks on the next frame forever.
+    #[must_use]
+    pub const fn was_cancelled(&self) -> bool {
+        self.cancelled
     }
 
     /// Take the operator's answer, if they have given one.
@@ -382,6 +443,24 @@ impl UnsavedDialog {
                     self.outcome = Some(Outcome::SaveInPlace);
                 }
             }
+            // ★★★ **Save all** — `OPERATOR_REQUESTS.md` O102, and it is drawn
+            // only when it would do more than the button to its left.
+            //
+            // Second, immediately after Save, because it is the same act at a
+            // larger scope and the row's order is least-destructive-first. It
+            // loses nothing, exactly as Save does.
+            //
+            // ★ Absent rather than greyed on a single dirty document (R9): with
+            // one document the two buttons are the same act, and this is not a
+            // *temporarily* unavailable control that a hover sentence could
+            // explain — there is simply nothing else to save.
+            if self.dirty_documents > 1 {
+                let all = ui.button(t::save_all_button(self.dirty_documents));
+                crate::diag::ui_rect(REGION_SAVE_ALL, all.rect);
+                if all.clicked() {
+                    self.outcome = Some(Outcome::SaveAll);
+                }
+            }
             let save = ui.button(t::save_copy_button());
             crate::diag::ui_rect(REGION_SAVE, save.rect);
             if save.clicked() {
@@ -433,6 +512,17 @@ impl UnsavedDialog {
 /// `None` answer is the unchanged path, so adding it to a fifth
 /// document-replacing action later is one line rather than a new rule.
 #[must_use]
+pub fn ask_for_cycle(
+    status: &Status,
+    intent: PendingIntent,
+    dirty: usize,
+) -> Option<UnsavedDialog> {
+    let mut dialog = ask_for(status, intent)?;
+    dialog.dirty_documents = dirty;
+    Some(dialog)
+}
+
+/// See [`ask_for_cycle`] for the quit cycle's form.
 pub fn ask_for(status: &Status, intent: PendingIntent) -> Option<UnsavedDialog> {
     let Status::Open(doc) = status else {
         return None;

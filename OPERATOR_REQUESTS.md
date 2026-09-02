@@ -96,7 +96,7 @@ in commit messages, where you cannot see them and a cold session does not look.
 back-filled, and are marked as back-filled so the dates are not read as evidence
 of a process that worked.
 
-## O102 — ⬜ **Closing the program should ask about unsaved work — for each document, focused, with a Save all**
+## O102 — ◑ **BUILT 2026-09-02, NOT YET DRIVEN** — closing asks about unsaved work, document by document
 
 **Ken, 2026-09-02:**
 
@@ -122,10 +122,59 @@ question. `crate::dialogs::unsaved` already exists for the single-document case
 (closing one tab); what is not known yet is whether the **application close**
 path reaches it at all, and whether anything cycles.
 
-★★ The interaction to copy is the conventional one — Word, Notepad++, VS Code
-all do exactly this — and the standing instruction is to use the conventional
-interaction rather than invent one. Cancel on any document must abandon the
-whole close, not just that document's question.
+### ★★★ What was there before: nothing
+
+`dialogs::unsaved` has asked about **one** document since it was written — the
+tab being closed — and asked it well: it focuses that tab first, it counts edits
+from the last *save* rather than from zero, and it refuses to proceed on a save
+that did not happen.
+
+**None of it was reachable from the window's ✕.** eframe's close request was
+never read, so pressing it — or `Alt+F4` — ended the process with every unsaved
+document still unsaved. The only thing on the exit path was the layout flush.
+
+⇒ The gap was not *"the prompt is wrong"*, it was *"there is no prompt"*, and it
+was one keystroke away. ★ My own O80 check has been closing the program with
+`Alt+F4` all day and never saw it, because that check opens a document and does
+not edit it.
+
+### ✅ Built 2026-09-02 — all four requirements
+
+1. **Prompts on close** when anything is dirty. When nothing is, the close goes
+   straight through — no dialog, no flicker.
+2. **Focuses the document being asked about** before asking. A modal saying
+   *"save changes?"* over a document you cannot see is asking about a file you
+   have to guess at.
+3. **Cycles**, leftmost tab first — which is the order you read them in.
+4. **Save all**, labelled with the count (*"Save all 4"*), and drawn **only when
+   more than one document is dirty**: with one it is the same act as Save, and a
+   second button meaning the same thing is one you have to stop and think about
+   while a modal stands between you and leaving.
+
+**Cancel abandons the whole quit**, not one question — Word, VS Code and
+Notepad++ all do that, and the alternative leaves some documents closed when you
+asked for none of it.
+
+### ★★ The cycle is derived, not remembered
+
+One boolean; the queue is re-scanned from the document set every frame. A
+remembered queue would be a second model of that set, and **every answer in the
+cycle changes it** — a save cleans one, a discard closes one. Re-deriving cannot
+drift.
+
+★ Save all writes only documents that **have a file**. A never-saved one needs a
+destination, which is a question only you can answer, so the cycle asks about
+those individually afterwards — Word's behaviour.
+
+★ One honest limit, stated rather than hidden: a document you already chose to
+**discard** earlier in the cycle is already closed, and Cancel does not bring it
+back. That matches every editor in the class — a discard is an answer, not a step
+— but it is worth knowing.
+
+### ⬜ NOT DRIVEN
+
+Built, unit-tested and gated. Driving it needs a document edited, a close
+requested and a modal answered — the pointer.
 
 ---
 

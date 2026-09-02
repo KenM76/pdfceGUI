@@ -883,6 +883,14 @@ impl eframe::App for PdfceApp {
         // ever changes.
         self.resume_after_signature();
 
+        // ★★★ **THE WINDOW'S ✕, AND THE QUIT CYCLE** —
+        // `OPERATOR_REQUESTS.md` O102. Read here, after both drains, because
+        // an answer given this frame may have cleaned or closed the very
+        // document the cycle would otherwise ask about next — and asking twice
+        // about a document the operator has just dealt with is the one thing
+        // this cycle must not do.
+        self.step_quit_cycle(&ctx);
+
         // ★ The calibration round trip: dialog -> canvas gesture -> dialog.
         //
         // Two edges, read once per frame, in this order.
