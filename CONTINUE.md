@@ -75,12 +75,43 @@ evidence is a claim about the standard. **Derived**, never keyed on the axis;
 own deletion** if the engine widens `disclosures()`. Reported back explicitly
 *not* as a Pass request.
 
+### ✅ A gate for prose that has become false — and it caught itself first
+
+`tools/gates/check-stale-blockers.sh`, the 22nd gate and the first aimed at a
+**document being false** rather than at code being wrong. A row that says BLOCKED
+and names a request the channel shows we have CONSUMED is a contradiction a
+script can see.
+
+★★★ Its first run flagged FEATURES.md's deep-zoom row — and **the row was right
+and the gate was wrong**. That request was *answered* ("scheduled as a Pass") and
+archived; the Pass never landed and there is still no reusable handle in
+`pdfce-render`. That is the failure direction that costs most: a gate that would
+have had somebody delete a true warning to go green. The predicate is now
+**CONSUMED, not ANSWERED** — a CONSUMED note is written by this side and only
+once the capability is actually taken.
+
+⬜ It says in its own header and its own failure message what it **cannot** see:
+the module header that forbade the feature, the operator-facing string, and the
+passing test that would have failed the feature are all semantic. `HANDOFF.md`
+§10 has the manual half.
+
+### ✅ O98's driven check, and two instruments that had to exist first
+
+The spotlight published **no trace** and the fill rows published **no region**,
+so the feature was verifiable by nothing. Both added; check written, not run.
+
+★ It is a handshake across two surfaces inside one frame — the panel writes a
+field name to egui's temp store, the canvas reads it while painting. Unit tests
+are structurally blind to the *join*, which is the only part that breaks.
+`canvas/form_marks.rs` is the R2 split that came with it.
+
 ### ⬜ WHAT TO DO NEXT
 
 1. **The moment he is away from the PC: run the whole ui-verify sweep.** Five or
    six features are BUILT-not-DRIVEN, which under R1 means not shipped —
-   `tab_order_drag`, O96 field shading, O97 two-row buttons, O98 spotlight, O101
-   the build stamp, plus the older backlog O78, O69, O68, O65, O72–O75, O62.
+   `tab_order_drag` and `clicking_a_form_row_lights_the_field_on_the_page` are
+   **written and never once executed**; O96 field shading, O97 two-row buttons
+   and O101 the build stamp have **no check at all** and need one written, plus the older backlog O78, O69, O68, O65, O72–O75, O62.
    **Falsify the new ones**, do not just watch them go green.
 2. **O89 is HIS decision** — three candidate fixes for the text-colour route,
    and the choice is not ours to make.
