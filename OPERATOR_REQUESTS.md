@@ -80,6 +80,89 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## ★★★ THREE OF YOUR 2026-09-01 REQUESTS WERE BUILT WITHOUT EVER BEING WRITTEN DOWN
+
+**Found 2026-09-01 while writing the handoff, by grepping this file for your own
+words and getting zero hits.** O92, O93 and O94 below were all asked for, all
+worked on, and **none of them were entered here** — which is rule 1 of the
+contract at the top of this file, the one you set the file up to enforce.
+
+★★ **The work was done, so nothing looked wrong.** That is the whole failure
+mode: a row is not a to-do list, it is the *record*, and the record is what
+survives a session ending. Three requests existed only in a chat transcript and
+in commit messages, where you cannot see them and a cold session does not look.
+
+⇒ **Write the row when he speaks, not when the work lands.** The rows below are
+back-filled, and are marked as back-filled so the dates are not read as evidence
+of a process that worked.
+
+## O94 — ✅ **BUILT AND DRIVEN 2026-09-01** *(back-filled — see above)* — OCRed text can be copied
+
+**Ken, 2026-09-01:** *"also I can't seem to copy and paste text we have OCRed"*
+
+Real, and **the regression was mine, from that same morning.** A scanned page is
+an image with an invisible text layer over it. The Read-mode click handler
+resolved the image first, so a sweep across OCRed words grabbed the picture and
+the text was never reachable.
+
+**Fix:** text under the pointer beats the picture under it — the image arm now
+runs only when no text run contains the point. Plus `word_at()`, which does
+strict **containment** over the run boxes, deliberately *not* the existing
+`hit()`, which falls back to the nearest line and would therefore select a word
+you were not pointing at on a page of sparse OCR.
+
+**Evidence:** `text_on_a_scan_can_still_be_swept_over_the_image`. Commits
+`273d117`, `ebee870`.
+
+## O93 — ◑ **BUILT 2026-09-01, NOT DRIVEN** *(back-filled)* — OCR says what it is doing, and Stop and Cancel differ
+
+**Ken, 2026-09-01:**
+
+> *"can you make it so the recognizing ocr gives feedback on what it is doing
+> when it is running (pages done, words/characters detected, etc) so that the
+> user can see that it is doing something and hasn't frozen on large documents?
+> Maybe a cancel and stop button too. The cancel throws away what was done, and
+> the stop finished the page it is on and keeps the work it has done."*
+
+Built exactly as worded. Pages done, running word and character counts, and two
+controls that mean different things: **Stop** finishes the page in flight and
+keeps everything; **Cancel** discards. ★ Where both are pressed, **Cancel wins
+in either order** — unit-tested both ways, because a Stop arriving after a
+Cancel must not resurrect the work the Cancel threw away.
+
+### ⬜ What is missing, and it is the part that matters
+
+**It has never been driven.** It needs a scan with **no text layer**, and the
+`ocr-progress`, `ocr-stop` and `ocr-cancel` regions are published and waiting
+for a check nobody has written. Under R1 that means this row is **not** shipped:
+the units pass and the units cannot see the chain in front of the verb.
+
+⇒ **If you have a scanned multi-page PDF with no OCR on it, that is the fixture
+this needs.** Commit `45ae321`; controls made drivable in `ebee870`.
+
+## O92 — ◑ **PART SHIPPED 2026-09-01** *(back-filled)* — reaching an object dropped off the side of the page
+
+**Ken, 2026-09-01:** *"we should be able to select things offside of the page,
+especially since I sometimes drop objects there, and when I do I can't get them
+back."*
+
+### ✅ What shipped — Select All on the page
+
+There is now a Select All that takes every object on the sheet **including the
+ones outside its boundary**, so a dropped object can be grabbed and dragged back.
+
+★ Its first version selected **nothing**. It asked for `Rect::EVERYTHING`, whose
+infinities become **NaN** through the canvas-to-PDF transform, and every
+comparison against NaN is false — so a rect meaning "all of it" is
+arithmetically identical to a rect meaning "none of it", and the failure is
+silent. A finite `1.0e6` rect selects 25 of 25. Commit `a2ea73b`.
+
+### ⬜ What did NOT ship — the marquee still cannot reach off-page
+
+Dragging a box in the margin is the gesture you would actually reach for, and it
+is **the same defect as O88**: the marquee only takes what it completely
+encloses. Tracked there, not duplicated here.
+
 ## O91 — ⬜ **"the what's new pdf … might have a table of contents that you can click on"** — it does not work, and the reason is on the engine side
 
 **Ken, 2026-09-01.** The second half of the same message as O90.

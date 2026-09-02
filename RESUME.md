@@ -1,6 +1,14 @@
 # RESUME — read this, then say "continue"
 
 
+> ★★★ **LAST SESSION: 2026-09-01 (evening).** The newest handoff is the top
+> section of **[`CONTINUE.md`](CONTINUE.md)** — bookmark destinations landed and
+> are driven, a clickable table of contents is an engine gap with a filed
+> request, and **three of his requests turned out never to have been written
+> into `OPERATOR_REQUESTS.md` at all** (back-filled as O92/O93/O94). Read that
+> section before this file; the counts in it were re-measured, the ones further
+> down this file were not.
+>
 > ★★ **If the operator typed "continue" and nothing else, read**
 > **[`CONTINUE.md`](CONTINUE.md) first.** It is the short path: what is next,
 > in order, and the two facts that are true and surprising. This file is the

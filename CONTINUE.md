@@ -1,5 +1,189 @@
 # CONTINUE — handoff
 
+## 2026-09-01 (evening) — READ THIS FIRST. Bookmarks land on the detail; three of his requests had never been written down
+
+**Written at the operator's request, for a session starting cold.** Everything
+below is measured against the tree as it stands at `d725297`, not recalled.
+
+### The measured state — re-measured this session, not copied forward
+
+| | |
+|---|---|
+| **Tests** | **2,201** (GUI) + **422** (egui-shell) + **154** (ui-verify), 0 failing |
+| **Driven checks** | **133** (`ui-verify --list`) |
+| **Gates** | **21 / 21** green (`bash tools/gates/run-all.sh`) |
+| **Engine** | `pdfce-core 0.19.0` @ **`d731410`** |
+| **Published** | `pdfceGUI1`, 2026-09-01 19:58, shell `ed2de58` · **`pdfceGUI2` still holds the previous build** (18:07) and is the fallback |
+
+★ **Re-measure before quoting any of these.** This project has spent six
+corrections on prose drifting from a count, including in the gate runner's own
+header. The commands are in the table above; they take under two minutes.
+
+---
+
+### ★★★ What landed: a bookmark goes to the SPOT, not just the page
+
+**His report:** *"in Acrobat clicking on the nested bookmarks in the drawing
+package takes you to a zoomed in area of the page … when we click on ours it
+just jumps us to the correct page, but doesn't send us to the spot on the page
+the bookmark actually points to."*
+
+**The cause was one discarded field.** `outline::Destination::Page` carries
+`{ page_index, view }`, and `panels::bookmarks` matched
+`Some(Destination::Page { page_index, .. })` before pushing `GoToPage`. **The
+`..` was his zoom.**
+
+⇒ On a drawing package, where every bookmark names a *detail* of a shared sheet,
+that reduces the whole outline to a page list. On his own
+`TR-0461-1500-copy.pdf`, sheet 1 carries two nested bookmarks at *different*
+`/FitR` rectangles and both arrived in the same place — **which is
+indistinguishable from both being broken.**
+
+★★ **That is also why a check asserting "the page changed" would have PASSED
+against the defect.** The page was always right. The new check asserts the
+**zoom rose** instead: `a_bookmark_lands_on_the_detail_it_names`, 0.382× fitted
+→ 0.766× framed, driven on his own A1 sheet.
+
+**Where the code is:**
+
+- `app/actions/destination.rs` — `actions_for(page, &DestView, &mut Vec<Action>)`.
+  Page first and unconditionally; zoom before scroll.
+- `canvas/destination.rs` — `PendingDestination`, park-and-drain (same shape as
+  `fit_placement`), because a destination raised before a viewport exists has no
+  geometry to convert against.
+- `app/actions/view.rs` — the seven view verbs, split out of `apply.rs` for R2.
+
+★★ **The one rule most likely to be broken by a later edit:** Table 151's
+null-versus-zero is **asymmetric**. A `zoom` of `0` means *retain the current
+magnification* — and §12.3.2.2 states that equivalence **for `zoom` and for
+nothing else**. A `left` of `0.0` is a **real left edge**. Collapsing the two is
+how a destination at a page's top-left corner silently becomes "no change".
+Both directions are unit-tested in `destination.rs`; do not "simplify" them.
+
+★ **Nothing is clamped into view**, deliberately. A bookmark pointing off the
+sheet is a document defect the engine's own census counts, and landing somewhere
+plausible would hide it.
+
+---
+
+### ⬜ WHAT TO DO NEXT, in his likely order
+
+1. **O88 — the marquee only takes what it completely ENCLOSES.** His words:
+   *"in a drawing like `TR-0461-1500-copy.pdf` I can't box select the tables in
+   the left or right top corners … it only picks up the lines of each table."*
+   Diagnosed, **not built**. `MarqueeMode::Touched` already exists and is
+   **unused**; the convention to implement is AutoCAD's direction-sensitive one
+   (left-to-right = enclose, right-to-left = touch), which is also what he means
+   by "use the conventional interaction, never invent one". ★ A **second cause**
+   is recorded against this row: a stale `/LW` can make a visible line
+   unselectable, which presents identically.
+2. **O92's other half** — selecting an object dropped **off the side of the
+   page** with a marquee. Same fix as O88; Select All already ships as the
+   workaround.
+3. **O93 — drive the OCR progress UI.** Built and unit-tested, **never driven**,
+   which under R1 means not shipped. It needs **a scanned PDF with no text
+   layer** and nobody has one; the `ocr-progress` / `ocr-stop` / `ocr-cancel`
+   regions are published and waiting.
+4. **O85 — Ctrl+S closed the program after an edit.** Not reproduced. Blocked on
+   him saying what kind of edit preceded it; do not guess.
+5. **O89 — the text-colour route is three conditions deep.** Three candidate
+   fixes are written into the row. **The choice is his, not yours.**
+
+---
+
+### ★★★ THREE OF HIS REQUESTS WERE BUILT WITHOUT EVER BEING WRITTEN DOWN
+
+Found while writing this handoff, by grepping `OPERATOR_REQUESTS.md` for his own
+words and getting **zero hits**: the OCR progress request, the OCRed-text copy
+request, and the off-page selection request. All three were asked for, all three
+were worked on, **none was entered in the file** — which is rule 1 of the
+contract *he set up that file to enforce*.
+
+★★ **The work being done is exactly why nothing looked wrong.** A row is not a
+to-do list, it is the **record**, and the record is what survives a session
+ending. Those three requests existed only in a chat transcript and in commit
+messages — neither of which he reads and neither of which a cold session opens.
+
+⇒ **Write the row when he speaks, not when the work lands.** Back-filled as
+O92 / O93 / O94 and marked as back-filled, so the dates are not misread as
+evidence of a process that worked.
+
+---
+
+### ⬜ The link half of his message is an ENGINE gap, and nothing renders for it
+
+He also asked whether a clickable table of contents works. **It does not, and
+there is no link-following code path in the shell at all** — clicking a `/Link`
+does nothing and nothing suggests it would.
+
+**Why it is not a shell fix:** a `/Link`'s destination cannot be read.
+`Annotation` carries `action_type` — the `/S` name, so `GoTo` — by an explicit
+and *well-reasoned* engine decision (*"the `/S` NAME only, deliberately — not
+the action dictionary"*), which is right for `list-annotations`, whose job is to
+print one token. It is wrong for a viewer, whose entire job with a `GoTo` is to
+**perform** it. `outline.rs` exposes no public destination parser to point at an
+arbitrary `/D`, and the shell has no raw object-graph access — nor should it, or
+the §12.3.2.2 name-tree walk would exist twice and the copies would drift.
+
+Filed as
+`request_a_links_destination_cannot_be_read_so_a_table_of_contents_is_dead.md`.
+**The shell side is already built and driven** — the bookmark pipeline above is
+the same pipeline — so it is hit-test the rect, call the new reader, done.
+
+★ **A hand cursor plus "action=GoTo" in the status line was considered and
+rejected.** It advertises a capability that does not exist, and R9 says an
+unavailable capability renders **nothing**. Reported as a workaround-not-taken
+per decision 058. Tracked as **O91**.
+
+★ **No fixture exists.** Every annotation in `pdfTests\` and on his desktop is a
+`Widget`. If he produces a PDF whose TOC works in Acrobat, that is the fixture.
+
+---
+
+### ★★ TWO TRAPS THIS SESSION WALKED INTO. Both will recur.
+
+**1. A stale binary produced a confident wrong diagnosis — again.** The bookmark
+check FAILED at 0.382 → 0.382 on its first run. Nothing was wrong with the
+feature; I had rebuilt **only the harness** and not the shell. `cargo build
+--release -p ui-verify` does not rebuild `pdfce-gui`. ⇒ **Build the whole
+workspace before believing a driven failure.** Second occurrence this week.
+
+**2. The packager moved the engine under a build I had already tested.**
+`tools/package-portable.py` runs `cargo update` before it builds — sound on its
+own — so the exe that went to `pdfceGUI1` was linked against `d731410` while my
+green test run had been against `f7eb4a1`. **Four engine commits, two of them
+real core fixes** (a form field's unmodellable colour aliased onto "no colour"
+and written black; `gs` had no arm at all).
+
+★★ **The `-dirty` stamp in the artifact name is the hiding place** — it is the
+same suffix a stray uncommitted README produces, so it reads as housekeeping
+rather than *"this binary is not the one you tested"*. Everything downstream is
+green, so nothing prompts a re-check.
+
+⇒ **Verification is against a REVISION, not against a moment.** Either pass
+`--no-update` and make the engine bump its own verified step, or re-run tests
+and gates *after* packaging and say so. I did the latter (all green) and did
+**not** re-publish for the corrected label, because only the stamp would change
+and each mirror costs ~27,000 kernel handles. Filed to `D:/dev/rag/rust/`.
+
+---
+
+### What is safe to assume, and what is not
+
+- **Safe:** the bookmark destination pipeline works and is driven. Reuse
+  `destination::actions_for` for anything that needs to navigate to a place.
+- **Safe:** 21/21 gates were green at `d725297` on engine `d731410`.
+- **NOT safe:** that the OCR progress UI works. It has never been driven.
+- **NOT safe:** any sentence in `RESUME.md` or `FEATURES.md` about what the
+  engine cannot do. Run `bash tools/gates/run-all.sh` first —
+  `check-verb-coverage.sh` **is** the changelog reader, and it has found five
+  reachable verbs nobody knew had shipped.
+- **NOT safe:** a full 133-check sweep taken at face value. The suite
+  manufactures **false failures** under contention — three failed in-sweep and
+  all three passed alone. Do not sweep while background agents are landing, and
+  never drive the **published** build (its side effects land in his saved state
+  — copy the exe to scratch).
+
 ## 2026-08-29 — THE SWEEP, three times, and the final number is 81 / 0 / 27
 
 **The machine was his and he gave it to us.** Three full 108-check runs against
