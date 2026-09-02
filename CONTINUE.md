@@ -1,5 +1,62 @@
 # CONTINUE — handoff
 
+## 2026-09-02 (autonomous, third tick) — O92 is closed by O88, and the next work is the not-yet-driven backlog
+
+### ✅ A box drawn in the margin reaches an object off the sheet
+
+**O92's remaining half needed no new code.** It is O88's crossing window: a
+right-to-left drag takes what it *touches*, so a band started on the sheet and
+dragged into the grey reaches an object lying entirely off the edge. An enclosing
+band over the same rectangle surrounds nothing, which is what shipped before.
+
+**Driven and falsified.** `fixtures/off-page-object.pdf` is 485 bytes of
+hand-written PDF: a 200 × 200 page with exactly two squares, **A** on the page
+and **B** entirely left of the media box. The band misses A, touches B, and
+**cannot enclose B** — deliberately, or it would pass under the old mode too. So
+`hits == 1` can only be B, with no index or ordering assumption.
+
+★ **Nothing new ships in the binary.** The `pdfceGUI1` build from 04:16 already
+behaves this way; what this tick added is the evidence.
+
+### ★★★ A harness bound that was wrong in an instructive way
+
+`CanvasMapping::doc_to_window` refuses every point outside the media box — right
+for every other caller — so this needed a named `doc_to_window_off_page`.
+
+**Its first version bounded the result against `image_rect`, and that is the
+PAGE's rectangle.** Every off-page point is outside it by construction, so the
+entire class the function exists for was rejected — reporting *"not enough margin
+on screen"*, which is plausible and completely wrong. The bound that means
+something is the canvas **viewport** (`ui-rect name=canvas-viewport`), whose grey
+margin is where a dropped object lives.
+
+⇒ Same shape as the marquee origin two ticks ago: **a bound or a coordinate that
+looks like the right one because it has the right name.** `image_rect` is not the
+canvas; "just outside the object" is not empty paper.
+
+### ⬜ WHAT TO DO NEXT — and it is NOT blocked on him
+
+Five rows say **"BUILT … not yet driven"**, which under R1 means not shipped:
+**O80, O78, O69, O68, O65**. Each needs a driven check, and that is the largest
+actionable block left.
+
+Only two rows genuinely need him:
+
+- **O85 — Ctrl+S closed the program after an edit.** Not reproduced. Blocked on
+  him saying what kind of edit preceded it; do not guess.
+- **O89 — the text-colour route is three conditions deep.** Three candidate
+  fixes are in the row. **The choice is his.**
+
+### Measured this tick
+
+2,214 GUI + 422 shell + 167 ui-verify tests green. **139** driven checks.
+21/21 gates green. Published: `pdfceGUI1` 04:16 (O88), `pdfceGUI2` 22:55
+(fallback).
+
+★ `FEATURES.md` now carries both marquee rows. The 04:16 package predates them —
+recorded in the tick before this one, and the order to hold is **refresh
+`FEATURES.md`, then package.**
+
 ## 2026-09-02 (autonomous, second tick) — O88 is DRIVEN, and the check was wrong three different ways first
 
 **Everything here is committed.** The tick before this one built the marquee and
