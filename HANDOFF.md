@@ -963,6 +963,54 @@ Smaller, unblocked, and recorded in `FEATURES.md`:
 
 ## 10. Things that will bite you
 
+- **★★★ When a blocker clears, the prose that DESCRIBED the blocker is the
+  most dangerous thing in the tree — and no test on either side can see it.**
+
+  On 2026-09-02 `EditSession::reorder_annotations` shipped hours after the
+  request that asked for it. Wiring it up took a morning. Finding everything
+  that had *asserted the gap* took longer, and three of the four places were
+  found only by looking:
+
+  | where | what it said | how long it had been true |
+  |---|---|---|
+  | the panel's explainer, on screen | *"This view reports the order; it does not change it."* | the view's whole life |
+  | the module header | a **prohibition** — no drag handles, no `Sense::drag`, not even disabled ones — ending *"when the engine verb lands, the affordance arrives with it"* | 3 days |
+  | a unit test | `no_string_in_this_view_offers_a_reorder`, **passing**, and it would have *forbidden the feature* | 3 days |
+  | `FEATURES.md` | a ⛔ row: *"the operator asked for it; no verb can do it"* | 19 days |
+
+  Plus a fifth in the **engine's** `docs/FEATURES.md`, saying the verb was
+  *"Not reachable in `pdfceGUI`"* — a statement about **our** surface in
+  **their** document, which is the shape neither side re-checks.
+
+  ★★ **Every one of them was correct when written.** That is what makes the
+  class survive: nothing about a true-when-written sentence looks wrong, and no
+  gate evaluates it. `check-ui-strings` proves a string is *in the catalog*, not
+  that it is *true*. A green suite is silent on all five.
+
+  ★★★ **The test is the worst of them, and note the inversion.**
+  `no_string_in_this_view_offers_a_reorder` was a *correct* tripwire while the
+  verb did not exist — it guarded against somebody shipping a disabled drag
+  handle "ready for when it lands", the placeholder R9 forbids. The day the verb
+  shipped it became a test that would fail the feature the operator had asked
+  for, **while still passing**, because the strings had not changed yet. A
+  tripwire aimed at an absence must be re-aimed when the absence ends; the right
+  move is to replace it with what it was protecting all along, pointed the other
+  way, and say so in its doc comment rather than delete it quietly.
+
+  ⇒ **The procedure, when any blocker clears:** grep for the *feature's* words
+  before writing a line of it — the verb, the noun, "read-only", "blocked",
+  "cannot", "no verb", "when … lands". Check `FEATURES.md` on **both** sides,
+  the module headers, the operator-visible strings, and any test whose name
+  contains `no_`, `never_` or `not_`. Budget it as part of the work, not as
+  tidying afterwards; the on-screen sentence is the one the operator reads, and
+  it is usually the one nobody thinks to change.
+
+  ★ The discoverability corollary, which arrived in the same hour: the sentence
+  that *replaced* the false explainer is now the **entire** discoverability
+  surface for a drag with no handle, no grip glyph and no button. Deleting the
+  stale claim was necessary and not sufficient — a stale sentence removed and
+  not replaced would have shipped an invisible feature.
+
 - **★★ Registration is not implementation, and five surfaces will lie about
   it.** `file.save_copy` was registered, drawn on the **quick access
   toolbar**, bound to `Ctrl+S`, listed in the shortcuts reference, and

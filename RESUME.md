@@ -269,9 +269,11 @@ blocked on the reply.
 re-measured; `OPERATOR_REQUESTS.md` has **three new questions for him (O47, O48,
 O49)** and none of them blocks anything.
 
-**Measured now (2026-09-01, re-run):** **2,786 passing tests across the
-workspace**, **21/21 gates**, **130 registered driven checks**. Engine pinned at
-`6ed5b9b` (re-measured 2026-09-01 from `Cargo.lock`). ★ **O59 is done**: cut refuses what it cannot carry, pages and bookmarks copy and paste, all three driven and falsified. Scaffold list **5**.
+**Measured now (2026-09-02, re-run):** **2,860 passing tests across the
+workspace**, **22/22 gates**, **143 registered driven checks**. Engine pinned at
+`c7a774c` (re-measured 2026-09-02 from `Cargo.lock`). ★ The 22nd gate is
+`check-stale-blockers`, new today and the first one aimed at **prose being
+false** rather than at code being wrong — see `HANDOFF.md` §10. ★ **O59 is done**: cut refuses what it cannot carry, pages and bookmarks copy and paste, all three driven and falsified. Scaffold list **5**.
 
 **What shipped:** Tools ▸ Embed fonts and Tools ▸ Remove embedded fonts, both
 driven end to end; dragging an ordinary markup annotation; the Bold retry using

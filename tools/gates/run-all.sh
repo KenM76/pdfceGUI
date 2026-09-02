@@ -138,6 +138,15 @@ run "check-file-size"    bash "$HERE/check-file-size.sh"
 run "check-shell-purity" bash "$HERE/check-shell-purity.sh"
 run "check-shipped-assets" bash "$HERE/check-shipped-assets.sh"
 run "check-string-gaps"  bash "$HERE/check-string-gaps.sh"
+# ★★★ The gate of 2026-09-02, and it is the first one aimed at PROSE being
+# false rather than at code being wrong. `reorder_annotations` shipped hours
+# after the request for it, and four separate places went on asserting the gap:
+# an on-screen explainer, a module header that FORBADE the feature, a passing
+# test that would have failed it, and a nineteen-day-old FEATURES row. All four
+# were correct when written, which is why nothing looked wrong and no other gate
+# could see them. This catches the one mechanical part — a row that says BLOCKED
+# and names a request the channel shows we have CONSUMED.
+run "check-stale-blockers" bash "$HERE/check-stale-blockers.sh"
 # ★ The two gates of 2026-08-20, both born of an operator report rather than of
 # a design. `check-typing-guard` keeps "is the operator typing?" a single
 # predicate, after the space bar was stolen by the pan tool for a fortnight;
