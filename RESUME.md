@@ -190,11 +190,29 @@ caught this line.
 runnable on a clean checkout — but a check calibrated against his drawing should
 be aimed at his drawing.
 
+★★★ **A FAMILY IS NOT FINE-GRAINED ENOUGH, measured 2026-09-02.** Two checks in
+the *same* text family need *different* points on the same drawing, and each
+fails at the other's:
+
+* `text_edit_on_a_real_drawing` wants `0,1201,1185`, because it needs a run
+  spanning **one show operator** — at `0,1140,62` the shell correctly refuses
+  (whole-operator editing would corrupt a split run) and the check honestly
+  declines to judge. It had been reported as a permanent SKIP and was **this
+  table's fault, not the check's**.
+* `double_clicking_a_text_box_edits_the_text` wants `0,1140,62` and finds no
+  caret at all at `0,1201,1185`.
+
+⇒ **Each check's own module header carries its calibrated point.** When one
+SKIPs or fails on aim, read that header before touching this table — the header
+is written by whoever calibrated it and this table is a summary that can drift
+from it, which is exactly what had happened.
+
 | family | fixture | point | why |
 |---|---|---|---|
 | geometry — resize, rotate, shift-constrain, node move | `fixtures/polyline-nodes.pdf` | `0,150,260` | needs a vector object with anchors under the pointer |
 | scrolling, wheel-paging, pan | `fixtures/four-pages.pdf` | `0,300,500` | needs **more than one page**, and something to scroll |
-| text — edit, sweep, the Format tab's font controls | `D:/Dev/pdfTests/SW41177/SW41177.pdf` | `0,1140,62` | needs a real run of text under the pointer; this point is on one |
+| text — double-click to edit, sweep, the Format tab's font controls | `D:/Dev/pdfTests/SW41177/SW41177.pdf` | `0,1140,62` | needs a real run of text under the pointer; this point is on one |
+| text — `text_edit_on_a_real_drawing` **only** | `D:/Dev/pdfTests/SW41177/SW41177.pdf` | `0,1201,1185` | ★★ needs a run that spans **one show operator**, which is a stricter requirement than "text is here" |
 | everything else | `fixtures/a1-titleblock.pdf` | `0,300,500` | a real CAD sheet with missing fonts and a title block |
 
 ```bash

@@ -80,10 +80,16 @@ which of the three it is instead of leaving it to be guessed at.
    pass alone. That is not new — an earlier sweep saw the same — but nothing
    measures it, so "is this real?" costs a re-run every time. A per-check retry
    on failure, or a serialised run mode, would remove the question.
-2. **`text_edit_on_a_real_drawing`'s documented point has drifted.**
-   `0,1140,62` on `SW41177.pdf` now lands on a run spanning more than one show
-   operator, so the check honestly declines. It needs a re-calibrated point that
-   traces `one_operator=true`.
+2. ~~`text_edit_on_a_real_drawing`'s documented point has drifted.~~ **Done —
+   and it had never drifted; `RESUME.md`'s table was simply wrong.** The check's
+   own header carries `0,1201,1185`, at which it **passes**. The table said
+   `0,1140,62`, which lands on a run spanning more than one show operator where
+   the shell correctly refuses.
+   ★★ And the finding is bigger than the typo: **two checks in the same "text
+   family" need different points on the same drawing, and each fails at the
+   other's.** `double_clicking_a_text_box_edits_the_text` needs `0,1140,62` and
+   finds no caret at `0,1201,1185`. A family is not fine-grained enough to be an
+   instruction; each check's own header is, and the table now says so.
 3. **O98's spotlight is tool-gated** — see `OPERATOR_REQUESTS.md`. His call.
 
 ### ✅ Also this evening
