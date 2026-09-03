@@ -80,7 +80,7 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
-## O109 — ⬜ **ASKED 2026-09-03** — release the latest source and exe to GitHub
+## O109 — ✅ **RELEASED 2026-09-03** — release the latest source and exe to GitHub
 
 **Ken, 2026-09-03:** *"And while you are doing that release the latest source and
 exe to github!"*
@@ -96,6 +96,33 @@ would read as one: `crates/pdfce-gui/Cargo.toml` takes the engine as
 source**, because that URL is a path on this machine. Pointing it at
 `https://github.com/KenM76/pdfce` would fix it and is a decision about what this
 repository is for, not one to make while releasing.
+
+### ✅ Done
+
+**Source:** `main` pushed — 346 commits, `d4d8d7f` → `eed8d3e`.
+
+**Release:** <https://github.com/KenM76/pdfceGUI/releases/tag/v0.4.0>, with
+`pdfceGUI-v0.4.0-windows-x64.zip` (21.7 MB) attached — the portable build,
+unzip and run.
+
+★★ **It was repackaged first, and that mattered.** The build published to
+OneDrive an hour earlier carried *"THE SHELL WAS BUILT FROM AN UNCOMMITTED
+WORKING TREE"* in its own `BUILD-INFO.txt`, because the packager runs
+`cargo update` and had built before the lock was committed. Shipping that to
+GitHub would have put a binary nobody could tie to a commit behind a version
+tag. The released build is stamped `eed8d3e` on engine `a436432`, and
+`pdfceGUI2` now holds the same build.
+
+★ **The crate version stayed 0.1.0** rather than being bumped to match the tag,
+and that is deliberate: `crates/pdfce-gui/Cargo.toml` carries a comment saying
+the crate is versioned by the pdfce workspace it folds **into**, not by this
+staging workspace, and `version.workspace = true` replaces the line at fold-in.
+Bumping it would have contradicted a recorded decision to make two numbers
+agree that are not the same number.
+
+★ Checked before pushing to a **public** repository: the licensed
+print-conformance suite's name is absent (its gate is green), and a sweep for
+keys, tokens and private material found only test fixtures and prose.
 
 ---
 
@@ -178,7 +205,16 @@ important missing capability in this whole area as already built.
    questions an operator actually asks of a protected file.
 3. **A request to the engine** for the authoring half: encrypt with a password,
    set permissions, remove encryption, sign. It has none of it, and this shell
-   must not invent it.
+   must not invent it. ✅ **Filed 2026-09-03**, as two files because they are two
+   topics: `request_a_document_cannot_be_encrypted_or_have_its_permissions_set.md`
+   and `request_a_document_cannot_be_signed.md`.
+
+   ★★ The signature request asks for **validation before signing**, and says so:
+   *"the bytes under this signature have not been altered, and nothing was
+   appended after it"* is a real answer that needs no certificate store, and it
+   is the question an operator receiving a signed drawing actually asks. Signing
+   needs a key, a certificate, a store and a decision about PAdES levels, and
+   nobody has asked for it by name.
 
 ★ `RIBBON_IA.md` gets the amendment written into it rather than left as a
 divergence, because a tab that exists and is not in the IA is how two
