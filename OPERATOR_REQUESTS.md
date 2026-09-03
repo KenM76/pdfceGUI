@@ -80,6 +80,114 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O109 — ⬜ **ASKED 2026-09-03** — release the latest source and exe to GitHub
+
+**Ken, 2026-09-03:** *"And while you are doing that release the latest source and
+exe to github!"*
+
+`KenM76/pdfceGUI` is **public** and was last pushed **2026-08-24** — **345
+commits** behind. The last GitHub release is **v0.3.0** (2026-08-15), which
+predates forms, attachments, multi-document, the measure rebuild and everything
+in between.
+
+★ **One fact that has to travel with the source**, because it is not a defect and
+would read as one: `crates/pdfce-gui/Cargo.toml` takes the engine as
+`git = "file:///D:/Dev/pdfce"`. **Nobody but you can build the published
+source**, because that URL is a path on this machine. Pointing it at
+`https://github.com/KenM76/pdfce` would fix it and is a decision about what this
+repository is for, not one to make while releasing.
+
+---
+
+## O108 — ◑ **AUDITED 2026-09-03, and the answer changes the ask** — one ribbon tab for every encryption and signature feature
+
+**Ken, 2026-09-03:** *"can we get all of the encryption and signature features
+that have been implemented in the engine under one new tab in the ribbon?"*
+
+### What this is asking for, stated before any of it is built
+
+Two things, and the second is the harder one:
+
+1. **A new ribbon tab** collecting encryption and signatures in one place.
+   `RIBBON_IA.md` places them nowhere as a group today — encryption is not in
+   the IA at all and signatures exist only as a **panel**.
+2. **"All of the features that have been implemented in the engine"** — which is
+   a completeness claim, and this project has a standing rule about those: *a
+   completeness question needs an instrument, not a document.* Our own files
+   (`FEATURES.md`, `NO_SURFACE.md`, `GUI_ROADMAP.md`) are structurally unable to
+   answer it, because none of them is keyed on `pdfce-core`'s API. The audit has
+   to enumerate from the **engine's** side.
+
+★ `RIBBON_IA.md` is settled and normally not improvised around. A new tab is an
+**operator decision**, so this supersedes it — and the amendment gets written
+into that document rather than left as a divergence.
+
+### ★★★ THE AUDIT, and the answer is not the one the question expects
+
+`tools/security-coverage.py` is the instrument — new today, keyed on
+`pdfce-core`'s **own** API rather than on any document of ours, and reading the
+revision `Cargo.lock` pins rather than the engine's working tree. Measured at
+lock `a436432`:
+
+> **61 public items: 12 reached, 31 NOT reached, 7 engine-internal, 11 too
+> generic for a grep to attribute.**
+
+★★★ **Every one of them is READ-SIDE.** `pdfce-core` has **no**
+`encrypt_document`, **no** `set_password`, **no** `remove_encryption`, **no**
+`set_permissions`, **no** `sign_document`, no certificate validation and no
+timestamping. What the engine has is the ability to **open** an encrypted
+document, **report** its scheme and permission bits, and **count and describe**
+the signatures a document already carries.
+
+⇒ So a tab can be built and it will be an **information** tab, not a *Protect*
+tab. That is worth saying plainly before it is drawn, because a row of controls
+that cannot work is R9's placeholder rule broken at the scale of a whole
+surface — and because the gap between what you asked for and what exists is a
+request to the engine, not something to paper over.
+
+### ★★★ And the audit found something worse than a missing tab
+
+**An encrypted PDF cannot be opened at all.**
+
+The shell detects the case correctly — `Status::NeedsPassword`, with a tab
+tooltip reading *"This document is encrypted and pdfce has not been given the
+password"* — and then **there is no way to give it one.**
+`Document::load_with_password` and `from_bytes_with_password` are named in
+exactly one place in this crate: a doc comment in `app::blank` listing the four
+loading entry points. Nothing calls either.
+
+★★ That is why the coverage tool now strips comment-only lines before it
+searches. Its first run reported `load_with_password` as **reached**, on the
+strength of that one sentence — which would have recorded the single most
+important missing capability in this whole area as already built.
+
+### What is reached, and what is not
+
+| | |
+|---|---|
+| **Signatures — mostly reached.** | `SignatureImpact`, `ImpactBasis`, `SaveMode` and `documentation_basis` drive the save-time warning; `byte_range_coverage` and `covers_to_eof` drive the Signatures panel. `SignatureCensus`, `forbids_structural_change` and `impact_of` are named nowhere |
+| **Encryption — almost nothing.** | `Document::encryption()` is read in **one** place, as a boolean, in the Properties panel. `Permissions`, `PermissionBit`, `AuthKind`, `Cipher`, `strings_encrypted`, `streams_encrypted`, `password_may_need_normalisation`, `authenticate` — none reached. So the document's own permission bits, which say whether it forbids printing, copying, or changing, are **invisible** |
+
+### The plan, in the order the value lands
+
+1. **A password prompt**, so an encrypted document opens. Nothing else on this
+   list matters if the file cannot be read.
+2. **A Security tab** collecting: the encryption state (scheme, key length,
+   whether you authenticated as user or owner), the **permission bits** in
+   plain words, the signature census, and the byte-range coverage — the four
+   questions an operator actually asks of a protected file.
+3. **A request to the engine** for the authoring half: encrypt with a password,
+   set permissions, remove encryption, sign. It has none of it, and this shell
+   must not invent it.
+
+★ `RIBBON_IA.md` gets the amendment written into it rather than left as a
+divergence, because a tab that exists and is not in the IA is how two
+information architectures start.
+
+---
+
+
+
 ## O105 — ✅ **DRIVEN 2026-09-03** — the radius/diameter tool fits the wrong thing
 
 **Ken, 2026-09-03:** *"can you check our radius/diameter dimensioning tool?
