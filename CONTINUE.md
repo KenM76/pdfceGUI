@@ -57,11 +57,22 @@ actually checked is worth more than a plausible one that was not — and because
 "contention" is a word, not an explanation, and it should stop being used as one
 here.
 
-⇒ **Next experiment, for whoever picks this up:** the failure is `zoom 0.382 →
-0.382`, so the click reached the bookmark row and the destination was not
-applied — or the click landed on the wrong row. Trace which row was clicked, not
-just what the zoom did. The check cannot currently tell those apart, which is
-why it has no better answer than "it failed".
+⇒ **That experiment is now BUILT.** The panel traces `bookmark-pick id= title=
+navigates= page=` when a row is actually pressed — the other half of
+`bookmark-row`, which only says where rows *are*. A rectangle cannot report which
+of several rows a pointer reached, and that was the whole ambiguity.
+
+The check now asks **before** it judges the zoom, and a failure names its own
+cause: no press recorded at all (the click missed every row — the panel moved
+under it), the wrong title (the rectangle was stale by the time the pointer
+arrived), or the right row pressed with `navigates=1` and the zoom unmoved,
+which is the only one that is a defect in the shell.
+
+⬜ **The flake did not reproduce on the run after the instrument went in** — the
+batch that produced it came back `13 passed, 1 failed` with only the known
+wrong-fixture failure left. So it is **unproven either way** whether the
+`settle` change cured it. What is certain is that the next occurrence will say
+which of the three it is instead of leaving it to be guessed at.
 
 ### ⬜ The three that need a decision, not more work
 

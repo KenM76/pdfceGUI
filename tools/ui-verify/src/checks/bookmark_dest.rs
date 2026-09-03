@@ -49,6 +49,9 @@ use crate::report::CheckReport;
 const INVOKE: &str = "view.panel_bookmarks";
 /// The per-row line, carrying `title=`, `page=` and the row's own `rect=`.
 const ROW: &str = "bookmark-row"; // ui-text-exempt: a trace event name, never displayed
+/// The line the panel writes when a row is actually PRESSED — the other half
+/// of , which only says where rows are. See the assertion that reads it.
+const PICK: &str = "bookmark-pick"; // ui-text-exempt: a trace event name, never displayed
 /// The canvas's per-frame line, carrying `zoom=`.
 const CANVAS: &str = "canvas"; // ui-text-exempt: a trace event name, never displayed
 /// The page region, so a failure can say whether a sheet was drawn at all.
@@ -197,6 +200,34 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     report.note(format!(
         "★★ after clicking {DETAIL:?} the zoom is {after:.3}"
     ));
+
+    // ★★★ WHICH ROW WAS ACTUALLY PRESSED — asked BEFORE the zoom is judged.
+    //
+    // `zoom unchanged` has two causes and they want opposite fixes: the
+    // destination was not applied (a defect in the shell), or the click landed
+    // on a different row or on none at all (a defect in this check's aim, or a
+    // panel that moved between the trace read and the press). Until the panel
+    // traced the press there was no way to tell, and the failure message had to
+    // hedge — which is how an intermittent harness problem came to read as a
+    // regression in a shipped feature.
+    let picked = session.trace()?.events(PICK).last().map(|l| l.raw.clone());
+    let Some(picked) = picked else {
+        return Ok(Some(format!(
+            "the row for {DETAIL:?} was clicked at its own traced rectangle and the panel \
+             recorded NO press at all. The click did not land on a bookmark row — the \
+             panel scrolled between the trace read and the press, or the row moved under \
+             it. This is not a finding about destinations. Trace: {}.",
+            session.trace_path().display()
+        )));
+    };
+    report.note(format!("the panel recorded the press: `{picked}`"));
+    if !picked.contains(DETAIL) {
+        return Ok(Some(format!(
+            "the click landed on the WRONG ROW: the panel recorded `{picked}` when \
+             {DETAIL:?} was aimed at. Again not a finding about destinations — the \
+             rectangle read from the trace was stale by the time the pointer arrived."
+        )));
+    }
 
     if after < before * AT_LEAST {
         return Ok(Some(format!(

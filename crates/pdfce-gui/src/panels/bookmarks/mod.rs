@@ -800,6 +800,34 @@ fn rows(
             )
         });
         if resp.clicked() {
+            // ★★★ WHICH ROW WAS ACTUALLY PRESSED, and whether it navigates.
+            //
+            // Added 2026-09-02 to close a gap named in `CONTINUE.md`: the driven
+            // check `a_bookmark_lands_on_the_detail_it_names` fails
+            // intermittently inside a batch with `zoom 0.382 → 0.382`, and
+            // **cannot tell its two causes apart** — the destination was not
+            // applied, or the click landed on a different row (or on none). Both
+            // leave the zoom where it was, and the check's own message has to
+            // hedge between them.
+            //
+            // A trace of the press settles it in one line. `bookmark-row`
+            // already reports where every row IS; this reports which one was
+            // hit, which is the other half and the one no rectangle can supply.
+            //
+            // ★ `navigates=` beside the title, because a heading with no
+            // destination is a perfectly good row to click and changes nothing
+            // — so "the right row was pressed and the zoom did not move" is only
+            // a defect when the row had somewhere to go.
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                format!(
+                    "bookmark-pick id={} title={:?} navigates={} page={:?}",
+                    it.id.num,
+                    it.title,
+                    u8::from(target.is_some()),
+                    target.as_ref().map(|(p, _)| p + 1),
+                )
+            });
             // The id is recorded whether or not the row navigates. A heading
             // with no destination is unclickable-looking and is still a
             // perfectly good PARENT — indeed it is the likeliest one, since a
