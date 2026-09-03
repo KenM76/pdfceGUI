@@ -141,6 +141,11 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     ));
     report.artifact(session.trace_path().to_path_buf());
     session.settle(40);
+    // ★★ MAXIMISE — at the harness's default 1,100 pt window the File tab's
+    // last two groups fold away entirely and this check reports a lost
+    // command. See `about.rs` for the measurement; three checks shared it.
+    session.maximize();
+    session.settle(20);
     let driver = Driver::new(session.window());
 
     crate::checks::driving::click_mode_segment(&session, &driver, ui_rect, MODE)?;

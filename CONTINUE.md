@@ -110,6 +110,23 @@ skipped because *"the point (1614, 629) is owned by 'Windows Script Host'"*. A
 **Left alone — it is his machine and not obviously mine to close.** Two leftover
 `pdfce-gui` processes from my own runs WERE cleaned up.
 
+### ✅ Three more skips closed — the File tab's last two groups were off the band
+
+`about_reports_the_build`, `shortcuts_reference_is_live` and
+`properties_metadata_round_trips` all skipped reporting a lost command. The
+commands are not lost: at the harness's default **1,100 pt** window the File tab
+publishes fourteen items and stops at `file.print`, with the whole **Document**
+and **pdfce** groups — properties, fonts, settings, shortcuts, about — folded
+away. `session.maximize()` in each, and all three pass.
+
+⬜ **One observation left unchased**, recorded rather than guessed at:
+`declared_or_in_overflow` already knows about collapsed groups *and* the overflow
+popup, and `ribbon.overflow` was present in the trace — yet it still found
+nothing. Either those groups leave by a route the helper does not cover, or its
+overflow path is not working. Worth an hour when someone has one; the operator
+impact is nil, because at that width the items are still one click away in a
+popup, which is ordinary ribbon behaviour.
+
 ### ⬜ The three that need a decision, not more work
 
 1. **Contention is real and unmeasured.** Three of 148 fail under batch load and

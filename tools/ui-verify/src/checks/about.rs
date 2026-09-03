@@ -114,6 +114,21 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     ));
     report.artifact(session.trace_path().to_path_buf());
     session.settle(40);
+    // ★★★ MAXIMISE, or the File tab's last two groups are not on the band at
+    // all. Measured 2026-09-03: at the harness's default 1,100 pt window the
+    // File tab publishes fourteen items and stops at `file.print` — the whole
+    // "Document" and "pdfce" groups (properties, fonts, settings, shortcuts,
+    // about) are folded away, so THREE checks skipped reporting a lost
+    // command. The commands are not lost; the band is narrower than they are.
+    //
+    // `declared_or_in_overflow` already knows about collapsed groups and the
+    // overflow popup, and is still the right first resort — but it cannot
+    // conjure width, and `Session::maximize`'s own doc comment says this is
+    // what it is for: "a maximised window is the state an operator running a
+    // drawing tool on a desktop is overwhelmingly in, so it is also the state
+    // most worth verifying."
+    session.maximize();
+    session.settle(20);
     let driver = Driver::new(session.window());
 
     // --- A: open it --------------------------------------------------------
