@@ -105,6 +105,10 @@ pub mod new_document;
 pub mod ocr;
 /// ★ How a window offers to step aside so the operator can point at the page —
 /// `OPERATOR_REQUESTS.md` O66. The dialog half of `canvas::placing`.
+/// The box that lets an encrypted document be opened. Its header records the
+/// defect it closes: the shell detected `NeedsPassword` perfectly and had no way
+/// to supply one, for as long as it has been able to detect it.
+pub mod password;
 pub mod placing;
 pub mod print;
 /// The Apply-redactions transaction — the report, the two acknowledgements, and
@@ -338,6 +342,15 @@ pub struct DialogsState {
     /// keyboard reference is meaningful with nothing open, and closing a
     /// document must not close it.
     shortcuts: Option<shortcuts::ShortcutsDialog>,
+
+    /// The password prompt, when a document is waiting on one.
+    ///
+    /// ★★ **Application-scoped, not document-scoped**, and the distinction is
+    /// the whole of why it works: the document it is about is **not open** —
+    /// that is its premise — so a guard that closed it when nothing was open
+    /// would close it exactly when it is needed. It sits beside About and the
+    /// sized-New window for the same reason those two do.
+    password: Option<password::PasswordDialog>,
 
     /// The insert dialog, when one is open.
     ///
@@ -842,6 +855,14 @@ impl DialogsState {
         if self.new_document.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
             self.new_document = None;
         }
+        // ★★★ Beside them, and ABOVE the no-document guard, for the sharpest
+        // version of the same reason in this function: the document this window
+        // is about is **not open**. That is its entire premise. A guard that
+        // required an open document would close the password prompt in exactly
+        // the state it exists for.
+        if self.password.as_mut().map(|d| d.show(ctx, actions)) == Some(false) {
+            self.password = None;
+        }
         // Application-scoped, above the no-document guard with About and the
         // sized-New window. A keyboard reference an operator opened before
         // loading anything must not vanish because nothing is loaded.
@@ -1104,6 +1125,53 @@ impl DialogsState {
             return;
         }
         self.shortcuts = Some(shortcuts::ShortcutsDialog::open());
+    }
+
+    /// **Ask for the password of `path`**, unless we are already asking for it.
+    ///
+    /// Called from the frame when the active document is
+    /// [`crate::app::state::Status::NeedsPassword`]. Idempotent on the path, so
+    /// the frame can call it unconditionally every frame — which is what makes
+    /// it safe to drive from a state rather than from an event, and is why the
+    /// prompt survives the operator clicking away and coming back.
+    ///
+    /// ★ Re-asking for a **different** document replaces the prompt. One
+    /// password box at a time is the convention everywhere, and two would leave
+    /// the operator guessing which file each belonged to — the prompt names its
+    /// file for the same reason.
+    pub fn ask_for_password(&mut self, path: &std::path::Path) {
+        if self.password.as_ref().is_some_and(|d| d.path() == path) {
+            return;
+        }
+        crate::diag::trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            format!("password-prompt path={path:?}")
+        });
+        self.password = Some(password::PasswordDialog::new(path.to_path_buf()));
+    }
+
+    /// **Tell the prompt its last attempt failed**, and keep it open.
+    ///
+    /// Called when a retry comes back refused. Returns `false` when there is no
+    /// prompt to tell — which happens if the operator cancelled between
+    /// submitting and the load returning, and is not an error.
+    pub fn reject_password(&mut self, why: password::Rejection) -> bool {
+        let Some(d) = self.password.as_mut() else {
+            return false;
+        };
+        d.reject(why);
+        true
+    }
+
+    /// **Close the prompt**, because the document opened.
+    pub fn password_accepted(&mut self) {
+        if self.password.is_some() {
+            crate::diag::trace(|| {
+                // ui-text-exempt: diagnostic trace, never displayed in the UI
+                "password-accepted".to_owned()
+            });
+            self.password = None;
+        }
     }
 
     pub fn open_export_dxf(&mut self, status: &Status) {

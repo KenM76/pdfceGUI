@@ -129,6 +129,34 @@ impl PdfceApp {
         self.open_path(path);
     }
 
+    /// `Action::OpenWithPassword` — the retry an encrypted document needs.
+    ///
+    /// `OPERATOR_REQUESTS.md` O108. Raised only by
+    /// [`crate::dialogs::password::PasswordDialog`], which is the only surface
+    /// that can obtain a password.
+    ///
+    /// ★ The password is **borrowed**, never cloned into a second place. It
+    /// arrives inside the action, is handed to `Document::load_with_password`
+    /// through `Secret::expose`, and the action is dropped with it. There is no
+    /// step here that stores it.
+    pub(super) fn apply_open_with_password(
+        &mut self,
+        path: std::path::PathBuf,
+        password: &crate::secret::Secret,
+    ) {
+        match self.open_path_with_password(path, password) {
+            // ★ The prompt stays up and says WHICH failure it was. The two are
+            // different instructions to the operator — "try again" against
+            // "pdfce cannot open this file however correct your password is" —
+            // and the engine separated them precisely so this last step could.
+            Some(why) => {
+                self.dialogs.reject_password(why);
+            }
+            // Opened. Close the prompt; the document is on screen behind it.
+            None => self.dialogs.password_accepted(),
+        }
+    }
+
     /// `Action::New` — a blank document, in a tab of its own.
     ///
     /// Unguarded since 2026-08-19, for [`Self::apply_open`]'s reason: it adds

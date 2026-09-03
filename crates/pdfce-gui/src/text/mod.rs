@@ -291,6 +291,10 @@ pub mod unembed;
 /// may not be *part* of it. Every chord and every command name comes from the
 /// live keymap and the registry, because `DEFECTS.md` D5 was a hand-maintained
 /// list that omitted six live bindings and that nothing exercised.
+/// Encryption, passwords and signatures — `OPERATOR_REQUESTS.md` O108. Two of
+/// its sentences are `pdfce-core`'s own wording and must not be re-worded; its
+/// header says which and why.
+pub mod security;
 pub mod shortcuts;
 
 /// **What this shell says about a digital signature before and after it

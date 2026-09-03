@@ -70,6 +70,39 @@
 //! The row says so, because it is not guessable and because it is the one
 //! action here that *removes* something.
 
+//! ## ★ Why `Action::SetInfoField` takes `Option<String>` and not `String`
+//!
+//! Moved here from that variant's doc comment on 2026-09-03, when
+//! `action.rs` reached R2's 1,500-line limit and the seam turned out to be
+//! that the enum was carrying the rationale for mechanisms living in other
+//! modules. The documentation belongs beside the mechanism; the variant keeps
+//! a summary and points here.
+//!
+//! `None` is a different edit, not an empty one.
+//! `EditSession::set_info_field(field, None)` **removes the key** from the
+//! `/Info` dictionary; `Some("")` writes an empty string object. A document
+//! with no title and a document whose title is the empty string are different
+//! files, and the first is what an operator means by deleting the contents of a
+//! box.
+//!
+//! Collapsing the two — taking a `String` and treating empty as clear — would
+//! work today and would make the distinction unrepresentable, which is the shape
+//! `pdfce-core`'s own `Some(Tolerance::None)` vs `None` note warns about one
+//! feature along.
+//!
+//! ## Why it goes through the funnel when the edit is one dictionary entry
+//!
+//! Not for size — for **ordering and the undo log**. It is a document change
+//! like any other, and the funnel is what makes it appear once in the command
+//! log, bump the epoch once, and be undone by one `Ctrl+Z`.
+//!
+//! ★ And the epoch bump is load-bearing here in a way it is not elsewhere: this
+//! panel re-seeds its text drafts whenever the epoch moves, which is what makes
+//! `Ctrl+Z` visibly restore the old value in the box. Applying the edit outside
+//! the funnel would leave the box holding a string the document no longer has,
+//! and the next focus change would write it back — an undo the panel silently
+//! reverses.
+
 use egui::Ui;
 use pdfce_core::edit::{InfoField, InfoText};
 

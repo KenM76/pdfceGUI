@@ -625,6 +625,52 @@ impl Driver {
     ///
     /// Modifiers are released by [`sys::key_stroke_with`] on every path; see
     /// its docs for why that is not merely tidy.
+    /// **Type an ASCII string, one real keystroke per character.**
+    ///
+    /// # ★★ Why this refuses rather than skipping what it cannot type
+    ///
+    /// It handles lowercase letters, uppercase letters (with Shift) and digits,
+    /// and returns an error for anything else. The alternative — silently
+    /// dropping a character it has no virtual-key code for — would type
+    /// `userp` where the caller asked for `userpw`, and the check would then
+    /// report the *application* as rejecting a correct password. A harness that
+    /// mistypes and blames the program is the worst failure available to it,
+    /// and this project has recorded several.
+    ///
+    /// ★ It is **real keystrokes through the OS**, not a seeded buffer. That is
+    /// the whole point: a password field is a focused `TextEdit` behind a real
+    /// viewport, and a check that wrote the string into memory would be
+    /// asserting about a program nobody can operate.
+    ///
+    /// # Errors
+    ///
+    /// If a character has no mapping, or a keystroke cannot be delivered.
+    pub fn type_ascii(&self, text: &str) -> Result<()> {
+        for ch in text.chars() {
+            match ch {
+                'a'..='z' => {
+                    // VK codes for letters are the ASCII codes of their
+                    // UPPERCASE forms; Shift is what distinguishes the case.
+                    self.press(ch.to_ascii_uppercase() as u16)?;
+                }
+                'A'..='Z' => {
+                    self.press_chord(&[crate::sys::vk::SHIFT], ch as u16)?;
+                }
+                '0'..='9' => {
+                    self.press(ch as u16)?;
+                }
+                other => {
+                    return Err(crate::error::Error::new(format!(
+                        "`type_ascii` has no key for {other:?}. It refuses rather than skipping, \
+                         because typing a shorter string than the caller asked for would make the \
+                         application look as though it had rejected correct input."
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub fn press_chord(&self, modifiers: &[u16], vk: u16) -> Result<()> {
         self.raise_and_confirm()?;
         sys::key_stroke_with(modifiers, vk);

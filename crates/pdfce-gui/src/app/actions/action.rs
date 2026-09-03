@@ -99,6 +99,30 @@ pub enum Action {
     /// and the operator's shell already resolved it.
     Open(std::path::PathBuf),
 
+    /// **Open a document that needs a password, with one.**
+    ///
+    /// Raised only by [`crate::dialogs::password::PasswordDialog`], which is the
+    /// only surface that can obtain a password. `OPERATOR_REQUESTS.md` O108.
+    ///
+    /// ★ **A separate variant rather than an `Option` on [`Self::Open`]**,
+    /// because `load(path)` and `load_with_password(path, Some(pw))` are
+    /// different requests and `Some("")` is a third — see
+    /// [`crate::app::lifecycle::PdfceApp::open_path_with_password`], which
+    /// carries the argument.
+    ///
+    /// ★★★ **The password travels in a [`crate::secret::Secret`]**, whose whole
+    /// purpose is a `Debug` that cannot print the value. That module's header
+    /// carries the hazard in full; the one-line version is that this enum
+    /// derives `Debug`, this crate traces to stderr, and `tools/ui-verify` keeps
+    /// that stderr as evidence. `dialogs::password` asserts it on *this variant*
+    /// rather than on the type alone.
+    OpenWithPassword {
+        /// The file to open.
+        path: std::path::PathBuf,
+        /// What the operator typed.
+        password: crate::secret::Secret,
+    },
+
     /// ★★★ **Put a completed recognition into the open document, as one
     /// undoable edit.**
     ///
@@ -525,14 +549,15 @@ pub enum Action {
     // raster keyed on a page index, the canvas selection's page identity and
     // the panel's own picks, all at once, and a missed one is a stale picture
     // or a verb aimed at the wrong sheet.
-    /// **Author one markup annotation on `page`**, from the drag that drew it.
+    /// **Author one markup annotation on the page** — the release of a band
+    /// drag, the release of a freehand stroke, or the ending of a vertex run.
     ///
-    /// Raised by [`crate::canvas::markup::drag`] when a markup band is
-    /// released, and by nothing else — there is no path from a ribbon button to
-    /// an annotation, which is the whole point of the substrate. A `markup.*`
-    /// command *arms a tool*; the tool draws; the drag raises this.
+    /// ★ Raised by [`crate::canvas::markup`]'s gesture paths and by nothing on
+    /// the ribbon. A `markup.*` command *arms a tool*; the tool draws; the
+    /// gesture raises this. There is no path from a button to an annotation,
+    /// which is the whole point of the substrate.
     ///
-    /// # ★ Why that matters more here than for any other action
+    /// # ★★★ Why an action carries the geometry rather than deriving it
     ///
     /// The old shell had the other arrangement and it produced the defect the
     /// markup work exists to fix: its `Action::AddMarkupShape` derived a
@@ -546,11 +571,11 @@ pub enum Action {
     ///
     /// # Units, and why the endpoints are RAW
     ///
-    /// `start` and `end` are **PDF user-space** points, Y-**up**, produced by
-    /// [`crate::canvas::markup::endpoints`] — the one place a markup drag
-    /// crosses out of canvas space. They are the drag's endpoints **in drag
-    /// order**, deliberately un-normalised: for an arrow, `start` is the tail
-    /// and `end` is the head, and normalising them into a rectangle here would
+    /// Endpoints are **PDF user-space** points, Y-**up**, produced by
+    /// [`crate::canvas::markup::endpoints`] — the one place a markup gesture
+    /// crosses out of canvas space — and they are in **gesture order**,
+    /// deliberately un-normalised: for an arrow the first is the tail and the
+    /// second is the head, and normalising them into a rectangle here would
     /// silently reverse every arrow drawn up-and-left or up-and-right.
     /// [`crate::canvas::markup::spec`] normalises per kind, at the one moment a
     /// rectangle is actually needed, and carries the full argument.
@@ -562,8 +587,6 @@ pub enum Action {
     /// Re-deriving the page from `doc.view.page_index` in the apply would be a
     /// second source of truth that is right until a page step raised in the
     /// same frame is applied first.
-    /// **Author one markup annotation on the page** — the release of a band
-    /// drag, the release of a freehand stroke, or the ending of a vertex run.
     ///
     /// # ★ Why THREE gestures share one variant, where text markup got its own
     ///
@@ -823,42 +846,12 @@ pub enum Action {
     ///
     /// Raised by `crate::panels::properties::info` and by nothing else.
     ///
-    /// # Why `Option<String>` and not `String`
-    ///
-    /// Because `None` is a different edit, not an empty one.
-    /// `EditSession::set_info_field(field, None)` **removes the key** from the
-    /// `/Info` dictionary; `Some("")` writes an empty string object. A
-    /// document with no title and a document whose title is the empty string
-    /// are different files, and the first is what an operator means by
-    /// deleting the contents of a box.
-    ///
-    /// Collapsing the two — taking a `String` and treating empty as clear —
-    /// would work today and would make the distinction unrepresentable, which
-    /// is the shape `pdfce-core`'s own `Some(Tolerance::None)` vs `None` note
-    /// warns about one feature along.
-    ///
-    /// # Why it goes through the funnel when the edit is one dictionary entry
-    ///
-    /// Not for size — for **ordering and the undo log**. It is a document
-    /// change like any other, and the funnel is what makes it appear once in
-    /// the command log, bump the epoch once, and be undone by one `Ctrl+Z`.
-    ///
-    /// ★ And the epoch bump is load-bearing here in a way it is not elsewhere:
-    /// the panel re-seeds its text drafts whenever the epoch moves, which is
-    /// what makes `Ctrl+Z` visibly restore the old value in the box. Applying
-    /// this outside the funnel would leave the box holding a string the
-    /// document no longer has, and the next focus change would write it back —
-    /// an undo the panel silently reverses.
-    ///
-    /// # A no-op writes nothing, and that is the ENGINE's rule
-    ///
-    /// `set_info_field` records **zero** undo entries when a field is set to
-    /// the value it already has, or cleared when it is already absent
-    /// (`docs/core-api/02-editing-and-saving.md` §T-13). The surface guards it
-    /// too — see `panels::forms::rows::commit`, which this action's raiser
-    /// calls — so a no-op cannot normally reach here at all. Both guards are
-    /// deliberate: the engine's makes it safe, and the surface's is what stops
-    /// tabbing through a field from looking like an edit.
+    /// ★ **`Option<String>` is not a defaulted `String`** — `None` REMOVES the
+    /// key from `/Info` and `Some("")` writes an empty string object, which are
+    /// different files. And it goes through the funnel for the undo log rather
+    /// than for size: the panel re-seeds its text drafts on an epoch bump, which
+    /// is what makes `Ctrl+Z` visibly restore the old value in the box. Both
+    /// arguments in full: [`crate::panels::properties::info`].
     SetInfoField {
         /// Which field. The engine's own enum, carried unchanged, so a field
         /// added to `pdfce-core` reaches this variant without a translation

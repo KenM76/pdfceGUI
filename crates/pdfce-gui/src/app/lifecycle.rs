@@ -76,7 +76,98 @@ impl PdfceApp {
             self.activate_slot(slot);
             return;
         }
-        let incoming = match Document::load(&path) {
+        self.open_path_inner(path, None);
+    }
+
+    /// **Open a document that needs a password, with one** — `Action::OpenWithPassword`.
+    ///
+    /// `OPERATOR_REQUESTS.md` O108. The retry half of [`Self::open_path`], and
+    /// its only caller is the dispatch of the action
+    /// [`crate::dialogs::password::PasswordDialog`] raises.
+    ///
+    /// # ★★ Why the two are one function underneath
+    ///
+    /// Because everything after the load is identical — the page-tree check, the
+    /// three-way failure branch, the settings funnel, the new tab, the adopt —
+    /// and the *only* difference is which loading verb is called. Two copies
+    /// would be two places to update when the failure branch grows a fourth
+    /// case, and this shell has already paid once for a predicate with two
+    /// claimants (`text_edit_focused`, which cost the Delete key and then the
+    /// space bar).
+    ///
+    /// # ★★★ `Some(pw)` and `None` are different requests, not a defaulted one
+    ///
+    /// `Document::load(path)` means *"try the empty user password, then give
+    /// up"* — which every conforming reader does silently before prompting.
+    /// `load_with_password(path, Some(pw))` means *"try this one"*. So a caller
+    /// with nothing to offer passes `None` and gets the silent attempt; the
+    /// prompt refuses an empty box locally rather than passing `Some(b"")`,
+    /// because that would ask the engine a question it has already answered and
+    /// return a rejection the operator reads as *"my password was wrong"*.
+    ///
+    /// # Returns
+    ///
+    /// Why the password did not work, or `None` when the document opened.
+    pub fn open_path_with_password(
+        &mut self,
+        path: PathBuf,
+        password: &crate::secret::Secret,
+    ) -> Option<crate::dialogs::password::Rejection> {
+        // ★★ The `NeedsPassword` TAB is closed first, and it must be.
+        //
+        // `slot_of_path` matches `NeedsPassword` deliberately — a failed open
+        // still occupies a tab so the operator can see why — and
+        // `open_path_inner` adds a NEW slot. Without this the successful retry
+        // would leave two tabs over one path: one showing the document and one
+        // still saying it needs a password. `open_path`'s guard cannot be reused
+        // here for the same reason: it would find that tab and "activate" it,
+        // which shows the operator the failure they are trying to get past.
+        if let Some(slot) = self.slot_of_path(&path) {
+            self.close_slot(slot);
+        }
+        self.open_path_inner(path, Some(password))
+    }
+
+    /// The shared body of [`Self::open_path`] and [`Self::open_path_with_password`].
+    ///
+    /// See the latter for why the two share one, and for what `None` means as
+    /// distinct from `Some` of an empty password.
+    ///
+    /// # Returns
+    ///
+    /// Why the supplied password did not work, when one was supplied and it did
+    /// not. `None` on success **and** on every failure that is not about the
+    /// password, because the prompt has nothing to say about a damaged file.
+    ///
+    /// ★★ The two password failures are carried out separately rather than
+    /// collapsed into "it did not open", and `pdfce-core` went to some trouble
+    /// to make that possible: `PasswordRequiresNormalisation` exists, in its own
+    /// words, *"so that failure does not masquerade as `PasswordRequired`'s 'you
+    /// typed it wrong', which would send the operator to re-check a password
+    /// that was correct."* Flattening them here would undo that on the last
+    /// step, which is the only step the operator sees.
+    fn open_path_inner(
+        &mut self,
+        path: PathBuf,
+        password: Option<&crate::secret::Secret>,
+    ) -> Option<crate::dialogs::password::Rejection> {
+        let loaded = match password {
+            Some(pw) => Document::load_with_password(&path, Some(pw.expose())),
+            None => Document::load(&path),
+        };
+        // Captured before the `match` consumes the error, because the branch
+        // below folds both password errors into one `Status` — which is right
+        // for the tab and loses the distinction the prompt needs.
+        let rejection = match (&loaded, password.is_some()) {
+            (Err(DocError::PasswordRequired), true) => {
+                Some(crate::dialogs::password::Rejection::Wrong)
+            }
+            (Err(DocError::PasswordRequiresNormalisation), true) => {
+                Some(crate::dialogs::password::Rejection::NeedsNormalisation)
+            }
+            _ => None,
+        };
+        let incoming = match loaded {
             Ok(doc) => match pdfce_core::page_tree::pages(&doc) {
                 Ok(pages) => {
                     // ★ `open_session`, not `EditSession::new` — the settings
@@ -120,6 +211,7 @@ impl PdfceApp {
         // statement in `adopt` reads.
         self.park_and_adopt(incoming);
         self.adopt();
+        rejection
     }
 
     /// **Make a blank document and show it, in a tab of its own.**

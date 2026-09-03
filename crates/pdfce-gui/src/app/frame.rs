@@ -844,6 +844,23 @@ impl eframe::App for PdfceApp {
         // list. That is `DEFECTS.md` D5 made unrepresentable — see
         // `dialogs::shortcuts` — and it is why this call takes two arguments
         // that no other dialog reads.
+        // ★★★ The password prompt is driven by the document's STATE, not by an
+        // event, and that is what makes it robust.
+        //
+        // `Status::NeedsPassword` is a state a document sits in until it is
+        // resolved, so asking here — every frame, idempotently on the path —
+        // means the prompt appears whether the document arrived from the Open
+        // dialog, from a command-line argument, from a recent-files entry or
+        // from a tab the operator switched back to. An event-driven prompt
+        // would have to be raised at each of those sites and would be missing
+        // from whichever one was added last.
+        //
+        // `ask_for_password` returns immediately when it is already asking for
+        // this path, so calling it unconditionally costs one comparison.
+        if let Status::NeedsPassword { path } = &self.status {
+            let path = path.clone();
+            self.dialogs.ask_for_password(&path);
+        }
         let keymap = self.shell.as_ref().and_then(|s| s.keymap.as_ref());
         self.dialogs.show(
             &ctx,

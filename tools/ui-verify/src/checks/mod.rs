@@ -320,6 +320,10 @@ pub mod page_clipboard;
 /// program has never seen.
 pub mod page_display_pref;
 pub mod page_ops;
+/// The capability the security audit found missing: an encrypted PDF could not
+/// be opened at all. Its phase D reads the harness's own captured trace and
+/// asserts the password is not in it.
+pub mod password_prompt;
 /// ★★ **Closing the program asks before losing unsaved work** —
 /// `OPERATOR_REQUESTS.md` O102. It drives the one state no other check ever
 /// constructed: a document with an unsaved edit at the moment of close.
@@ -897,6 +901,10 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // `markup_rectangle`'s failure first.
         Box::new(markup_style::MarkupStyleGroupIsDrawn),
         Box::new(measure_perimeter::MeasurePerimeterTracesAndCloses),
+        // ★ Early, and deliberately: it is the cheapest possible statement of
+        // "can this program open the file at all", and a failure here changes
+        // what every later failure on an encrypted document would mean.
+        Box::new(password_prompt::AnEncryptedDocumentCanBeOpenedWithItsPassword),
         Box::new(measure_linear::MeasureLinearPlacesADimension),
         // Beside the linear check: same tab, same arming path, and a reader
         // comparing two measure verdicts wants them together. It pins its own

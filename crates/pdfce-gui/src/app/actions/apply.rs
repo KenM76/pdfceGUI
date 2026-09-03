@@ -122,6 +122,13 @@ impl PdfceApp {
                 self.apply_open(path);
                 return;
             }
+            // Beside `Open`, and returning like it: both replace what is on
+            // screen with a freshly loaded document, so neither may fall through
+            // to the edit-epoch bookkeeping below — there is no edit here.
+            Action::OpenWithPassword { path, password } => {
+                self.apply_open_with_password(path, &password);
+                return;
+            }
             Action::New => {
                 self.apply_new();
                 return;
@@ -293,6 +300,7 @@ impl PdfceApp {
             // ui-text-exempt: a panic message, read from a stack trace by
             // whoever moved one of these two arms. Never rendered.
             Action::Open(_)
+            | Action::OpenWithPassword { .. }
             | Action::New
             | Action::NewSized { .. }
             | Action::Close

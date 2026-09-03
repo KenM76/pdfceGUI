@@ -98,6 +98,11 @@ pub mod panels;
 // overwrites the file it came from.
 pub mod redact;
 pub mod render;
+/// A string the operator typed that must never reach a log — one type, and its
+/// whole reason for existing is its `Debug`. See its header: a `{:?}` on an
+/// action carrying a password writes it into the trace file `tools/ui-verify`
+/// keeps as evidence.
+pub mod secret;
 // The pdfce shell definition — the seven-tab ribbon, three modes, QAT and
 // keymap, expressed as DATA over `egui-shell`'s manifest types rather than
 // as rendering code. See SHELL_FRAMEWORK.md; this module is the sole
