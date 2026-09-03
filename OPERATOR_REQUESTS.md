@@ -96,6 +96,83 @@ in commit messages, where you cannot see them and a cold session does not look.
 back-filled, and are marked as back-filled so the dates are not read as evidence
 of a process that worked.
 
+## O104 — ⬜ **INVESTIGATED 2026-09-03** — a selection cannot be narrowed once it is made
+
+**Ken, 2026-09-03:** *"also I can't unselect things once I have selected them
+for redaction."*
+
+### What we measured, before proposing anything
+
+| route | what it does today |
+|---|---|
+| **Shift + click** an already-selected object | **toggles it out.** This works. |
+| **Shift + drag a band** over a selection | **only ADDS.** There is no way to subtract with a band. |
+| **Ctrl** anything | **nothing at all.** `canvas::interact` reads `i.modifiers.shift` and no other modifier. |
+| a placed `/Redact` mark | selectable on the canvas, and Delete routes to the engine's `delete_redaction_mark`; the Redact panel also lists every mark with a **Remove** button |
+
+### ★★★ So the capability exists and the ROUTE HE REACHED FOR DOES NOT
+
+Two things are wrong and they compound:
+
+1. **Ctrl does nothing.** He is a SolidWorks user; in SolidWorks, in Windows
+   Explorer, and in almost every list on this operating system, **Ctrl+click is
+   the toggle**. Reaching for it and getting a fresh single selection instead —
+   which is what a plain click does — reads exactly as *"I can't unselect
+   things"*.
+2. **A band can only add.** On a CAD sheet with hundreds of overlapping strokes,
+   picking one object out of a selection by clicking it precisely is often not
+   practical; a band is how you work. Ours has no subtract.
+
+⇒ **This is a discoverability failure first and a capability gap second**, and
+the standing rule is to fix the route that failed him *and* ship the literal
+ask. See the plan below the O103 row.
+
+---
+
+## O103 — ⬜ **FILED TO THE ENGINE 2026-09-03** — redaction refuses any region that touches an image
+
+**Ken, 2026-09-03:** *"every time I've tried the redact feature it tells me it
+can't because there is objects that weren't redacted."*
+
+**Reproduced with `pdfce-cli` alone, so it is not ours.** He supplied eleven
+drawings in `OneDrive\pdfTests\Redact\`. Nine redact cleanly. The two carrying
+images refuse the moment the marked rectangle **touches** one:
+
+> `redaction refused: redaction region on page 1 intersects an image; pdfce
+> cannot yet destroy image pixels (clipping or masking would leave them
+> recoverable, ISO 32000-1 §12.5.6.23) — apply refused rather than producing a
+> false redaction`
+
+★★ **The gate is the mark's RECTANGLE, not the pixels it would remove**, and
+that is what makes it bite so hard on his documents:
+
+* **"Mark whole page" can never be applied** on any sheet with a logo or a
+  scanned stamp — one of our three marking routes is dead on this class of file.
+* A title-block value inches from a logo clips its bounding box and refuses.
+* It is **all-or-nothing for the document**: twelve good regions and one that
+  grazes a logo redacts nothing.
+
+⇒ Which is exactly *"every time I've tried"*. He was not doing anything unusual.
+
+### What we asked for, in preference order
+
+`request_redaction_refuses_any_region_that_touches_an_image.md` — (1) gate on
+the pixels rather than the bounding boxes; (2) **remove an image that is wholly
+covered**, which needs no pixel surgery and is the common "redact this logo"
+case; (3) **refuse per region, not per document**, so twelve good marks apply
+and the one that cannot is disclosed as a residual like every other carrier.
+
+★ (3) is the one that unblocks him today even if the others are expensive.
+
+### ⬜ What we are doing on our side, which is disclosure and not a workaround
+
+Warning at **mark** time when a region intersects an image, so the refusal
+arrives when the rectangle is drawn rather than after twelve marks and an Apply.
+The content still cannot be redacted; he just finds out at the moment he can do
+something about it.
+
+---
+
 ## O102 — ✅ **DRIVEN 2026-09-02** — closing asks about unsaved work, document by document
 
 **Ken, 2026-09-02:**
