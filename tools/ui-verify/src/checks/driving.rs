@@ -453,66 +453,249 @@ pub fn declared_names(trace: &Trace, ui_rect: &str, prefix: &str) -> Vec<String>
 ///
 /// If the captured stderr cannot be read at all.
 /// The control that holds the groups a narrow ribbon could not fit.
+///
+/// ★★ The name is a fossil that was kept on purpose. Until 2026-08-25 this was
+/// a `⏷ N more` **dropdown**; it is now the **right scroll arrow**, and
+/// `egui-shell`'s `ribbon::overflow` explains at length why the published name
+/// did not change with the mechanism — four checks name it and what they assert
+/// about it is still true. What *is* no longer true is the mental model a
+/// reader brings to the word "overflow", and that cost this project three false
+/// SKIPs. See [`declared_or_in_overflow`].
 pub const OVERFLOW: &str = "ribbon.overflow";
 
-/// **Find a ribbon item, opening the overflow if that is where it went.**
+/// The arrow that scrolls the band back towards its **first** group.
+///
+/// Drawn only while the band is scrolled off its start, so its presence is the
+/// predicate *"this band is not at position zero"* — which is how `rewind_band`
+/// knows when to stop.
+pub const SCROLL_LEFT: &str = "ribbon.scroll.left";
+
+/// How many band scrolls this helper performs before it gives up.
+///
+/// A bound rather than a `while true`, because a harness that hangs reports
+/// nothing at all. It is deliberately far above any real tab — the widest tab
+/// in `RIBBON_IA.md` has nine groups — so hitting it is a defect in the
+/// application (an arrow that never retires) rather than a tab this helper
+/// cannot search, and the two must not be confused.
+const MAX_BAND_SCROLLS: usize = 32;
+
+/// **Find a ribbon item wherever the responsive band has put it.**
 ///
 /// ★ The fix for a whole class of false SKIPs, and it is worth understanding
 /// why they were false rather than treating this as a convenience.
 ///
 /// The harness drives a **1100 pt** window. At that width the ribbon correctly
-/// folds its rightmost groups into an overflow menu — that is the responsive
-/// behaviour working, not failing. A check that looked only at the tab surface
-/// then reported *"no `ribbon.item.file.print` region on the File tab"*, which
-/// is true and reads as *"the command is missing"*, which is false. It cost
-/// `print_dialog_reaches_the_spooler` a standing FAIL that was written up as a
-/// harness gap and left, and it would have cost `about` the same.
+/// re-wraps, collapses and finally scrolls its rightmost groups — that is the
+/// responsive behaviour working, not failing. A check that looked only at the
+/// tab surface then reported *"no `ribbon.item.file.print` region on the File
+/// tab"*, which is true and reads as *"the command is missing"*, which is
+/// false. It cost `print_dialog_reaches_the_spooler` a standing FAIL that was
+/// written up as a harness gap and left, and it would have cost `about` the
+/// same.
 ///
-/// So: look on the tab; if it is not there and an overflow control is, click
-/// the overflow and look again. A caller gets `None` only when the item is
-/// genuinely absent from both, which is the finding it meant to make.
+/// # ★★★ The overflow is a SCROLL, not a menu — and this helper did not know
+///
+/// Corrected 2026-09-03, and the shape is the one this project keeps meeting:
+/// **prose and mechanism agreed when the prose was written, and then the
+/// mechanism changed underneath it.**
+///
+/// This helper was written against the `⏷ N more` **dropdown**: click it once
+/// and *everything* hidden appears at once, so one click is the whole search.
+/// On 2026-08-25 the dropdown became a Word-style `›` arrow on the operator's
+/// instruction, and one click now moves the band by **exactly one group**
+/// (`egui-shell`'s `ribbon::band` — `set_first(.., scrolled + 1)`). The helper
+/// kept clicking once, and — the part that actually bit — looked at the band
+/// **bare** afterwards, having searched collapsed groups only at the band's
+/// starting position. So the hole was *any command needing a collapsed group
+/// opened at a stop past the first*, which is a superset of "two or more
+/// scrolls" and is what the three checks below actually met. Either way the
+/// command was reported absent, with a confident message naming it.
+///
+/// It was measured on 2026-09-02: `about_reports_the_build`,
+/// `shortcuts_reference_is_live` and `properties_metadata_round_trips` all
+/// SKIPPED reporting a lost command, on a File tab whose **Document** and
+/// **pdfce** groups were two and three scroll stops away. All three were worked
+/// around with `session.maximize()` — a workaround that is fine for those three
+/// and does nothing for the next check to meet this.
+///
+/// ⇒ The published *name* being a stability contract is right, and it is
+/// exactly what made this survive: nothing renamed, nothing failed to compile,
+/// and the one caller that would have noticed reported the application as
+/// broken instead.
+///
+/// # What it does now
+///
+/// 1. Look where the band is standing. Return immediately if the item is
+///    there — the overwhelmingly common case, and it costs one trace read.
+/// 2. Otherwise **rewind** the band to its first group, so the search covers
+///    the whole row rather than the part of it to the right of wherever a
+///    previous call left it. ★ This is what makes the helper *idempotent*:
+///    without it, a check that asks for an item in the last group and then for
+///    one in the first would be told the second does not exist.
+/// 3. Walk left to right one stop at a time. At each stop, look on the band,
+///    then open each **collapsed** group in turn and look inside it.
+/// 4. Give up only when the right arrow has retired — the band is showing its
+///    last group — and rewind before answering, so a `None` leaves the ribbon
+///    where it was found.
 ///
 /// # Why this returns the rect rather than clicking
 ///
 /// Because *"where is it"* and *"press it"* are different decisions, and some
-/// callers want to measure a control rather than invoke it. The overflow is
-/// left OPEN on return, which is what a caller that is about to click wants;
-/// a caller that is not can dismiss it with Escape.
+/// callers want to measure a control rather than invoke it. On success the band
+/// is left **scrolled to where the item is visible** and a collapsed group's
+/// popup is left **open**, which is what a caller that is about to click wants;
+/// a caller that is not can dismiss the popup with Escape.
+///
+/// # Errors
+///
+/// If the trace cannot be read, or a click cannot be delivered.
 pub fn declared_or_in_overflow(
     session: &Session,
     driver: &crate::input::Driver,
     ui_rect: &str,
     name: &str,
 ) -> Result<Option<LRect>> {
-    let trace = session.trace()?;
-    if let Some(rect) = declared(&trace, ui_rect, name) {
-        return Ok(Some(rect));
+    Ok(search_the_band(session, driver, ui_rect, name)?.0)
+}
+
+/// **How far [`search_the_band`] had to go** to answer.
+///
+/// # ★★★ Why the search is instrumented at all
+///
+/// Because otherwise the fix to the one-click bug is **unfalsifiable from
+/// outside**. Every existing caller asks a yes/no question — *is the command
+/// reachable* — and on a correct build the answer is `Some` whether the helper
+/// scrolled once or five times. A check written against that answer alone would
+/// pass just as happily on the broken build for any command that happens to sit
+/// one stop past the fold, which is most of them.
+///
+/// `scrolls` is the number the assertion wants: a run that found the item after
+/// **two or more** stops is a run the single-click implementation could not have
+/// completed. See `crate::checks::band_scroll`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BandSearch {
+    /// Right-arrow clicks — how many groups the band was moved on by.
+    pub scrolls: usize,
+    /// Left-arrow clicks, across both rewinds.
+    pub rewinds: usize,
+    /// Collapsed-group popups opened while looking.
+    pub popups: usize,
+    /// Whether the item was found without moving the band at all.
+    pub found_where_it_stood: bool,
+    /// Whether the item only became visible when a **collapsed group's popup**
+    /// was opened, as opposed to being on the band at that stop.
+    ///
+    /// ★★★ With [`Self::scrolls`], this is the pair that says *"the old
+    /// single-click search could not have completed this run"*, and it is the
+    /// pair rather than either half. Measured 2026-09-03: at 1,100 pt the File
+    /// tab's About sits **one** scroll away and **inside a collapsed group** —
+    /// so a `scrolls >= 2` assertion alone would have skipped, and a
+    /// `found_in_popup` assertion alone would be satisfied by a popup at the
+    /// band's starting position, which the old code searched perfectly well.
+    ///
+    /// The old order was: popups at stop 0, one scroll, then a **bare** look at
+    /// the band. Anything needing a popup at any stop past the first was
+    /// therefore invisible to it, and that is precisely what happened to About,
+    /// Shortcuts and Properties.
+    pub found_in_popup: bool,
+}
+
+/// [`declared_or_in_overflow`], reporting how it got there.
+///
+/// The whole search lives here and the plain form is a one-line wrapper, so
+/// there is exactly one implementation and the instrumented answer describes
+/// the code every caller runs. Two implementations would be two behaviours the
+/// day one of them was edited.
+///
+/// # Errors
+///
+/// If the trace cannot be read, or a click cannot be delivered.
+pub fn search_the_band(
+    session: &Session,
+    driver: &crate::input::Driver,
+    ui_rect: &str,
+    name: &str,
+) -> Result<(Option<LRect>, BandSearch)> {
+    let mut seen = BandSearch::default();
+
+    // Step 1. Where the band already stands. Deliberately before the rewind:
+    // an item that is on screen is on screen, and moving the band to find
+    // something already found would change coordinates for no reason.
+    if let Some(rect) = declared(&session.trace()?, ui_rect, name) {
+        seen.found_where_it_stood = true;
+        return Ok((Some(rect), seen));
     }
 
-    // ★★★ A COLLAPSED GROUP IS A THIRD PLACE A COMMAND CAN BE, and until
-    // 2026-08-26 this helper knew about two.
-    //
-    // S3 gave the band a middle rung: when it runs short of width a whole group
-    // folds into a single captioned button, its items reachable through that
-    // button's popup. They are on the ribbon, they are one click away — and
-    // they **publish no rect**, exactly like an overflowed group's, which is
-    // why this helper existed at all.
-    //
-    // `export_dxf_writes_the_pages_geometry` went red on it and the failure
-    // read as a lost command: *"the File tab declares no
-    // `ribbon.item.file.export_dxf`, on the band or in the overflow."* The
-    // command was not lost. The harness was asking about two of the three
-    // places it could be, and the window the harness opens is 1,100 pt wide —
-    // precisely the width at which the Export group collapses.
-    //
-    // ★ Tried BEFORE the scroll affordance below, because it is
-    // non-destructive: opening a popup and reading it changes nothing about
-    // the band, whereas scrolling moves it and every rect measured afterwards.
+    // Step 2. Level the band, so "not found" means "not on this tab" rather
+    // than "not to the right of where the last caller left things".
+    seen.rewinds += rewind_band(session, driver, ui_rect)?;
+
+    // Step 3. One stop at a time.
+    for _ in 0..=MAX_BAND_SCROLLS {
+        let (found, popups) = at_this_stop(session, driver, ui_rect, name)?;
+        seen.popups += popups;
+        if let Some((rect, via_popup)) = found {
+            seen.found_in_popup = via_popup;
+            return Ok((Some(rect), seen));
+        }
+        let trace = session.trace()?;
+        let Some(arrow) = declared(&trace, ui_rect, OVERFLOW) else {
+            // The right arrow has retired: the band is showing its last group,
+            // so there is nowhere further to look. Step 4.
+            break;
+        };
+        driver.click_at(frame_of(session, &trace, ui_rect, OVERFLOW)?.declared_center(arrow))?;
+        session.settle(16);
+        seen.scrolls += 1;
+    }
+
+    seen.rewinds += rewind_band(session, driver, ui_rect)?;
+    Ok((None, seen))
+}
+
+/// Look for `name` with the band where it is standing, opening every collapsed
+/// group on it in turn.
+///
+/// ★★★ A COLLAPSED GROUP IS A THIRD PLACE A COMMAND CAN BE, and until
+/// 2026-08-26 the caller knew about two.
+///
+/// S3 gave the band a middle rung: when it runs short of width a whole group
+/// folds into a single captioned button, its items reachable through that
+/// button's popup. They are on the ribbon, they are one click away — and they
+/// **publish no rect**, exactly like a scrolled-away group's, which is why this
+/// search exists at all.
+///
+/// `export_dxf_writes_the_pages_geometry` went red on it and the failure read
+/// as a lost command: *"the File tab declares no
+/// `ribbon.item.file.export_dxf`, on the band or in the overflow."* The command
+/// was not lost. The harness was asking about two of the three places it could
+/// be, and the window the harness opens is 1,100 pt wide — precisely the width
+/// at which the Export group collapses.
+///
+/// ★ It is checked at **every scroll stop**, not once, because collapsing
+/// happens before scrolling: a group that scrolls into view can arrive already
+/// collapsed, and looking for its items on the band would find nothing.
+///
+/// # Errors
+///
+/// If the trace cannot be read, or a click cannot be delivered.
+fn at_this_stop(
+    session: &Session,
+    driver: &crate::input::Driver,
+    ui_rect: &str,
+    name: &str,
+) -> Result<(Option<(LRect, bool)>, usize)> {
+    let trace = session.trace()?;
+    if let Some(rect) = declared(&trace, ui_rect, name) {
+        return Ok((Some((rect, false)), 0));
+    }
+    let mut popups = 0;
     for group in collapsed_groups(&trace, ui_rect) {
         driver.click_at(session.frame()?.declared_center(group))?;
         session.settle(16);
+        popups += 1;
         if let Some(rect) = declared(&session.trace()?, ui_rect, name) {
-            return Ok(Some(rect));
+            return Ok((Some((rect, true)), popups));
         }
         // Shut it again, so the next candidate is not clicked through an open
         // popup — and so a caller that goes on to measure the band sees the
@@ -520,13 +703,33 @@ pub fn declared_or_in_overflow(
         driver.press(crate::sys::vk::ESCAPE)?;
         session.settle(8);
     }
+    Ok((None, popups))
+}
 
-    let Some(overflow) = declared(&trace, ui_rect, OVERFLOW) else {
-        return Ok(None);
-    };
-    driver.click_at(session.frame()?.declared_center(overflow))?;
-    session.settle(16);
-    Ok(declared(&session.trace()?, ui_rect, name))
+/// Scroll the band back to its first group, and leave it there.
+///
+/// The left arrow is drawn **only** while the band is scrolled off its start
+/// (`egui-shell`'s `ribbon::band`: `if scrolled > 0`), so its absence is the
+/// termination condition rather than a count this helper would have to keep in
+/// step with the application's.
+///
+/// ★ On a band that is already at position zero this costs one trace read and
+/// no clicks, which is why `declared_or_in_overflow` can call it
+/// unconditionally.
+///
+/// # Errors
+///
+/// If the trace cannot be read, or a click cannot be delivered.
+fn rewind_band(session: &Session, driver: &crate::input::Driver, ui_rect: &str) -> Result<usize> {
+    for clicks in 0..MAX_BAND_SCROLLS {
+        let trace = session.trace()?;
+        let Some(arrow) = declared(&trace, ui_rect, SCROLL_LEFT) else {
+            return Ok(clicks);
+        };
+        driver.click_at(frame_of(session, &trace, ui_rect, SCROLL_LEFT)?.declared_center(arrow))?;
+        session.settle(16);
+    }
+    Ok(MAX_BAND_SCROLLS)
 }
 
 /// Every collapsed group's button on the current tab, in the order reported.

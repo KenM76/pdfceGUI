@@ -604,6 +604,10 @@ pub mod attachment_clip;
 /// an embedded file changes no pixel, so a truncated stream has no visible
 /// symptom at all.
 pub mod attachments;
+/// ★ The harness's own ribbon search, driven: a command two scroll stops past
+/// the fold is still reachable. Its header records a HARNESS defect that
+/// reported the application as broken for eight days.
+pub mod band_scroll;
 /// A bookmark can be written into a document that has no outline.
 /// ★★ **The cursor walks between blocks of text** — salvage from the shell this
 /// project replaces, on the operator's report of 2026-08-21. Its header carries
@@ -1155,6 +1159,11 @@ pub fn all() -> Vec<Box<dyn Check>> {
         // a run: it launches with NO document, it opens one window, and it
         // asserts on a trace rather than on pixels. It is also cheap.
         Box::new(shortcuts::ShortcutsReferenceIsLive),
+        // ★ Immediately after the two checks whose SKIPs found the defect it
+        // exists for. Both of those now maximise the window and are green;
+        // this one deliberately does NOT, so the narrow band they used to
+        // trip over is still driven by something every run.
+        Box::new(band_scroll::ACommandTwoScrollStopsAwayIsStillReachable),
         Box::new(block_nav::ArrowKeysWalkBetweenBlocks),
         Box::new(dialog_windows::DialogsOpenInTheirOwnWindow),
         Box::new(draft_selection::ShiftArrowsSelectText),
