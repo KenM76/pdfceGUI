@@ -1,5 +1,94 @@
 # CONTINUE — handoff
 
+## 2026-09-03 — his dimensioning tool measured the wrong thing, and redaction now works
+
+### ★★★ The radius/diameter tool was picking OBJECTS, and one object is half his sheet
+
+His report: *"selecting a point sometimes makes a big circle, and selecting more
+points around a hole doesn't always get it to narrow down to the size of the
+hole."*
+
+`canvas::measure::circular::click` hit-tested for a **PDF path object** and fed
+`object_sample_points` — *every anchor of every subpath of that object* — to
+Taubin's fit. Measured on his own drawing with `pdfce-cli object-list`:
+
+| `SW41177.pdf` p1 | anchors | subpaths | bbox |
+|---|---:|---:|---|
+| object 5870 | **6,681** | 1,194 | 550 × 500 pt |
+| object 832 | 4,972 | 881 | 318 × 262 pt |
+| object 2027 | 4,405 | 950 | 318 × 543 pt |
+
+One click therefore handed the fit six thousand points scattered over half the
+drawing. **Not intermittent** — it depends on whether the hole's arc happens to
+be its own small object or one subpath among 1,194, which he cannot see and has
+no reason to think about.
+
+★★ **That number was already in this repository**, in decision 028's
+Objects-panel note, *thirty lines below the function that produces it*.
+
+★★★ **And the tool's own instruction had been telling him to do the right thing
+all along** — `measure_instruction(Circular)` reads *"Click three or more points
+around the arc"*. Prose and mechanism disagreeing, with the prose describing the
+better design.
+
+**Now a click is one point**, routed THROUGH the snap machinery it used to be
+deliberately routed around. The old argument for going around it ("the pick
+commits no point, it toggles an object") was sound and its premise is gone. The
+Tool panel lists the set, one removable row per point, and reports the live
+radius so the number can be watched converging. `pick.rs` hit R2 so the set moved
+to `circpick.rs`; the outline channel through `resolve::frame` → `interact` →
+`painting` is gone entirely, because a point set needs no decomposition.
+
+⇒ **Driven by `three_clicks_round_a_hole_measure_the_hole`, on a fixture built to
+carry the defect.** `fixtures/hole-in-a-big-object.pdf` is ONE path object
+holding a 30 pt circle *and* forty unrelated segments — because on a document
+whose circles are their own objects the defect **cannot occur** and the broken
+build passes. Falsified twice: `radius 299.78`, and an inert panel row.
+
+★ **Not rebuilt, deliberately:** "click the circle once and be done", which is
+worth having back at **subpath** granularity. O105 records it as a decision.
+
+### ✅ Redaction: the engine answered in hours, twice, and went past the ask
+
+v0.26.0 then v0.27.0, both 2026-09-03. Samples-not-bounding-boxes; pixels
+destroyed; per-MARK retention instead of per-document refusal; **and vector lines
+cut at the region boundary**, which we never reported — the engine found it by
+rendering his `17036-15` before and after. Our side: the mark-time sentence
+re-worded, the image outcome and the cut geometry in the report, three new
+residuals in the acknowledgement list with `marks_retained` first.
+
+### ★★★ The finding to carry: the same paragraph was wrong twice in one morning
+
+1. Written from `D:\Dev\pdfce`'s **working tree**, describing cutting the engine
+   had not committed. The compiler caught it — a field did not exist on our pin.
+2. Corrected to *"vector-path redaction is not implemented this build"*, citing
+   the pinned hash, **with a careful paragraph on why the dirty tree must not be
+   trusted**. Within the hour v0.27.0 shipped and the correction became false.
+
+⇒ Not *"don't read the engine's source"* — version 2 was accurate about the
+revision it named. **A sentence about what the engine cannot do is a dated
+citation with a shelf life measured in hours.** The unit test asserting the same
+claim went red the moment the engine shipped, which is the behaviour a paragraph
+cannot have. **Where the claim can be an assertion, make it one.**
+
+### ★★ Also: the harness's ribbon search was still looking for a MENU
+
+`declared_or_in_overflow` clicked the overflow **once** — correct when it was a
+dropdown, and the dropdown became a scroll arrow on 2026-08-25 that moves the
+band by one group. Worse, it then looked at the band *bare*, having searched
+collapsed groups only at the starting position. Three checks SKIPPED on that in
+one sweep and were worked around with `maximize()`. Fixed, made idempotent (it
+rewinds first), and driven by
+`a_command_two_scroll_stops_away_is_still_reachable` — whose first version
+asserted `scrolls >= 2`, ran, and SKIPPED against the build it was written for.
+**Driving corrected the diagnosis; the reasoning had been plausible and wrong.**
+
+⬜ **Not done:** the driven half of O106 — a click on an actual raster, where the
+snap declines. Needs a raster fixture; named on the row rather than implied.
+
+---
+
+
 ## 2026-09-02 (evening) — the full sweep is run: 148 checks, ZERO regressions
 
 ### ✅ The whole suite, driven, with the machine to myself

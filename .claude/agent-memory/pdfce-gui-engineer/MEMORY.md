@@ -39,3 +39,5 @@
 - [Adding a second route is an audit of the capability](feedback_adding_a_second_route_is_an_audit_of_the_capability.md) — twice in one afternoon the new door found a divergence the old one was hiding.
 - [A completeness question needs an instrument, not a document](feedback_a_completeness_question_needs_an_instrument_not_a_document.md) — "confirm you built every X" is a script keyed on the OTHER side's API; our docs structurally cannot answer it.
 - [Write the row when he speaks, not when the work lands](feedback_write_the_row_when_he_speaks_not_when_the_work_lands.md) — three requests were built and never filed; the work getting done is why nothing looked wrong.
+- [A limitation sentence is a citation with an hours-long shelf life](feedback_a_limitation_sentence_is_a_citation_with_an_hours_long_shelf_life.md) — spell engine-limit claims as assertions; the same prose was wrong twice in one morning.
+- [The shell's unit of selection may not be the operator's](project_the_shells_unit_of_selection_may_not_be_the_operators.md) — one PDF path object holds 6,681 anchors across half his sheet; pick a point or a subpath.

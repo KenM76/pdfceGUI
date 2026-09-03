@@ -1,36 +1,43 @@
 # RESUME — read this, then say "continue"
 
 
-> ★★★ **LAST TICK: 2026-09-02 (autonomous).** The newest handoff is the top
-> section of **[`CONTINUE.md`](CONTINUE.md)** — **O99's drag is built**: the
-> tab-order list reorders by dragging, with the insertion caret he asked for, on
-> an engine verb that shipped hours after the request. Both outstanding engine
-> replies are consumed, and one of them found a hole in the engine's own API.
+> ★★★ **LAST SESSION: 2026-09-03.** The newest handoff is the top section of
+> **[`CONTINUE.md`](CONTINUE.md)**. Two of his complaints closed and one
+> harness defect that had been reporting the application as broken.
 >
-> ✅ **THE FULL SWEEP IS RUN — 2026-09-02 evening.** 148 checks driven:
-> `98 passed, 10 failed, 40 skipped`, and **every one of the ten was explained
-> and NONE was a defect in the software** — six were the wrong fixture, three
-> were contention (they pass alone on the same binary), one was a designed skip.
-> O95–O102 all have driven checks and O96–O101 are green.
+> ★★★ **His radius/diameter tool was picking OBJECTS, and one object is half his
+> sheet.** `pdfce-cli object-list` on `SW41177.pdf` p1: three path objects carry
+> **4,405**, **4,972** and **6,681** anchors, the largest holding 1,194 subpaths
+> across 550 × 500 pt. Every one of them went into the circle fit on a single
+> click. It picks POINTS now, the Tool panel lists and removes them, and the
+> live radius is on screen so the number can be watched converging. Driven on a
+> fixture built to carry the defect, falsified at `radius 299.78`.
 >
-> ★★★ **The six were documented, in this file, and I did not read it first.**
-> See *"THE SWEEP NEEDS THREE FIXTURES, NOT ONE"* below — it records a previous
-> sweep producing ten failures of which seven were the harness aiming wrong, and
-> I reproduced six of them. **Use the family table before running the suite.**
+> ✅ **Redaction works on his drawings.** The engine answered
+> `request_redaction_refuses_any_region_that_touches_an_image` the same
+> afternoon, twice — v0.26.0 then **v0.27.0** — with all three asks and one we
+> never made: **vector lines are cut at the region boundary.** Our half is
+> re-worded and the report carries the new counts and three new residuals.
 >
-> ⬜ **Three things want a decision rather than more work:** contention is real
-> and unmeasured (a retry-on-failure or a serialised mode would end the "is this
-> real?" re-run every time); `text_edit_on_a_real_drawing`'s documented point has
-> drifted onto a multi-operator run and needs re-calibrating; and O98's spotlight
-> is gated on the Select tool, which is his call.
+> ★★★ **The finding to carry, because it is the sixth recurrence:** the same
+> paragraph in our source was wrong twice in one morning, in opposite
+> directions — first written from `D:\Dev\pdfce`'s **dirty working tree**, then
+> corrected to cite the pin, and the correction was false within the hour when
+> the engine shipped. **A sentence about what the engine cannot do is a dated
+> citation with a shelf life measured in HOURS.** The unit test asserting the
+> same claim went red the moment the engine shipped, which is the behaviour a
+> paragraph cannot have. ⇒ **Where the claim can be an assertion, make it one.**
 >
+> ★★ **And the harness's own ribbon search was still looking for a MENU** —
+> `declared_or_in_overflow` clicked the overflow once, which was the whole search
+> when it was a dropdown and moves the band by one group now that it is a scroll
+> arrow. Three checks SKIPPED on it in one sweep, reporting lost commands. Its
+> first fix asserted the wrong thing and SKIPPED against the build it was written
+> for; **driving corrected the diagnosis, the reasoning had been plausible and
+> wrong.**
 >
-> ★★ **And one finding to carry, because it recurs:** two pieces of prose in the
-> tab-order panel became *the exact opposite of the truth* the moment the engine
-> verb shipped — an explainer saying the view "does not change" the order, and a
-> module header forbidding the drag. Both were correct when written. **Nothing
-> about either looked wrong**, which is why that class survives longest. When a
-> blocker clears, grep for the prose that described it.
+> ⬜ **Open:** the driven half of O106 — a click on an actual raster, where the
+> snap declines — needs a raster fixture. Named on the row rather than implied.
 >
 > ★★ **If the operator typed "continue" and nothing else, read**
 > **[`CONTINUE.md`](CONTINUE.md) first.** It is the short path: what is next, in
@@ -239,6 +246,19 @@ not exercise the case.
 | `exporting_form_data_writes_a_file` | `fixtures/text-field-with-appearance.pdf` | `0,300,500` |
 
 | `the_format_tab_offers_font_controls_for_swept_text` | `fixtures/paragraph.pdf` | `0,90,703` |
+
+★★★ **And two checks now PIN their own fixture and ignore `--pdf` entirely** —
+`ocr_recognises_a_page_and_the_document_keeps_it` and, since 2026-09-03,
+`three_clicks_round_a_hole_measure_the_hole`. Both say so in their notes when a
+`--pdf` was supplied and thrown away, because a sweep that silently ignored a
+flag is indistinguishable from one that honoured it.
+
+★★ The second pins `fixtures/hole-in-a-big-object.pdf`, and the reason
+generalises: it is **one path object holding a small circle and forty unrelated
+segments**, which is the shape of the operator's own drawing. On any document
+whose circles are their own objects the defect it detects **cannot occur**, so
+an arbitrary fixture would make the check unable to fail. Regenerate it with
+`python tools/gen-hole-in-a-big-object-fixture.py`.
 
 ★★★ **That last one was called a possible defect and was not one.** It traced
 `selection-set page=0 object=0 via=press` with **no** `properties-panel` line —
