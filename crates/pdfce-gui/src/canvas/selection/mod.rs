@@ -608,6 +608,38 @@ impl SelectionState {
     /// 2 is about: that one is about a *press*, and this runs on release,
     /// after a real enclosure test. Panning is the middle button and never
     /// reaches here at all.
+    /// **Take a band's hits OUT of the selection** — `OPERATOR_REQUESTS.md`
+    /// O104.
+    ///
+    /// The operator, 2026-09-03: *"I can't unselect things once I have selected
+    /// them for redaction."* [`Self::marquee`] could replace or extend and had
+    /// no third answer, so once several objects were picked the only way to
+    /// drop one was to shift-click it precisely — which on a CAD sheet of
+    /// overlapping strokes is often not practical.
+    ///
+    /// ★ An empty `hits` is a no-op rather than a clear, and the asymmetry with
+    /// [`Self::marquee`] is deliberate. A band that encloses nothing means
+    /// "replace the selection with nothing" when it is a plain band — that is
+    /// how every editor cancels a selection — but "remove nothing from the
+    /// selection" when it is a subtracting one. Clearing there would make a
+    /// mis-aimed Ctrl-band destroy the very selection the operator was trying
+    /// to refine, which is the opposite of what they asked for.
+    ///
+    /// ★★ The level is left alone. Subtracting is a change to WHICH objects are
+    /// picked, never to how deep the selection has descended, and resetting it
+    /// to `Object` would silently throw away an operator's descent into a form.
+    pub fn marquee_remove(&mut self, page: usize, hits: &[TargetId]) {
+        if hits.is_empty() {
+            return;
+        }
+        let doomed: Vec<Selection> = hits
+            .iter()
+            .map(|&object| Selection::object(page, object))
+            .collect();
+        self.entries.retain(|e| !doomed.contains(e));
+        self.normalise();
+    }
+
     pub fn marquee(&mut self, page: usize, hits: &[TargetId], shift: bool) {
         let found: Vec<Selection> = hits
             .iter()

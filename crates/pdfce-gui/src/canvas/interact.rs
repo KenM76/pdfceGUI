@@ -132,7 +132,7 @@ use crate::shell::menus::MenuHost;
 // as items so that every call below reads exactly as it did when it lived in
 // `mod.rs` — `overlay::grip_box`, `zoom::arm_anchor`, `keys::canvas_keys` — and
 // so the doc links above and below resolve to the same places they always did.
-use super::{CANVAS_MARGIN, dimdrag, keys, markup, measure, strip, textsel, tool, trace, zoom};
+use super::{CANVAS_MARGIN, dimdrag, keys, markup, measure, strip, textsel, tool, zoom};
 
 /// The three facts about *this frame's canvas* that [`interact`] needs, and
 /// that every part of it must agree on.
@@ -358,6 +358,14 @@ pub(super) fn interact(
         .interact_pointer_pos()
         .or_else(|| ctx.pointer_latest_pos());
     let shift = ctx.input(|i| i.modifiers.shift);
+    // ★ Ctrl, read beside Shift — `OPERATOR_REQUESTS.md` O104. It means "take
+    // this OUT of the selection", for a click and for a band; the argument for
+    // that spelling lives with the mechanism, in `canvas::marquee::Combine`.
+    //
+    // `modifiers.command`, not `.ctrl`: on Windows they are the same key and on
+    // macOS `command` carries this meaning, which is what the rest of the crate
+    // already reads.
+    let ctrl = ctx.input(|i| i.modifiers.command);
     // Escape is read whatever the tool is: a hand-tool frame still has to be
     // able to abandon a drag the previous tool left in flight, and it is still
     // the ladder's key when there is no drag. See this function's header.
@@ -673,7 +681,10 @@ pub(super) fn interact(
                 pick: *pick,
                 pen,
                 point,
-                shift,
+                // ★ Ctrl toggles too, not only Shift. Reaching for Ctrl used to
+                // give a plain click, which REPLACES the selection with the one
+                // object he was trying to remove — see O104.
+                shift: shift || ctrl,
                 double,
                 triple,
             },
@@ -687,22 +698,14 @@ pub(super) fn interact(
             shift,
             intent: MarqueeIntent::Select,
             phase: Phase::Complete,
-        } => {
-            // ★★★ **THE DIRECTION DECIDES WHAT THE BAND TAKES** (O88): left
-            // to right encloses, right to left touches — AutoCAD's window /
-            // crossing-window rule. `canvas::marquee`'s header carries the
-            // operator's report, why the fix is geometric rather than about hit
-            // tests, and the page-wrapper hazard a crossing band introduces.
-            crate::canvas::marquee::select(
-                targets.as_deref().map(|t| t as &dyn CanvasTargetProvider),
-                page_index,
-                rect,
-                crossing,
-                shift,
-                &mut selection,
-            );
-            trace::selection_event(&selection, "pv.marquee", shift);
-        }
+        } => crate::canvas::marquee::on_release(
+            targets.as_deref().map(|t| t as &dyn CanvasTargetProvider),
+            page_index,
+            rect,
+            crossing,
+            crate::canvas::marquee::mode(shift, ctrl),
+            &mut selection,
+        ),
         // ★ The same rubber band, released with the other intent. **The
         // selection is not touched** — not cleared, not replaced, not even
         // read: a navigation gesture that rearranged the selection would break

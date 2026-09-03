@@ -144,12 +144,110 @@ pub fn without_page_wrappers(
 /// by a different route than a genuine empty band does: `SelectionState::marquee`
 /// with an empty slice is the one path, and it is reached the same way either
 /// way.
+/// **What a band does to the selection it lands on** — `OPERATOR_REQUESTS.md`
+/// O104.
+///
+/// Until 2026-09-03 a band could only replace or add, which is half of the
+/// operator's report *"I can't unselect things once I have selected them"*. On
+/// a CAD sheet with hundreds of overlapping strokes, taking one object back out
+/// by clicking it precisely is often not practical; a band is how the work is
+/// actually done, and ours had no way to remove.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Combine {
+    /// No modifier: the band's hits become the selection.
+    Replace,
+    /// Shift: the hits are added to what is already selected.
+    Add,
+    /// Ctrl: the hits are taken OUT of what is already selected.
+    ///
+    /// ★ Ctrl rather than Shift, even though AutoCAD spells subtract with
+    /// Shift. Shift-adds is already shipped here and in every vector editor
+    /// this shell's operators also use, so re-pointing it would break a gesture
+    /// they have — and it would contradict `Ctrl+click`, which now means
+    /// "toggle out". One modifier, one meaning: **Ctrl takes things out of a
+    /// selection wherever you use it.**
+    Subtract,
+}
+
+/// Which [`Combine`] a pair of modifiers asks for.
+///
+/// Shift wins when both are held, because adding is the non-destructive answer
+/// and a band held with every modifier at once is an operator who has not
+/// decided yet.
+#[must_use]
+pub const fn mode(shift: bool, ctrl: bool) -> Combine {
+    if shift {
+        Combine::Add
+    } else if ctrl {
+        Combine::Subtract
+    } else {
+        Combine::Replace
+    }
+}
+
+/// **Everything a released selection band does**, so `canvas::interact` holds
+/// the wiring and this module holds the behaviour.
+///
+/// Extracted 2026-09-03 when O104's Ctrl handling pushed `interact.rs` past
+/// R2's 1,500-line ceiling — the same seam `canvas::previews` was found at on
+/// 2026-08-30, and found the same way.
+///
+/// ★★★ **THE DIRECTION DECIDES WHAT THE BAND TAKES** (O88): left to right
+/// encloses, right to left touches — AutoCAD's window / crossing-window rule.
+/// This module's header carries the operator's report, why the fix is geometric
+/// rather than about hit tests, and the page-wrapper hazard a crossing band
+/// introduces.
+///
+/// ★★ And [`Combine`] decides what it does to what was already selected. The
+/// two are independent: *what the band reaches* and *what it then does with
+/// it*, which is why they are separate arguments rather than one flag.
+pub fn on_release(
+    targets: Option<&dyn crate::canvas::target::CanvasTargetProvider>,
+    page_index: usize,
+    rect: egui::Rect,
+    crossing: bool,
+    combine: Combine,
+    selection: &mut crate::canvas::selection::SelectionState,
+) {
+    select_with(targets, page_index, rect, crossing, combine, selection);
+    crate::canvas::trace::selection_event(
+        selection,
+        // ui-text-exempt: a diagnostic slot name, never displayed.
+        "pv.marquee",
+        combine != Combine::Replace,
+    );
+}
+
+/// [`select_with`] with the pre-O104 signature: `shift` means add.
+///
+/// Kept because several callers and every existing test say `shift`, and the
+/// two-value question they are asking is still a real one.
 pub fn select(
     targets: Option<&dyn crate::canvas::target::CanvasTargetProvider>,
     page_index: usize,
     rect: egui::Rect,
     crossing: bool,
     shift: bool,
+    selection: &mut crate::canvas::selection::SelectionState,
+) {
+    select_with(
+        targets,
+        page_index,
+        rect,
+        crossing,
+        mode(shift, false),
+        selection,
+    );
+}
+
+/// See [`select`], plus [`Combine`] for what the band does to what was already
+/// selected.
+pub fn select_with(
+    targets: Option<&dyn crate::canvas::target::CanvasTargetProvider>,
+    page_index: usize,
+    rect: egui::Rect,
+    crossing: bool,
+    combine: Combine,
     selection: &mut crate::canvas::selection::SelectionState,
 ) {
     let mode = mode_for(crossing);
@@ -161,7 +259,11 @@ pub fn select(
             |h| t.container_is_worth_selecting(page_index, h),
         );
     }
-    selection.marquee(page_index, &hits, shift);
+    match combine {
+        Combine::Subtract => selection.marquee_remove(page_index, &hits),
+        Combine::Add => selection.marquee(page_index, &hits, true),
+        Combine::Replace => selection.marquee(page_index, &hits, false),
+    }
     // ★★★ **THE KINDS, NOT ONLY THE COUNT** — added 2026-09-02, and the
     // reason is a check whose oracle turned out to be an assumption.
     //
@@ -208,6 +310,30 @@ pub fn select(
 
 #[cfg(test)]
 mod tests {
+
+    /// **★★ Ctrl subtracts, Shift adds, neither replaces** —
+    /// `OPERATOR_REQUESTS.md` O104.
+    ///
+    /// Pinned as a table rather than three separate tests because the value of
+    /// the rule is that the three answers are *distinct*: a modifier scheme
+    /// where two of them coincide is one an operator cannot use to mean two
+    /// different things.
+    #[test]
+    fn the_three_band_modes_are_distinct() {
+        assert_eq!(mode(false, false), Combine::Replace);
+        assert_eq!(mode(true, false), Combine::Add);
+        assert_eq!(mode(false, true), Combine::Subtract);
+    }
+
+    /// **★ Shift wins when both are held.**
+    ///
+    /// Adding is the non-destructive answer, and a band dragged with every
+    /// modifier at once is an operator who has not decided yet — so the
+    /// tie-break is the one that cannot lose them a selection they built.
+    #[test]
+    fn holding_both_modifiers_adds_rather_than_subtracts() {
+        assert_eq!(mode(true, true), Combine::Add);
+    }
     use super::*;
 
     /// The two directions map to the two engine modes, and not to one of them

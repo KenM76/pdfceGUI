@@ -875,6 +875,59 @@ fn missing_every_anchor_falls_back_to_the_part_rung() {
 // Marquee
 // -----------------------------------------------------------------
 
+/// **★★★ A subtracting band takes exactly its hits out and leaves the rest** —
+/// `OPERATOR_REQUESTS.md` O104.
+///
+/// The operator, 2026-09-03: *"I can't unselect things once I have selected
+/// them for redaction."* This is the half a click could not do — on a sheet of
+/// overlapping strokes, removing one object from a selection of twenty by
+/// clicking it precisely is often not practical, and a band is how the work is
+/// actually done.
+#[test]
+fn a_subtracting_band_removes_only_what_it_hit() {
+    let mut sel = SelectionState::default();
+    sel.marquee(
+        0,
+        &[
+            TargetId::Object(1),
+            TargetId::Object(2),
+            TargetId::Object(3),
+        ],
+        false,
+    );
+    assert_eq!(sel.len(), 3);
+
+    sel.marquee_remove(0, &[TargetId::Object(2)]);
+    assert_eq!(
+        sel.entries(),
+        [
+            Selection::object(0, TargetId::Object(1)),
+            Selection::object(0, TargetId::Object(3)),
+        ]
+    );
+}
+
+/// **★★ An EMPTY subtracting band changes nothing — it must not clear.**
+///
+/// The asymmetry with a plain band is deliberate and is the whole safety of the
+/// gesture. A plain band that encloses nothing means *"select nothing"*, which
+/// is how every editor cancels a selection. A **subtracting** band that hits
+/// nothing means *"remove nothing"* — clearing there would make a mis-aimed
+/// Ctrl-drag destroy the very selection the operator was trying to refine,
+/// which is the opposite of what they asked for.
+#[test]
+fn a_subtracting_band_that_hits_nothing_does_not_clear_the_selection() {
+    let mut sel = SelectionState::default();
+    sel.marquee(0, &[TargetId::Object(1), TargetId::Object(2)], false);
+
+    sel.marquee_remove(0, &[]);
+    assert_eq!(
+        sel.len(),
+        2,
+        "an empty subtract must be a no-op, never a clear"
+    );
+}
+
 #[test]
 fn a_marquee_replaces_and_a_shift_marquee_extends() {
     let mut sel = SelectionState::default();
