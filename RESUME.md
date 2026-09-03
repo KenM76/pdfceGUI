@@ -222,6 +222,31 @@ for f in "polyline-nodes 0,150,260" "four-pages 0,300,500" "a1-titleblock 0,300,
 done
 ```
 
+### ★★ Checks that need a fixture of their own — proved 2026-09-03
+
+Each of these SKIPPED the sweep on the default fixture and **passes** on the one
+named. None was a defect; all were the harness aimed at a document that could
+not exercise the case.
+
+| check | fixture | point |
+|---|---|---|
+| `ctrl_c_copies_text_to_the_os_clipboard` | `D:/Dev/pdfTests/SW41177/SW41177.pdf` | `0,1140,62` |
+| `restyling_selected_text_reaches_the_document` | same | `0,1140,62` |
+| `the_face_chooser_offers_a_face_the_document_does_not_contain` | same | `0,1140,62` |
+| `removing_embedded_fonts_reaches_the_document` | `fixtures/embedded-font.pdf` | `0,300,500` |
+| `pages_stay_drawn_when_you_scroll_back` | `fixtures/four-pages.pdf` | `0,300,500` |
+| `bezier_handle_drag_changes_a_curve` | `fixtures/polyline-nodes.pdf` | `0,150,260` |
+| `exporting_form_data_writes_a_file` | `fixtures/text-field-with-appearance.pdf` | `0,300,500` |
+
+⬜ **One still uncalibrated:** `the_format_tab_offers_font_controls_for_swept_text`
+wants *a piece of text selected as an OBJECT*, which is stricter than "text is
+here". On `fixtures/paragraph.pdf` at `0,90,703` — just above the first glyph's
+baseline, found with `pdfce-cli extract-text --json` as the check itself
+advises — the canvas traces `selection-set page=0 object=0 via=press` and the
+Properties panel writes **no** `properties-panel` line. So something is
+selected and the panel does not describe it. That is the thread to pull; it is
+not an aim problem.
+
 ★★★ **`--second-pdf` IS NOT OPTIONAL, and leaving it off costs FIVE checks
 silently.** Measured 2026-09-02: `two_documents_get_two_tabs`,
 `document_tabs_can_be_rearranged`, `a_page_dragged_between_documents_is_copied`,
