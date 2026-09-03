@@ -1,3 +1,14 @@
+> ## ⚠ This repository is the ARCHIVE. Development moved to
+> ## **[KenM76/pdfcer-gui](https://github.com/KenM76/pdfcer-gui)** on 2026-09-03.
+>
+> `pdfce` was the pre-release code name. The product is **`pdfcer`** — *pdf
+> create, edit, read*, pronounced "pdf-see-er" — and this project renamed with
+> it. Nothing here is maintained; it is kept frozen because the old GUI this
+> project salvages from lives beside it, and because a rename should never be
+> the reason a record stops being readable.
+>
+> The full history came across, so nothing is lost by following the link.
+
 # pdfceGUI — GUI design and remediation workspace
 
 The **GUI rebuild** for **`D:\Dev\pdfce`**: a new `pdfce-gui` crate that
