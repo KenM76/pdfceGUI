@@ -164,12 +164,25 @@ and the one that cannot is disclosed as a residual like every other carrier.
 
 ★ (3) is the one that unblocks him today even if the others are expensive.
 
-### ⬜ What we are doing on our side, which is disclosure and not a workaround
+### ✅ Our half is BUILT and DRIVEN — disclosure, not a workaround
 
-Warning at **mark** time when a region intersects an image, so the refusal
-arrives when the rectangle is drawn rather than after twelve marks and an Apply.
-The content still cannot be redacted; he just finds out at the moment he can do
-something about it.
+Warning at **mark** time when a region covers an image, so it arrives when the
+rectangle is drawn rather than after twelve marks and an Apply. The content
+still cannot be redacted; you just find out while redrawing it is one gesture.
+Both routes: marking a selection, and marking the whole page.
+
+★★ **It blocks nothing.** The mark is authored exactly as before — a mark is
+reversible and costs nothing, and if the engine gains the capability the same
+mark applies cleanly. The success is said first, with the caveat beside it.
+
+★★★ **Driven, and falsified BOTH WAYS** —
+`marking_over_an_image_says_so_before_apply`. It asserts the warning appears on
+a document that is nothing but a raster image **and** that a CAD sheet with no
+image is marked in silence. A check with only the first half passes just as
+happily on a build that warns about every mark on every document, which is worse
+than no warning: a caveat attached to everything is one you learn to scroll past,
+and the day it matters you scroll past it too. Forcing `images = 0` reddens the
+first half; forcing `images = 1` reddens the second.
 
 ---
 

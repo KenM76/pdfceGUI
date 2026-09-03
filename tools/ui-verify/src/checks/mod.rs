@@ -373,6 +373,7 @@ pub mod print_paper;
 pub mod properties_metadata;
 pub mod qat_icons;
 pub mod read_mode;
+pub mod redact_image_warning;
 pub mod tab_order_drag;
 pub mod title_build_stamp;
 
@@ -944,6 +945,7 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(title_build_stamp::TheTitleBarCarriesTheBuildTime),
         Box::new(field_shading::FillableFieldsAreShadedOnThePage),
         Box::new(preset_group_reachable::TheStandardsPresetsGroupIsReachable),
+        Box::new(redact_image_warning::MarkingOverAnImageSaysSoBeforeApply),
         // The DXF export, wired 2026-08-19 after being the FIRST entry in
         // `reach`'s scaffold list. Beside the page checks because it is the
         // other verb that writes a file the operator hands to somebody else.
