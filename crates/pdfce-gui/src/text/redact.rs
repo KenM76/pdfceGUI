@@ -434,30 +434,48 @@ pub fn verification_limit_line(too_short: usize) -> String {
     )
 }
 
-/// **The mark covers a raster image, so applying will be refused** —
+/// **The mark covers a raster image, and those pixels will be DESTROYED** —
 /// `OPERATOR_REQUESTS.md` O103.
 ///
-/// # ★★★ Said at MARK time, which is the whole point of the sentence
+/// # ★★★ This sentence was the exact opposite of the truth for nine hours
 ///
-/// The refusal itself is the engine's and is correct: it cannot destroy image
-/// pixels, and clipping or masking would leave them recoverable. What was wrong
-/// was *when* the operator found out. Apply is all-or-nothing for the document,
-/// so twelve careful marks and one that grazed a logo produced a single refusal
-/// naming no region — after the work, not during it.
+/// It read: *"pdfce cannot yet remove image pixels, so applying redactions to
+/// this document will be refused until no marked region touches an image."*
+/// That was accurate when it was written on 2026-09-03 — it is the operator's
+/// own report, reproduced with `pdfce-cli` — and `pdfce-core` **v0.26.0**
+/// (`Pass 245.0`, the same day) made it false: a region covering image samples
+/// now clears those samples, and a region covering a whole image removes it.
 ///
-/// # Why it names the count and the consequence, and offers no remedy
+/// ⇒ The class this belongs to is the one this project keeps paying for: **a
+/// sentence describing an external limitation is a dated citation, not a
+/// verdict.** Nothing compiles differently when the limitation lifts, no test
+/// goes red, and the gates stay green *precisely because* the code around the
+/// sentence is unchanged. The engine's own reply said to re-word this, by name.
+/// It is worth noticing that the engine had to tell us — see
+/// `tools/gates/check-stale-blockers.sh`, which is aimed at exactly this and
+/// could not have caught a claim phrased as a UI string.
 ///
-/// Because there is no remedy pdfce can offer yet. Telling him to "move the
-/// rectangle" would be advice we cannot check — on a title block the value and
-/// the logo may genuinely overlap — and telling him to delete the mark would be
-/// deciding on his behalf that it is not worth having when the engine may gain
-/// the capability. So it states the fact and stops.
+/// # ★★ Why it is still said at MARK time, and why it is not a warning
 ///
-/// ★ The mark is still authored. This blocks nothing.
+/// The disclosure changed subject rather than going away. It used to say *"this
+/// will be refused"*; it now says *"this will be destroyed"*, and that is the
+/// more important of the two. A raster redaction is irreversible in a way a
+/// text one is not: the samples are overwritten, the image is re-encoded, and
+/// what the operator gets back is a black block where their logo was. Seeing
+/// that fact while the rectangle is being drawn — rather than discovering it in
+/// the saved file — is the same argument the original sentence made, applied to
+/// the opposite outcome.
+///
+/// ★ It offers no remedy, deliberately, for the reason it always did: telling
+/// him to move the rectangle is advice we cannot check, because on a title
+/// block the value and the logo may genuinely overlap.
+///
+/// ★ The mark is still authored. This blocks nothing, and now nothing further
+/// down the line blocks either.
 #[must_use]
 pub fn mark_covers_image(images: usize) -> String {
     format!(
-        "This region covers {images} image(s). pdfce cannot yet remove image pixels, so applying redactions to this document will be refused until no marked region touches an image — the mark itself is fine and is still here."
+        "This region covers part of {images} image(s) — those pixels will be destroyed, not hidden. The mark is authored either way."
     )
 }
 
@@ -488,6 +506,169 @@ pub fn raw_residual_line(text: &str) -> String {
     format!(
         "⚠  The removed text “{text}” no longer appears in any page content, but that same byte sequence still occurs somewhere in the saved file. It may be an unrelated coincidence, or a copy in a carrier pdfce does not recognise — pdfce cannot tell which, so it is reported rather than claimed removed."
     )
+}
+
+/// **What happened to the raster images under the regions** — `pdfce-core`
+/// v0.26.0, `Pass 245.0`.
+///
+/// # ★★★ Why this is stated even though it is a SUCCESS
+///
+/// Because it is the most destructive thing redaction does, and until 2026-09-03
+/// it did not happen at all. `apply_redactions` refused the whole document when
+/// a region touched an image; now it decodes the image, overwrites the covered
+/// samples, clears the matching part of any soft mask, and re-encodes
+/// losslessly. The operator's logo comes back as a black block, permanently, in
+/// a file they cannot un-redact.
+///
+/// That is exactly what they asked for and it is still worth saying out loud —
+/// the same argument the mark-time sentence makes, restated where the numbers
+/// are. A report that lists glyphs removed and says nothing about a destroyed
+/// photograph is a report that has quietly picked which irreversible act is
+/// worth mentioning.
+///
+/// ★ `over_covered` is separate and is a disclosure rather than a count: a
+/// rotated or skewed image placement is cleared by its bounding rectangle **in
+/// image space**, so more is destroyed than was marked. Never less — the
+/// engine's own guarantee — but "more than you drew" is a fact about the
+/// operator's file and it is theirs to know.
+#[must_use]
+pub fn images_destroyed(cleared: u64, removed: u64, over_covered: u64) -> String {
+    let mut line = String::new();
+    if removed > 0 {
+        line.push_str(&format!(
+            "{removed} image(s) were covered completely and have been removed from the file. "
+        ));
+    }
+    if cleared > 0 {
+        line.push_str(&format!(
+            "{cleared} image(s) had the covered pixels destroyed and overwritten — not hidden, and not recoverable. "
+        ));
+    }
+    if over_covered > 0 {
+        line.push_str(&format!(
+            "{over_covered} of them sit at an angle, so a rectangle slightly larger than the one you drew was cleared."
+        ));
+    }
+    line.trim_end().to_owned()
+}
+
+/// **A shared image was copied so the other pages keep theirs** — the
+/// disclosure the engine asks for when one image object is painted in more than
+/// one place.
+///
+/// ★ Not a residual and not a warning: the *unmarked* placements were not
+/// marked, so leaving them intact is correct. What the operator needs to know is
+/// that the same picture still exists elsewhere in the document, because "I
+/// redacted the logo" and "the logo is gone from this file" are different
+/// claims and the second one is false here.
+#[must_use]
+pub fn images_shared_copied(count: u64) -> String {
+    format!(
+        "{count} of those image(s) are also used elsewhere in the document. Only the marked placement was changed — the same picture is still on the other pages, because you did not mark those."
+    )
+}
+
+/// **Marks that were left in the document unapplied** — `RedactionReport::marks_retained`.
+///
+/// # ★★★ The one number that must be read before the word "redacted" is used
+///
+/// The engine says so by name: a retained mark is a region where **nothing was
+/// removed**. It happens when a region touches an image whose samples pdfce
+/// cannot decode — a codec feature it lacks, a corrupt codestream — and the
+/// engine's choice is to apply every other mark and leave that one standing
+/// rather than refuse the document. That is the right choice and it makes a
+/// half-redacted file that looks finished.
+///
+/// So this is a residual, in the strongest sense in this module: the content the
+/// operator asked to be removed is still there, under a rectangle that says it
+/// is not. It goes in the acknowledgement list, and the mark itself is still
+/// visible in the output so a second pass can find it.
+#[must_use]
+pub fn marks_retained_line(count: u64) -> String {
+    format!(
+        "⚠  {count} region(s) were NOT redacted — the image under them could not be decoded, so pdfce left the mark in place rather than pretend. What you marked there is still in the saved file. The unapplied mark is still on the page, so you can find it again."
+    )
+}
+
+/// **Vector geometry crossing a region that could not be cut.**
+///
+/// `RedactionReport::vector_paths_intersecting`. Since `pdfce-core` v0.27.0 the
+/// engine **cuts** paths at the region boundary, so this counts only the ones it
+/// could not rewrite as a unit — a malformed path object — and reads zero on
+/// every well-formed page. A non-zero value is therefore rare and is a real
+/// residual rather than the ordinary case.
+///
+/// # ★★★ This paragraph has been wrong twice in one morning, in both directions
+///
+/// Written first from `D:\Dev\pdfce`'s **working tree**, which described
+/// cutting the engine had not committed. Corrected to say cutting does not
+/// exist, citing the pinned revision — and within the hour the engine shipped
+/// v0.27.0 and the correction became the false half.
+///
+/// ⇒ The rule is not *"do not read the engine's source"*: reading it is right,
+/// and the second version was right about the revision it named. The rule is
+/// that **a sentence about what the engine cannot do is a dated citation with a
+/// shelf life measured in hours**, because that session runs in parallel and
+/// answers within the hour. Where the claim can be spelled as an **assertion**,
+/// spell it as one — `redact::tests`'s image test went red the moment the
+/// engine changed underneath it, which is exactly the behaviour a paragraph
+/// cannot have.
+///
+/// ★ On a CAD sheet this is the residual that matters most and the one nobody
+/// asks about. A title-block border or a view's geometry running through a
+/// redacted rectangle is a shape, and a shape can be as identifying as the text
+/// it surrounded.
+#[must_use]
+pub fn vector_paths_residual_line(count: u64) -> String {
+    format!(
+        "⚠  {count} drawn line(s) or shape(s) cross a redacted region and could not be cut, so their geometry is still in the saved file underneath the black box. On a drawing that outline can be as identifying as the text was."
+    )
+}
+
+/// **The clip whose outline had to be kept after its ink was cut.**
+///
+/// `RedactionReport::vector_clips_kept`. ISO 32000-1 §8.5.4 applies a clipping
+/// path *after* painting, so an object marked `W`/`W*` sets the window every
+/// later object on the page draws through. The engine cuts its paint and keeps
+/// its original geometry as the clip, because shrinking the clip would hide
+/// later, **unmarked** content.
+///
+/// ★ Kept geometry is not painted content — nothing of it is visible — and it is
+/// still a shape in the file. Rule 1: named, in the operator's terms, rather
+/// than judged harmless on their behalf.
+#[must_use]
+pub fn vector_clips_kept_line(count: u64) -> String {
+    format!(
+        "⚠  {count} shape(s) crossing a redacted region were also being used to crop what is drawn after them, so pdfce removed their ink but had to keep their outline — changing it would have cropped the rest of the page. Nothing of them is visible; the outline is still in the file."
+    )
+}
+
+/// **The drawn geometry that was cut out of the regions** — `pdfce-core`
+/// v0.27.0.
+///
+/// # ★★ Why a success gets a line on a drawing
+///
+/// Because until v0.27.0 it did not happen. Lines ran straight through a
+/// redacted rectangle, the file was reported as redacted, and nothing said
+/// otherwise — the engine found it while verifying the image work and called it
+/// *"the bigger one on a drawing"*. On a CAD sheet the geometry under a black
+/// box can be as identifying as the text was.
+///
+/// So this is the count that turns *"the drawing under the box is gone"* from an
+/// assumption into a statement. `dropped` is the subset that lay wholly inside a
+/// region and was deleted outright, and it is named separately because a
+/// deleted object and a trimmed one are different facts about the file.
+#[must_use]
+pub fn vector_paths_cut_line(cut: u64, dropped: u64) -> String {
+    if dropped > 0 {
+        format!(
+            "{cut} drawn line(s) or shape(s) crossing a region were cut at its edge so nothing of them is left inside it — {dropped} of those lay entirely within a region and were deleted."
+        )
+    } else {
+        format!(
+            "{cut} drawn line(s) or shape(s) crossing a region were cut at its edge, so nothing of them is left inside it."
+        )
+    }
 }
 
 /// One residual line when materialising the operator's unsaved edits had to

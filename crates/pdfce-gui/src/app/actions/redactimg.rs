@@ -5,8 +5,8 @@
 //! **Ken, 2026-09-03:** *"every time I've tried the redact feature it tells me
 //! it can't because there is objects that weren't redacted."*
 //!
-//! Reproduced with `pdfce-cli` alone, so the refusal itself is the engine's and
-//! is not ours to remove:
+//! Reproduced with `pdfce-cli` alone, so the refusal was the engine's and was
+//! never ours to remove:
 //!
 //! ```text
 //! redaction refused: redaction region on page 1 intersects an image; pdfce
@@ -15,35 +15,51 @@
 //! false redaction
 //! ```
 //!
-//! ★ **The refusal is right and we are not trying to get around it.** Clipping
-//! or masking would leave the pixels recoverable, and a redaction pdfce cannot
-//! stand behind is the one thing this feature must never produce.
+//! The gate was in `redact-apply`, and apply was **all-or-nothing for the
+//! document**. So the sequence he actually lived through was: mark twelve
+//! regions across a drawing, carefully; press Apply; be told the whole thing is
+//! refused, because **one** of them grazed the bounding box of a logo. Nothing
+//! said which. On a title block, a value worth redacting is often inches from a
+//! company logo.
 //!
-//! ## ★★★ What is wrong is WHEN he finds out
+//! ## ★★★ THE REFUSAL IS GONE — and this module's subject changed, not its job
 //!
-//! The gate is in `redact-apply`, and apply is **all-or-nothing for the
-//! document**. So the sequence an operator actually lives through is:
+//! `pdfce-core` **v0.26.0** (`Pass 245.0`) and **v0.27.0** (`Pass 246.0`) both
+//! landed on 2026-09-03, hours after the report. The engine now:
 //!
-//! 1. mark twelve regions across a drawing, carefully;
-//! 2. press Apply;
-//! 3. be told the whole thing is refused, because **one** of them grazed the
-//!    bounding box of a logo.
+//! * gates on the image **samples** rather than the bounding boxes, so a region
+//!   that merely touches an image's rectangle destroys nothing;
+//! * **destroys** the covered samples — decode, overwrite, clear the matching
+//!   part of any soft mask, re-encode losslessly — and removes an image that is
+//!   wholly covered;
+//! * retains just the **marks** it cannot apply rather than refusing the
+//!   document;
+//! * and **cuts vector geometry** at the region boundary, which was the bigger
+//!   residual on a drawing and one nobody had reported.
 //!
-//! Nothing says *which* one. On a title block, a value worth redacting is often
-//! inches from a company logo, and the mark that offends may be the one drawn
-//! ten minutes ago. `OPERATOR_REQUESTS.md` O103 asks the engine for a
-//! per-region refusal so the other eleven can apply; until that lands, the
-//! least this shell can do is say so **at the moment the rectangle is drawn**,
-//! when it is one gesture to redraw it.
+//! ★★ **So the disclosure changed subject rather than becoming unnecessary, and
+//! it changed to the more important of the two.** It used to say *"this will be
+//! refused"*; it now says *"those pixels will be destroyed, not hidden"*. A
+//! raster redaction is irreversible in a way a text one is not — the samples are
+//! overwritten and the image re-encoded — and finding that out while the
+//! rectangle is being drawn is the same argument, applied to the opposite
+//! outcome.
+//!
+//! ⇒ ★ **Nothing in this repository could have caught the change.** The claim
+//! lived in a UI string; it compiled and passed for as long as it was false. The
+//! engine's reply asked us to re-word it, by name. Where such a claim can be
+//! spelled as a test assertion instead, spell it as one — `redact::tests`'s
+//! image test went red the hour the engine changed underneath it, which is
+//! exactly the behaviour a paragraph cannot have.
 //!
 //! ## This is DISCLOSURE, not a gate — and the distinction is load bearing
 //!
 //! It refuses nothing and blocks nothing. The mark is authored exactly as
 //! before, because a mark is reversible and costs nothing, and because pdfce
-//! must not decide on the operator's behalf that a region is not worth marking:
-//! the engine may gain the capability, and the same mark would then apply
-//! cleanly. What changes is only that he is told, in the same breath as the
-//! success, and can act while it is cheap.
+//! must not decide on the operator's behalf that a region is not worth marking.
+//! What changes is only that he is told, in the same breath as the success, and
+//! can act while it is cheap — which now means *before* the pixels go, rather
+//! than before a refusal arrives.
 //!
 //! ★★ Rule 4: nothing is drawn on the canvas. The mark renders exactly as any
 //! other mark renders, because it IS any other mark — a warning tint would be

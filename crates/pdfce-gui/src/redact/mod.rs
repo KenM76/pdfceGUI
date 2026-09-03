@@ -862,13 +862,29 @@ mod tests {
         );
     }
 
-    /// Core's image refusal must reach the shell as a refusal, not as a
-    /// partially-applied success.
+    /// ★★★ **A region over a raster image now DESTROYS the samples**, and this
+    /// test is the record of the day that changed.
     ///
-    /// A region over a raster image is the named §12.5.6.23 case where masking
-    /// would be a false redaction, so the whole apply is declined.
+    /// It read `a_region_over_an_image_refuses_the_whole_apply` until
+    /// 2026-09-03 and asserted that the engine declined the entire document —
+    /// which was true, was the operator's headline complaint
+    /// (`OPERATOR_REQUESTS.md` O103, *"every time I've tried the redact feature
+    /// it tells me it can't"*), and stopped being true with `pdfce-core`
+    /// v0.26.0 the same day.
+    ///
+    /// ★★ **A test asserting an external limitation goes red when the
+    /// limitation lifts, and that red is a REPORT rather than a regression.**
+    /// It is also the only member of that family that behaves well: the prose
+    /// version of the same claim — in `text::redact`, in a UI string — went on
+    /// compiling and passing, and had to be corrected because the engine's reply
+    /// told us to. ⇒ Where a stale external claim can be spelled as an
+    /// assertion, spell it as one.
+    ///
+    /// What it asserts now is the pair the operator cares about: the apply
+    /// SUCCEEDS, and the report says the image was dealt with rather than
+    /// quietly stepped over.
     #[test]
-    fn a_region_over_an_image_refuses_the_whole_apply() {
+    fn a_region_over_an_image_destroys_the_samples_and_says_so() {
         let content = "q 200 0 0 100 20 20 cm /Im0 Do Q";
         let stream = format!(
             "<< /Length {} >>\nstream\n{content}\nendstream",
@@ -898,15 +914,25 @@ mod tests {
             )
             .unwrap();
 
-        match prepare_redaction_apply(&session) {
-            Err(RedactApplyRefusal::CoreRefused { reason }) => {
-                assert!(
-                    reason.contains("image"),
-                    "the refusal must name the image: {reason}"
-                );
-            }
-            other => panic!("expected a refusal over the image region, got {other:?}"),
-        }
+        let prepared = prepare_redaction_apply(&session)
+            .expect("a region over an image is applied, not refused, since pdfce-core v0.26.0");
+        let report = &prepared.report;
+        assert!(
+            report.images_cleared > 0 || report.images_removed > 0,
+            "the region covers the only image on the page, so the report must say what happened to it — cleared or removed. Got cleared={} removed={} retained={}",
+            report.images_cleared,
+            report.images_removed,
+            report.marks_retained
+        );
+        // ★ And the mark was APPLIED rather than retained. A retained mark is
+        // the honest half-measure for an image the engine cannot decode; this
+        // one is a 1x1 DeviceGray it certainly can, so a retention here would
+        // mean the destroy path was not reached at all and the assertion above
+        // was satisfied by something else.
+        assert_eq!(
+            report.marks_retained, 0,
+            "a decodable image must not leave the mark unapplied"
+        );
     }
 
     /// The census the review panel lists from and the census the status bar

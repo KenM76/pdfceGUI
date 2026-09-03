@@ -15,10 +15,32 @@
 //! false redaction
 //! ```
 //!
-//! ★ The refusal is right. What was wrong is *when* he found out — apply is
+//! ★ The refusal was right. What was wrong is *when* he found out — apply was
 //! all-or-nothing for the document, so twelve careful marks and one that grazed
 //! a logo produced a single refusal naming no region, after the work rather than
 //! during it.
+//!
+//! # ★★★ THE REFUSAL IS GONE, and this check's subject changed with it
+//!
+//! `pdfce-core` **v0.26.0** (`Pass 245.0`, 2026-09-03 — the same day as the
+//! report) ships all three asks: the gate is on the samples rather than the
+//! bounding boxes, a wholly covered image is removed outright, and an
+//! undecodable image now retains just the marks that touch it rather than
+//! refusing the document. So a region over an image no longer fails; it
+//! **destroys those pixels**.
+//!
+//! The disclosure did not become unnecessary — it changed subject, and to the
+//! more important of the two. A raster redaction is irreversible in a way a text
+//! one is not: the samples are overwritten and re-encoded, and what comes back
+//! is a black block where the logo was. Learning that while the rectangle is
+//! being drawn is the same argument the original made, applied to the opposite
+//! outcome.
+//!
+//! ⇒ **The engine's reply told us to re-word it, by name.** Nothing in this
+//! repository could have: a claim about an external limitation, phrased as a UI
+//! string, compiles and passes for ever after the limitation lifts. See
+//! `crate::checks::driving::declared_or_in_overflow` for the same shape found
+//! the same morning in this harness's own code.
 //!
 //! # ★★★ Why this check asserts BOTH directions, and would be worthless with one
 //!
@@ -41,8 +63,8 @@
 //! and this asserts only that it is non-zero on a document that has one and
 //! absent on a document that has none — the arithmetic is
 //! `app::actions::redactimg`'s and is a straight filter over the object model.
-//! It also does not press Apply: the refusal that follows is the engine's, is
-//! reproduced by the CLI in O103, and is not this shell's to verify.
+//! It also does not press Apply: what happens there is the engine's, was
+//! reproduced with the CLI in O103, and is not this shell's to verify.
 
 use crate::checks::driving::{SHELL_DIAG_ENV, declared, declared_names, list};
 use crate::checks::{Check, CheckContext};
@@ -70,8 +92,20 @@ const WITHOUT_IMAGE: &str = "fixtures/a1-titleblock.pdf";
 /// Matched on the CONSEQUENCE rather than on "image", because the sentence has
 /// to tell the operator what will happen to him and not merely what is on the
 /// page. A build that said "this region covers 1 image(s)" and stopped would
-/// pass a looser check and leave him no wiser about the Apply that is coming.
-const CONSEQUENCE: &str = "will be refused";
+/// pass a looser check and leave him no wiser about what Apply will do.
+///
+/// ★★★ **It read `"will be refused"` until 2026-09-03, and the words changed
+/// because the OUTCOME did.** `pdfce-core` v0.26.0 (`Pass 245.0`) destroys
+/// image samples under a region instead of refusing the document, so the
+/// disclosure stopped being a warning about a failure and became a warning
+/// about an irreversible success. This constant is what made that a one-line
+/// edit: the check asserts *"the consequence is stated"*, and only the
+/// consequence moved.
+///
+/// ⇒ A check pinned to a whole sentence would have gone red here and read as a
+/// regression in the shell, when what had happened is that the engine got
+/// better.
+const CONSEQUENCE: &str = "destroyed, not hidden";
 
 /// See the module documentation.
 pub struct MarkingOverAnImageSaysSoBeforeApply;
@@ -83,8 +117,9 @@ impl Check for MarkingOverAnImageSaysSoBeforeApply {
 
     fn defect(&self) -> &'static str {
         "a redaction mark that covers a raster image is authored in silence, so the operator \
-         marks a whole drawing, presses Apply, and is refused for the entire document with no \
-         indication of which region caused it"
+         does not learn until he opens the saved file that those image samples were destroyed \
+         and overwritten rather than hidden — a raster redaction is irreversible in a way a \
+         text one is not"
     }
 
     fn run(&self, ctx: &CheckContext) -> CheckReport {

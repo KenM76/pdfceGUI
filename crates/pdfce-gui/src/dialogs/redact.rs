@@ -410,6 +410,39 @@ impl RedactDialog {
                     ui.add_space(4.0);
                     ui.label(t::info_scrubbed(report.info_strings_scrubbed));
                 }
+                // ★★★ What happened to the raster images, stated even though it
+                // is a success. `pdfce-core` v0.26.0 destroys the covered
+                // samples and re-encodes; before 2026-09-03 it refused the
+                // document instead. A report that lists glyphs removed and says
+                // nothing about an overwritten photograph has quietly picked
+                // which irreversible act is worth mentioning.
+                if report.images_cleared > 0 || report.images_removed > 0 {
+                    ui.add_space(4.0);
+                    ui.label(t::images_destroyed(
+                        report.images_cleared,
+                        report.images_removed,
+                        report.images_overcovered,
+                    ));
+                }
+                // ★ Separate, because it is a different claim: the same picture
+                // is still on the other pages, and "I redacted the logo" and
+                // "the logo is gone from this file" are not the same sentence.
+                if report.images_cloned_shared > 0 {
+                    ui.add_space(4.0);
+                    ui.label(t::images_shared_copied(report.images_cloned_shared));
+                }
+                // ★★ The drawn geometry that was cut out. New in `pdfce-core`
+                // v0.27.0 and worth a line of its own on a CAD sheet: before
+                // it, lines ran straight through a redacted rectangle and
+                // nothing said so. This is the count that makes "the drawing
+                // under the box is gone" a statement rather than an assumption.
+                if report.vector_paths_cut > 0 {
+                    ui.add_space(4.0);
+                    ui.label(t::vector_paths_cut_line(
+                        report.vector_paths_cut,
+                        report.vector_paths_dropped,
+                    ));
+                }
                 if report.containers_decomposed > 0 {
                     ui.add_space(4.0);
                     ui.label(t::containers_decomposed(
@@ -599,10 +632,18 @@ fn outcome_line(path: &Path, regions: u64, pages: usize, residuals: usize) -> St
 /// 2. **raw-byte residuals** — [`crate::redact::proof`]'s middle verdict, a
 ///    byte run that survives outside every decoded stream and that pdfce
 ///    genuinely cannot classify;
-/// 3. **objects promoted out of a compressed container** by materialising the
+/// 3. **retained marks** — regions where nothing was removed because the image
+///    under them could not be decoded. The engine names this as the number to
+///    read before saying "redacted", and it is the strongest kind of residual
+///    on this list: the content is still there, under a rectangle that says it
+///    is not;
+/// 4. **vector geometry that could not be cut**, and **clips whose outline had
+///    to be kept** — an outline on a drawing can be as identifying as the text
+///    it surrounded;
+/// 5. **objects promoted out of a compressed container** by materialising the
 ///    operator's unsaved edits (engine rule R38).
 ///
-/// The third is the mildest and is listed anyway. Page content cannot live in
+/// The last is the mildest and is listed anyway. Page content cannot live in
 /// an object stream at all (ISO 32000-1 §7.5.7), so it cannot hold redacted
 /// text — but it is a leftover of the operator's own edits, and a report that
 /// silently drops the findings it judges harmless is a report whose judgement
@@ -617,6 +658,38 @@ fn residual_lines(prepared: &PreparedRedaction) -> Vec<String> {
         .filter(|c| c.action == CarrierAction::DisclosedNotScrubbed)
         .map(|c| t::residual_carrier_line(c.carrier))
         .collect();
+    // ★★★ RETAINED MARKS, and the engine names this as the one number to read
+    // before the word "redacted" is used. A retained mark is a region where
+    // NOTHING was removed — the image under it could not be decoded, so the
+    // engine applied every other mark and left that one standing rather than
+    // refusing the document. The result is a half-redacted file that looks
+    // finished, which is precisely what this list exists to prevent.
+    if prepared.report.marks_retained > 0 {
+        out.push(t::marks_retained_line(prepared.report.marks_retained));
+    }
+    // ★★ Vector geometry crossing a region that could NOT be cut — a malformed
+    // path object the engine cannot rewrite as a unit. Zero on every
+    // well-formed page since `pdfce-core` v0.27.0, which cuts paths at the
+    // region boundary; a non-zero value here is therefore rare and is a real
+    // residual, not the ordinary case.
+    //
+    // On a drawing this is the residual that matters most and the one nobody
+    // asks about: a title-block border or a view's geometry running through a
+    // redacted rectangle is a shape, and a shape can be as identifying as the
+    // text it surrounded.
+    if prepared.report.vector_paths_intersecting > 0 {
+        out.push(t::vector_paths_residual_line(
+            prepared.report.vector_paths_intersecting,
+        ));
+    }
+    // ★ A clip whose ink was cut and whose ORIGINAL outline had to stay: ISO
+    // 32000-1 §8.5.4 applies a clip after painting, so shrinking it would hide
+    // later, unmarked content. Nothing of it is visible and it is still a shape
+    // in the file — exactly the finding rule 1 forbids judging harmless on the
+    // operator's behalf.
+    if prepared.report.vector_clips_kept > 0 {
+        out.push(t::vector_clips_kept_line(prepared.report.vector_clips_kept));
+    }
     out.extend(
         prepared
             .verification

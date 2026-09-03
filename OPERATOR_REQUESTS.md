@@ -304,7 +304,7 @@ ask. See the plan below the O103 row.
 
 ---
 
-## O103 — ⬜ **FILED TO THE ENGINE 2026-09-03** — redaction refuses any region that touches an image
+## O103 — ✅ **FIXED BY THE ENGINE 2026-09-03, our half rebuilt the same day** — redaction refuses any region that touches an image
 
 **Ken, 2026-09-03:** *"every time I've tried the redact feature it tells me it
 can't because there is objects that weren't redacted."*
@@ -358,6 +358,49 @@ happily on a build that warns about every mark on every document, which is worse
 than no warning: a caveat attached to everything is one you learn to scroll past,
 and the day it matters you scroll past it too. Forcing `images = 0` reddens the
 first half; forcing `images = 1` reddens the second.
+
+### ✅✅ THE ENGINE ANSWERED THE SAME DAY, AND WENT PAST WHAT WE ASKED
+
+**Two releases in one afternoon.** `pdfce-core` **v0.26.0** (`Pass 245.0`) then
+**v0.27.0** (`Pass 246.0`). All three of our asks, in the order we ranked them,
+plus one we had not thought to make:
+
+| what | now |
+|---|---|
+| the gate | on the image **samples**, not the bounding boxes — a region that merely touches a logo's rectangle destroys nothing and is not an image redaction |
+| a covered image | the pixels are **destroyed** — decoded, overwritten, the matching part of any soft mask cleared, re-encoded losslessly. A wholly covered image is removed outright |
+| an image it cannot decode | **that mark alone** is left unapplied; every other mark applies. Only when *no* mark can be applied does the whole thing refuse |
+| ★ vector lines through a region | **cut at the region boundary** — strokes cut against the region widened by their stroke width, fills clipped to its complement, a path wholly inside deleted. **We never reported this and it is the bigger one on a drawing.** The engine found it by rendering before and after |
+
+**Measured on your own files** by the engine: the corner mark on `17036-15`
+cuts 25 path objects with zero residual and exits 0; the whole-page marks on
+both drawings drop 780 and 1,089 objects and exit 0 — the runs that used to
+refuse.
+
+★ **And the black block is gone**: destroyed cells are now **paper**, not black
+— white for grey/RGB, no ink for CMYK — so a mark with no fill colour leaves the
+image area looking like the page behind it.
+
+### ✅ Our half, rebuilt against it
+
+* The mark-time sentence now reads **"This region covers part of N image(s) —
+  those pixels will be destroyed, not hidden."** It used to say the apply would
+  be refused, which became the exact opposite of the truth within hours.
+* The report says what happened to the images — cleared, removed, and whether a
+  rotated placement had a slightly larger rectangle cleared than you drew.
+* A **shared** image gets its own line, because "I redacted the logo" and "the
+  logo is gone from this file" are different claims: the other pages keep theirs,
+  since you did not mark those.
+* The report says how much **drawn geometry was cut**, and how much was deleted
+  outright.
+* Three new residuals go into the acknowledgement list: a **retained mark**
+  (a region where nothing was removed), **geometry that could not be cut**, and
+  a **clip whose outline had to be kept**.
+
+★★★ **The one number that gates the word "redacted"** is `marks_retained`, and
+the engine said so by name. A retained mark is a region where *nothing was
+removed*, under a rectangle that says it was. It is now the first line of the
+residual list.
 
 ---
 
