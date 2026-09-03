@@ -77,6 +77,7 @@
 pub mod bytes;
 pub mod extract;
 pub mod look;
+pub mod overprint;
 /// ★ The two print-ready colour controls and the field wash, split out of
 /// [`look`] on 2026-09-02 under R2. Its header says which of the three is there
 /// for a weak reason and should move out first if the module grows.
@@ -85,6 +86,7 @@ pub mod print_colour;
 pub use bytes::*;
 pub use extract::*;
 pub use look::*;
+pub use overprint::*;
 pub use print_colour::*;
 
 use egui_shell::theme::Preset;

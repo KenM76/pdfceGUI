@@ -112,18 +112,32 @@ pub fn zero_tint(ui: &mut Ui, draft: &mut Draft) {
         t::zero_tint_silence(),
         t::zero_tint_radius(),
     );
-    // ★ Default first, exactly as `intent` argues: an operator reads what pdfce
-    // is doing now before they read the alternatives.
-    for scope in [
+    // ★★★ THE DEFAULT FIRST, and it is now ASKED rather than assumed.
+    //
+    // `intent`'s argument is unchanged — an operator reads what pdfce is doing
+    // now before they read the alternatives — but the list used to hard-code
+    // which one that was, and on 2026-09-03 the engine moved it. Sorting by
+    // `OverprintZeroTintScope::default()` means the ordering follows the engine
+    // instead of having to be remembered, and the "(pdfce's default)" marker
+    // comes from the same question rather than from a label.
+    let mut scopes = [
         Scope::GreyAsKOnly,
         Scope::DeviceCmykOnly,
         Scope::AllProcessSpaces,
-    ] {
+    ];
+    scopes.sort_by_key(|s| u8::from(*s != Scope::default()));
+    for scope in scopes {
         widgets::option(
             ui,
             &mut draft.working.overprint_zero_tint_scope,
             scope,
-            t::zero_tint_label(scope),
+            // ui-text-exempt: the two halves are catalog strings; this line
+            // only joins them, and the join is punctuation.
+            &format!(
+                "{}{}",
+                t::zero_tint_label(scope),
+                t::zero_tint_default_suffix(scope)
+            ),
             Some(t::zero_tint_note(scope)),
         );
     }
