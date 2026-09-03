@@ -406,6 +406,30 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport) -> Result<Option<String>>
     click_mode_segment(&session, &driver, ui_rect, MODE)?;
     session.settle(20);
 
+    // ★★★ BRING THE PROPERTIES PANE TO THE FRONT OF ITS TAB GROUP.
+    //
+    // The dock mounts several panes per slot and draws only the ACTIVE tab's
+    // body, so a pane that exists and is not in front publishes nothing —
+    // which is indistinguishable, from here, from a panel that had nothing to
+    // say about the selection.
+    //
+    // ★★ That distinction is the whole of this check's subject, and it nearly
+    // cost a false bug report. Measured 2026-09-03: the canvas traced
+    // `selection-set page=0 object=0 via=press` — something WAS selected — and
+    // no `properties-panel` line followed. Read alone that says "the panel does
+    // not describe what the canvas selected", which is a defect in the
+    // application. The dock listing says otherwise: `dock.body.file.properties`
+    // was absent from the run entirely while `dock.tab.file.properties` — the
+    // tab HEADER — was present. The pane was behind another tab.
+    //
+    // ⇒ An absent `properties-panel` line means "selected nothing" ONLY once
+    // the pane is in front. Establishing that is this check's job, not the
+    // reader's.
+    if let Some(tab) = declared(&session.trace()?, ui_rect, "dock.tab.file.properties") {
+        driver.click_at(session.frame()?.declared_center(tab))?;
+    }
+    session.settle(20);
+
     // =======================================================================
     // PHASE 1 — click the text as an OBJECT, and nothing else.
     //

@@ -238,14 +238,22 @@ not exercise the case.
 | `bezier_handle_drag_changes_a_curve` | `fixtures/polyline-nodes.pdf` | `0,150,260` |
 | `exporting_form_data_writes_a_file` | `fixtures/text-field-with-appearance.pdf` | `0,300,500` |
 
-⬜ **One still uncalibrated:** `the_format_tab_offers_font_controls_for_swept_text`
-wants *a piece of text selected as an OBJECT*, which is stricter than "text is
-here". On `fixtures/paragraph.pdf` at `0,90,703` — just above the first glyph's
-baseline, found with `pdfce-cli extract-text --json` as the check itself
-advises — the canvas traces `selection-set page=0 object=0 via=press` and the
-Properties panel writes **no** `properties-panel` line. So something is
-selected and the panel does not describe it. That is the thread to pull; it is
-not an aim problem.
+| `the_format_tab_offers_font_controls_for_swept_text` | `fixtures/paragraph.pdf` | `0,90,703` |
+
+★★★ **That last one was called a possible defect and was not one.** It traced
+`selection-set page=0 object=0 via=press` with **no** `properties-panel` line —
+something selected, the panel silent — which reads as the panel failing to
+describe what the canvas selected. The dock listing said otherwise:
+`dock.body.file.properties` was absent from the run while
+`dock.tab.file.properties` — the tab **header** — was present. **The pane was
+behind another tab**, and the dock draws only the active tab's body.
+
+⇒ **A docked pane that is not in front publishes nothing**, which is
+indistinguishable from a panel with nothing to say. Any check that reads a
+panel's output must bring it to the front first; `dock.tab.<id>` is published
+for exactly that. The point `0,90,703` was right all along — found with
+`pdfce-cli extract-text --json`, which gives every run's first glyph, as the
+check's own skip message advises.
 
 ★★★ **`--second-pdf` IS NOT OPTIONAL, and leaving it off costs FIVE checks
 silently.** Measured 2026-09-02: `two_documents_get_two_tabs`,
