@@ -74,6 +74,28 @@ wrong-fixture failure left. So it is **unproven either way** whether the
 `settle` change cured it. What is certain is that the next occurrence will say
 which of the three it is instead of leaving it to be guessed at.
 
+### ★★ The 40 SKIPs audited — and five of them were my invocation
+
+**`--second-pdf` was never passed**, so five cross-document checks never ran:
+two tab checks, two page-drag checks and the attachment move. Supplying it makes
+`two_documents_get_two_tabs` and `document_tabs_can_be_rearranged` pass
+immediately. `RESUME.md`'s sweep recipe now includes the flag, in bold, because
+a skip is not red and the suite reports the same cheerful INCOMPLETE whether a
+check could not run for a good reason or because a flag was forgotten.
+
+⬜ **Two of the five still skip for a REAL check gap**, and it is worth fixing:
+`a_page_dragged_between_documents_is_copied` and
+`a_shift_drag_between_documents_moves_the_pages` both stop at *"no
+`panel-pages-grid` region, so the Pages panel is not on screen"* — they never
+open it. `pages_drag` has carried a guard that opens the panel only if it is
+absent for weeks; these two want the same.
+
+⬜ **One is environmental**: `an_attachment_moves_between_two_open_documents`
+skipped because *"the point (1614, 629) is owned by 'Windows Script Host'"*. A
+`wscript` window (pid 41832) appeared at 22:38 and is sitting on the desktop.
+**Left alone — it is his machine and not obviously mine to close.** Two leftover
+`pdfce-gui` processes from my own runs WERE cleaned up.
+
 ### ⬜ The three that need a decision, not more work
 
 1. **Contention is real and unmeasured.** Three of 148 fail under batch load and

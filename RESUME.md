@@ -218,9 +218,18 @@ from it, which is exactly what had happened.
 ```bash
 for f in "polyline-nodes 0,150,260" "four-pages 0,300,500" "a1-titleblock 0,300,500"; do
   set -- $f
-  ./target/release/ui-verify.exe --exe target/release/pdfce-gui.exe     --pdf fixtures/$1.pdf --doc-point $2 >> evidence/ui-verify-run.txt 2>&1
+  ./target/release/ui-verify.exe --exe target/release/pdfce-gui.exe     --pdf fixtures/$1.pdf --doc-point $2     --second-pdf fixtures/four-pages.pdf >> evidence/ui-verify-run.txt 2>&1
 done
 ```
+
+★★★ **`--second-pdf` IS NOT OPTIONAL, and leaving it off costs FIVE checks
+silently.** Measured 2026-09-02: `two_documents_get_two_tabs`,
+`document_tabs_can_be_rearranged`, `a_page_dragged_between_documents_is_copied`,
+`a_shift_drag_between_documents_moves_the_pages` and
+`an_attachment_moves_between_two_open_documents` all SKIP without it — and a
+skip is not red, so a sweep reports the same cheerful INCOMPLETE it uses for the
+hundred checks that legitimately need a pointer. Two of the five pass the moment
+it is supplied; it must be a file **different** from `--pdf`.
 
 ⇒ **Re-run a failing check alone with the fixture varied before believing it.**
 A check that needs a particular kind of thing under the pointer should SKIP, not
