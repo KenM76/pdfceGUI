@@ -88,15 +88,6 @@ const CTRL_O: u16 = 0x4F;
 /// suite red is not a defect report until the member has been re-run alone"*.
 const DWELL: Duration = Duration::from_millis(1_400);
 
-/// Where across the landing tile the pointer is released.
-///
-/// Three-quarters, for `pages_drag`'s reason: the panel resolves the nearer
-/// vertical edge, so anything past the midpoint names the same boundary, and a
-/// point exactly on the edge is where a rounding difference between the
-/// application's `f32` rectangle and this harness's reading could flip the
-/// answer.
-const LAND_ACROSS: f32 = 0.75;
-
 /// The trace line the source-side removal produces, on a move.
 /// `page-move-take-refused page=… n=… detail=…` — the engine declining the
 /// removal half of a move, with its own sentence.
@@ -242,15 +233,33 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport, take: bool) -> Result<Opt
     report.note(format!("{} documents open", tabs.len()));
 
     // --- 2: the Pages panel, showing the ACTIVE (second) document ----------
-    if declared(&trace, ui_rect, GRID).is_none() {
+    //
+    // ★★★ OPEN IT IF IT IS NOT THERE, rather than requiring it to be.
+    //
+    // This used to refuse with "`pages_drag` opens it from the ribbon when it
+    // is closed; this check expects the mode's default arrangement to include
+    // it." The author knew the sibling did the work and chose to rely on a
+    // default instead — and the default does not hold: measured 2026-09-02,
+    // this check and its shift-drag twin SKIPPED the entire sweep on exactly
+    // that message.
+    //
+    // ★★ A precondition a check ASSUMES is a precondition that eventually
+    // stops being true, and the check then reports nothing rather than
+    // failing. Establishing it costs one call to a helper that is already
+    // `pub(crate)` for this purpose. The guard is "only if absent", because
+    // pressing a panel toggle that is already on CLOSES it.
+    if declared(&session.trace()?, ui_rect, GRID).is_none() {
+        crate::checks::pages_drag::open_pages_panel(&session, &driver, ui_rect)?;
+        session.settle(24);
+    }
+    let trace = session.trace()?;
+    let Some(grid) = declared(&trace, ui_rect, GRID) else {
         return Err(Error::new(format!(
-            "no `{GRID}` region, so the Pages panel is not on screen and there are no tiles \
-             to drag. `pages_drag` opens it from the ribbon when it is closed; this check \
-             expects the mode's default arrangement to include it. Regions beginning \
-             `panel-`: {}.",
+            "no `{GRID}` region after asking the ribbon for the Pages panel, so there are \
+             no tiles to drag. Regions beginning `panel-`: {}.",
             list(&declared_names(&trace, ui_rect, "panel-"))
         )));
-    }
+    };
     let tiles = declared_names(&trace, ui_rect, TILE);
     if tiles.is_empty() {
         return Err(Error::new(
@@ -291,7 +300,30 @@ fn drive(ctx: &CheckContext, report: &mut CheckReport, take: bool) -> Result<Opt
     let frame = session.frame()?;
     let start = frame.declared_center(from);
     let spring_at = frame.declared_center(tab0);
-    let land_at = frame.declared_at(from, LAND_ACROSS, 0.5);
+    // ★★★ THE GRID'S CENTRE, not a point derived from a TILE — and the comment
+    // above already argued for this without doing it.
+    //
+    // It said the only geometric claim made is "the pointer was inside the
+    // grid … because the grid rectangle is the panel's and not the document's".
+    // True — but `land_at` was `declared_at(from, …)`, computed from a **tile**
+    // of the *second* document, and a tile is exactly what the spring re-lays
+    // out. Measured 2026-09-02, the first time this check ever ran:
+    // `pages-drag-release gap=none`. The release landed where the other
+    // document has no tile, so no gap resolved and no cross-document insert was
+    // raised — reported as "the application still believed both ends were the
+    // same document", which is a defect report about working code.
+    //
+    // The grid rect survives the switch by construction: it is the panel's
+    // area, and the panel does not resize when the active document changes. So
+    // this is the coordinate the surrounding argument was always describing.
+    // ★★ NEAR THE TOP of the grid, not its centre. The centre was the first
+    // attempt and still resolved no gap: the target document here has ONE page,
+    // so its single tile sits at the top of a tall grid and the middle is empty
+    // space below it — where  deliberately raises nothing, because
+    // that is where an operator lets go when they mean "put it at the end" and
+    // miss. Every non-empty document has a first row at the top of its grid,
+    // whatever its page count, which is the property a release point needs.
+    let land_at = frame.declared_at(grid, 0.5, 0.12);
     report.note(format!(
         "dragging tile 0 from ({}, {}), resting {} ms on the first document's tab at \
          ({}, {}), releasing at ({}, {})",

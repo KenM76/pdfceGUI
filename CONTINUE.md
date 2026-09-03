@@ -83,12 +83,26 @@ immediately. `RESUME.md`'s sweep recipe now includes the flag, in bold, because
 a skip is not red and the suite reports the same cheerful INCOMPLETE whether a
 check could not run for a good reason or because a flag was forgotten.
 
-⬜ **Two of the five still skip for a REAL check gap**, and it is worth fixing:
-`a_page_dragged_between_documents_is_copied` and
-`a_shift_drag_between_documents_moves_the_pages` both stop at *"no
-`panel-pages-grid` region, so the Pages panel is not on screen"* — they never
-open it. `pages_drag` has carried a guard that opens the panel only if it is
-absent for weeks; these two want the same.
+✅ **All five now pass.** The two page-drag checks never opened the Pages panel
+— their own message said *"this check expects the mode's default arrangement to
+include it"*, and the default does not hold. They now call the `pub(crate)`
+helper `pages_drag` has had all along, guarded on "only if absent" because a
+panel toggle that is already on closes it.
+
+★★★ Then they failed twice more on **aim**, and the second one is instructive.
+The release point was `declared_at(from, …)` — derived from a **tile of the
+other document** — while the comment three lines above correctly argued that the
+only safe coordinate is the grid's, "because the grid rectangle is the panel's
+and not the document's". The code did not do what its own comment said.
+Releasing at the grid's **centre** still failed: the target document has one
+page, so its single tile sits at the top of a tall grid and the middle is empty
+space, where `settle_drag` deliberately raises nothing. Aiming near the **top**
+— where every non-empty document has a first row — passes:
+`from-slot=1 gap=1 moving=1 copied=1`.
+
+⇒ Cross-document page drag, shift-to-move, and the attachment move all work and
+never had a problem. That is the seventh and eighth time in two days that a
+failure was the check.
 
 ⬜ **One is environmental**: `an_attachment_moves_between_two_open_documents`
 skipped because *"the point (1614, 629) is owned by 'Windows Script Host'"*. A
