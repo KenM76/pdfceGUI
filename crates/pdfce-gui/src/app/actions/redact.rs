@@ -179,8 +179,22 @@ pub fn apply(doc: &mut OpenDoc, action: Action) {
                 .get(page)
                 .map(|p| crate::panels::redact::whole_page_spec(p, &appearance))
             {
+                // ★ Asked before the edit, for the same reason the selection
+                // route asks early: `vector_edit` bumps the epoch and the
+                // object model is rebuilt underneath. See `super::redactimg`.
+                //
+                // A whole-page mark covers every image on the page by
+                // definition, so this is the one route where the question needs
+                // no geometry — only "are there any?".
+                let images = crate::app::actions::redactimg::images_on_page(doc, page);
                 vector_edit(doc, "redact-mark-page", page, 1, |session| {
-                    session.add_redaction(page, &spec).map(|_| Vec::new())
+                    session.add_redaction(page, &spec).map(|_| {
+                        if images > 0 {
+                            vec![crate::text::redact::mark_covers_image(images)]
+                        } else {
+                            Vec::new()
+                        }
+                    })
                 });
             } else {
                 crate::diag::trace(|| {

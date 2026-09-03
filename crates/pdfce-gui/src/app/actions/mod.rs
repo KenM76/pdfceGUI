@@ -173,6 +173,7 @@ pub(crate) use disclosure::{record_edit_disclosure, record_note, record_notes};
 /// header carries why a router and a protocol are two subjects.
 mod funnel;
 mod redact;
+pub mod redactimg;
 /// ★ **Redact what is selected on the page** — the third marking route, and the
 /// first that does not go through text. Its header carries why the search box
 /// could not reach a vector title block, a stamp or a logo.

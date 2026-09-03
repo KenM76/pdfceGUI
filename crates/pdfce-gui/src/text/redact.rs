@@ -434,6 +434,33 @@ pub fn verification_limit_line(too_short: usize) -> String {
     )
 }
 
+/// **The mark covers a raster image, so applying will be refused** —
+/// `OPERATOR_REQUESTS.md` O103.
+///
+/// # ★★★ Said at MARK time, which is the whole point of the sentence
+///
+/// The refusal itself is the engine's and is correct: it cannot destroy image
+/// pixels, and clipping or masking would leave them recoverable. What was wrong
+/// was *when* the operator found out. Apply is all-or-nothing for the document,
+/// so twelve careful marks and one that grazed a logo produced a single refusal
+/// naming no region — after the work, not during it.
+///
+/// # Why it names the count and the consequence, and offers no remedy
+///
+/// Because there is no remedy pdfce can offer yet. Telling him to "move the
+/// rectangle" would be advice we cannot check — on a title block the value and
+/// the logo may genuinely overlap — and telling him to delete the mark would be
+/// deciding on his behalf that it is not worth having when the engine may gain
+/// the capability. So it states the fact and stops.
+///
+/// ★ The mark is still authored. This blocks nothing.
+#[must_use]
+pub fn mark_covers_image(images: usize) -> String {
+    format!(
+        "This region covers {images} image(s). pdfce cannot yet remove image pixels, so applying redactions to this document will be refused until no marked region touches an image — the mark itself is fine and is still here."
+    )
+}
+
 /// The heading for the residual section — the part that makes the feature
 /// honest.
 #[must_use]

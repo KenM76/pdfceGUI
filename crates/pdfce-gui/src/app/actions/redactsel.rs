@@ -149,9 +149,26 @@ pub fn mark_selection(doc: &mut OpenDoc, appearance: &RedactAppearance) {
     // one each remove exactly the same content. The difference is entirely in
     // what the operator has to manage afterwards.
     let spec = appearance.to_spec(quads);
+    // ★★★ ASKED BEFORE THE EDIT, because afterwards the selection is gone.
+    //
+    // `vector_edit` bumps the epoch and the canvas resolves its selection
+    // against the new revision, so the objects the operator picked are no
+    // longer enumerable inside the closure. The question — "did any of what he
+    // chose turn out to be a raster image?" — has to be answered while the
+    // answer still exists. See `super::redactimg` for why it is asked at all.
+    let images = crate::app::actions::redactimg::images_in_selection(doc);
     vector_edit(doc, "redact-mark-selection", page_index, count, |session| {
-        session
-            .add_redaction(page_index, &spec)
-            .map(|_| vec![crate::text::redact::marked_selection(count)])
+        session.add_redaction(page_index, &spec).map(|_| {
+            let mut notes = vec![crate::text::redact::marked_selection(count)];
+            // ★ Second, never first. The mark SUCCEEDED — that is the sentence
+            // he is owed first, and the caveat belongs beside it rather than
+            // instead of it. This module's header carries rule 4's ordering:
+            // "a residual is named in the SAME sentence as the success, never
+            // in a dialog that replaces it".
+            if images > 0 {
+                notes.push(crate::text::redact::mark_covers_image(images));
+            }
+            notes
+        })
     });
 }
