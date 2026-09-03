@@ -330,16 +330,22 @@ pub(in crate::canvas) fn resolve_hover(
     })
 }
 
-/// ★★ Both measure affordances for this frame, resolved together.
+/// ★★ The measure hover for this frame, resolved while the decomposition is
+/// still borrowed.
 ///
-/// Lifted out of `canvas::interact` when R2 asked for four lines back, and the
-/// two travel as a pair on purpose: they share the constraint that shapes both
-/// of them, which is that the page decomposition is borrowed **only here** and
-/// dropped before anything is painted.
+/// Lifted out of `canvas::interact` when R2 asked for four lines back. The
+/// constraint that shapes it: the page decomposition is borrowed **only here**
+/// and dropped before anything is painted, so this query cannot happen at paint
+/// time — and it must not be repeated. See this module's header for what two
+/// derivations of one answer cost when the marker and the click disagreed by
+/// the scroll origin over the zoom.
 ///
-/// So neither query can happen at paint time, and neither may be repeated —
-/// see this module's header for what two derivations of one answer cost when
-/// the marker and the click disagreed by the scroll origin over the zoom.
+/// ★ **It returned a second value until 2026-09-03** — the circular pick set's
+/// object outlines — and the pair travelled together because both needed the
+/// borrow. The pick set is a list of POINTS now (`pick::CircularPick`), which
+/// the preview reads straight out of `egui::Memory` and projects itself, so it
+/// needs no decomposition and no channel through three call sites. The whole
+/// borrow hazard went with it.
 ///
 /// `kind` is `None` for every non-measure tool, and then this costs one
 /// `Option` check and runs no query at all: panning a 129,758-object drawing
@@ -352,7 +358,7 @@ pub(in crate::canvas) fn frame(
     canvas_pos: Option<Pos2>,
     targets: Option<&dyn CanvasTargetProvider>,
     map: &PageMapping,
-) -> (Option<Resolved>, Vec<egui::Rect>) {
+) -> Option<Resolved> {
     // ★ The snap hover, resolved HERE because this is the last line at which
     // the decomposition is still borrowed.
     //
@@ -365,7 +371,7 @@ pub(in crate::canvas) fn frame(
     //
     // `None` for every tool but a measure tool, so an un-armed canvas pays one
     // `Option` check and runs no query.
-    let hover = kind.and_then(|kind| {
+    kind.and_then(|kind| {
         resolve_hover(
             ctx, doc, page_index,
             // ★ CONVERTED — `resolve_hover` takes CANVAS space, and this line
@@ -387,20 +393,7 @@ pub(in crate::canvas) fn frame(
             // resolve a hover without a `MeasureState` in memory.
             kind,
         )
-    });
-
-    // ★ …and the circular pick set's outlines, resolved here for the identical
-    // reason and under the identical constraint.
-    //
-    // The operator must be able to see which objects are in the fit — without
-    // it, toggling an arc in changes nothing on screen and the tool is a
-    // gesture with no feedback at all. `bounds` is a query on the
-    // decomposition, so it has to happen while the `Ref` below is still alive;
-    // the drawing happens after the `drop`. Empty for every other tool.
-    let picked = kind
-        .map(|kind| super::circular::pick_outlines(ctx, page_index, kind, targets))
-        .unwrap_or_default();
-    (hover, picked)
+    })
 }
 
 #[cfg(test)]

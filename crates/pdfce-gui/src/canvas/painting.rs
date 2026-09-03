@@ -162,8 +162,6 @@ pub(super) struct Frame<'a> {
     pub text_selection: Option<&'a crate::canvas::textsel::TextSelection>,
     /// What the measure tool would snap to under the pointer.
     pub measure_hover: Option<Resolved>,
-    /// The measure picks placed so far.
-    pub measure_picked: &'a [Rect],
 }
 
 /// Paint the canvas.
@@ -199,7 +197,6 @@ pub(super) fn draw(
     let find = f.find;
     let text_selection = f.text_selection;
     let measure_hover = f.measure_hover;
-    let measure_picked = f.measure_picked;
     let text_marks = f.text_marks.as_deref();
     let ctx = ctx.clone();
 
@@ -624,7 +621,6 @@ pub(super) fn draw(
                 kind,
                 map,
                 hover: measure_hover,
-                picked: measure_picked,
             },
         );
     }

@@ -446,7 +446,11 @@ mod tests {
         assert!(!st.gesture_in_progress());
         // A gesture in any tool marks the state in-progress...
         st.linear.commit_point(p(0.0, 0.0));
-        st.circular.toggle_object(0, vec![p(1.0, 1.0)]);
+        st.circular.toggle_point(
+            p(1.0, 1.0),
+            crate::canvas::measure::pick::PickOrigin::Free,
+            0.1,
+        );
         st.scale.commit_point(p(2.0, 2.0));
         assert!(st.gesture_in_progress());
         // ...and clear_gesture discards them all (Escape stage 1).

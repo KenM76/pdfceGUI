@@ -264,6 +264,9 @@ pub mod link_follow;
 /// check could not see it at all because a `Custom` item carries no command id.
 pub mod markup_style;
 pub mod measure_calibrate;
+/// ★ The operator's own report (O105), driven on a fixture built to reproduce
+/// it: one path object holding a small circle and forty unrelated segments.
+pub mod measure_circular_points;
 /// Hovering with a measure tool armed says which line and which node.
 pub mod measure_hover;
 pub mod measure_linear;
@@ -895,6 +898,11 @@ pub fn all() -> Vec<Box<dyn Check>> {
         Box::new(markup_style::MarkupStyleGroupIsDrawn),
         Box::new(measure_perimeter::MeasurePerimeterTracesAndCloses),
         Box::new(measure_linear::MeasureLinearPlacesADimension),
+        // Beside the linear check: same tab, same arming path, and a reader
+        // comparing two measure verdicts wants them together. It pins its own
+        // fixture rather than taking --pdf — see its header for why a sweep's
+        // document cannot exhibit the defect it exists for.
+        Box::new(measure_circular_points::ThreeClicksRoundAHoleMeasureTheHole),
         // Straight after the linear tool, because it is the same gesture with a
         // different ending and a reader scanning the suite should meet them
         // together — and because a calibration is worthless if the linear pick

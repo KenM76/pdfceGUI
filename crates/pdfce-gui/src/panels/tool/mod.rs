@@ -165,6 +165,15 @@ pub const REGION_SCALE_STROKE: &str = "tool.scale.stroke"; // ui-text-exempt: tr
 pub const REGION_SCALE_INSETS: &str = "tool.scale.insets"; // ui-text-exempt: trace region name, never displayed
 /// The *Allow the artwork to distort* switch's own rect.
 pub const REGION_SCALE_DISTORT: &str = "tool.scale.distort"; // ui-text-exempt: trace region name, never displayed
+/// The region the radius/diameter tool's picked-point list publishes.
+pub const REGION_MEASURE_POINTS: &str = "tool.measure_points"; // ui-text-exempt: trace region name, never displayed
+/// The prefix of one picked point's row; its index in the set is appended.
+///
+/// ★ Per ROW rather than one rect for the list, because the whole capability
+/// `OPERATOR_REQUESTS.md` O107 asks for is *removing a particular point*, and a
+/// check that could only find "the list" could not press one. The index is the
+/// same number the row shows the operator, minus the one-based display offset.
+pub const REGION_MEASURE_POINT_PREFIX: &str = "tool.measure_point."; // ui-text-exempt: trace region name, never displayed
 /// The region Block C publishes.
 pub const REGION_DISCLOSURES: &str = "tool.disclosures"; // ui-text-exempt: trace region name, never displayed
 /// The prefix of one arming row's region; the command id is appended.
@@ -308,6 +317,8 @@ mod tests {
             super::REGION_SCALE_STROKE,
             super::REGION_SCALE_INSETS,
             super::REGION_SCALE_DISTORT,
+            super::REGION_MEASURE_POINTS,
+            super::REGION_MEASURE_POINT_PREFIX,
             super::REGION_DISCLOSURES,
             super::REGION_ROW_PREFIX,
         ];

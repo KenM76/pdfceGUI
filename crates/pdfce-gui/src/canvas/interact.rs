@@ -1257,7 +1257,7 @@ pub(super) fn interact(
     // the constraint that made them fiddly — the `Ref` is dropped before
     // anything paints, so both queries must happen HERE — and a reader who
     // finds one should find the other beside it. See `measure::resolve::frame`.
-    let (measure_hover, measure_picked) = measure::resolve::frame(
+    let measure_hover = measure::resolve::frame(
         &ctx,
         doc,
         page_index,
@@ -1332,7 +1332,6 @@ pub(super) fn interact(
             find,
             text_selection: text_selection.as_ref(),
             measure_hover,
-            measure_picked: &measure_picked,
         },
     );
 

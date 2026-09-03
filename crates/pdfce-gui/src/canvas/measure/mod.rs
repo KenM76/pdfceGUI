@@ -62,7 +62,22 @@ pub(in crate::canvas) use resolve::{Resolved, resolve_hover, snap_point};
 /// (click the first vertex to close the ring). Its header says why.
 pub mod perimeter;
 
-pub(super) mod pick;
+/// ★ `pub` rather than `pub(super)` as of 2026-09-03, because `crate::text`
+/// names [`circpick::PickOrigin`], which this module re-exports through
+/// [`pick`].
+///
+/// The visibility widened for one reason and it is the right one: a picked
+/// point's ORIGIN is an operator-facing disclosure — `OPERATOR_REQUESTS.md`
+/// O106 — and every operator-facing string in this crate lives in
+/// `crate::text`, which `tools/gates/check-ui-strings.sh` enforces. The
+/// alternative was a second enum in the text module mirroring this one, which
+/// is the mirrored-type drift `canvas::target`'s header exists to refuse.
+pub mod pick;
+
+/// The radius/diameter tool's point set — split out of [`pick`] on 2026-09-03
+/// under R2. Its header carries the seam; [`pick`] re-exports its types so
+/// every existing `pick::CircularPick` path still resolves.
+pub mod circpick;
 pub mod scale;
 pub mod state;
 
@@ -259,7 +274,7 @@ impl MeasureKind {
 // The canvas hosting
 // ===========================================================================
 
-use egui::{Pos2, Rect, Ui};
+use egui::{Pos2, Ui};
 use pdfce_core::dimension::TwoLinePlacement;
 use pdfce_core::vector::Point;
 use pdfce_core::vector::linepick::pick_line_in_page;
@@ -668,34 +683,27 @@ pub(super) fn click(pick: Pick<'_>, actions: &mut Vec<Action>) {
 
     let mut st = load(ctx, page_index, kind);
 
-    // ★ The circular tool is handled BEFORE the snap resolution, and that
-    // ordering is a decision rather than convenience.
+    // ★★★ The circular tool's DOUBLE-click is handled here, and its single
+    // click is not — which is the reverse of the arrangement that stood until
+    // 2026-09-03.
     //
-    // Everything between here and the `match` below resolves a *point*: it
-    // moves the click onto a nearby endpoint, and it makes a click on a
-    // **derived** candidate cost two presses so an inference is confirmed
-    // rather than assumed. The circular pick commits no point. It toggles an
-    // **object** into a fit set, and the object under the pointer is the same
-    // object whether or not there is a midpoint six pixels away.
+    // The old code took the whole circular click before the snap resolution,
+    // with a written argument: the pick committed no point, it toggled an
+    // OBJECT, and the object under the pointer is the same object whether or
+    // not there is a midpoint six pixels away. The argument was sound and its
+    // premise is gone — `pick::CircularPick`'s header carries the measurement
+    // that removed it, and `OPERATOR_REQUESTS.md` O105 carries the operator's
+    // report. A pick is a POINT now, so it wants every part of the machinery
+    // below: the snap, the raw fallback that makes a bitmap measurable, and the
+    // derived-candidate confirm that keeps an inference from being committed by
+    // the click that finds it.
     //
-    // Running it through that machinery anyway would take the second rule and
-    // apply it where it means nothing: an operator picking an arc that happens
-    // to lie near an inferred centerline would find their first click did
-    // nothing at all, with the disclosure explaining a confirmation they were
-    // never asking for. That is a real state, not a contrived one — derived
-    // centerlines are inferred from exactly the kind of drawn geometry a
-    // radius dimension is placed on.
-    if kind == MeasureKind::Circular {
+    // The double-click stays above it because it is not a pick at all: it ends
+    // the gesture, and running an ending through a point resolution would be
+    // asking where a click landed in order to throw the answer away.
+    if kind == MeasureKind::Circular && double {
         let before = actions.len();
-        circular::click(
-            &mut st,
-            page_index,
-            canvas_point,
-            double,
-            targets,
-            map,
-            actions,
-        );
+        circular::double_click(&mut st, page_index, actions);
         trace_pick(kind, &st, actions.len() > before);
         store(ctx, st);
         return;
@@ -772,11 +780,21 @@ pub(super) fn click(pick: Pick<'_>, actions: &mut Vec<Action>) {
                 actions,
             );
         }
-        // Taken above, before the point resolution this arm is unreachable
-        // from. Spelled rather than wildcarded so that a fifth kind added to
-        // the enum fails to compile here instead of quietly falling into a
-        // branch written for something else.
-        MeasureKind::Circular => {}
+        // ★ The circular tool, since 2026-09-03: one click is one point.
+        //
+        // It sits here, after the resolution, for the same reason the perimeter
+        // tool does — its picks are POINTS, so it gets the drawing's own
+        // geometry when there is any under the pointer and the operator's own
+        // judgement when there is not. The double-click that ENDS the gesture
+        // was taken before any of this ran; see the block above the resolution.
+        //
+        // `map.snap_tolerance()` is the removal radius, and it is the snap
+        // catch radius rather than a number of its own: inside it a snapped
+        // click would have landed on the very point being removed, so the two
+        // readings of one gesture cannot disagree about which point is meant.
+        MeasureKind::Circular => {
+            circular::take_point(&mut st, p, candidate, map.snap_tolerance());
+        }
         // ★ The calibration pick. Two points measure a reference length; the
         // dialog then asks what that length IS on the real thing.
         //
@@ -934,8 +952,13 @@ fn trace_pick(kind: MeasureKind, st: &MeasureState, committed: bool) {
 /// So two things are drawn, and the second goes through
 /// [`pick::dimension_preview_segments`]:
 ///
-/// 1. **The picked objects, outlined** — from `picked`, resolved by
-///    [`circular::pick_outlines`] while the decomposition was still borrowed.
+/// 1. **A marker on every picked point**, straight out of
+///    [`pick::CircularPick::points`]. ★ Until 2026-09-03 this drew a rectangle
+///    round every picked *object*, which on the operator's own drawing outlined
+///    a 550 × 500 pt region for one click — see `pick::CircularPick`'s header
+///    and `OPERATOR_REQUESTS.md` O105. A marker per point is both the honest
+///    picture of what is in the fit and the thing an operator aims at to take a
+///    point back out.
 /// 2. **The fitted circle**, derived by handing the *same*
 ///    [`pick::CircularPick::author`] value the commit would use to the *same*
 ///    segment function a committed dimension is drawn from. That is this
@@ -954,13 +977,6 @@ pub(super) struct Preview<'a> {
     pub map: &'a PageMapping,
     /// Where the pointer would pick, resolved once for the frame.
     pub hover: Option<Resolved>,
-    /// The circular pick set's objects, as **canvas-space** rects.
-    ///
-    /// Resolved in `canvas::interact` while the decomposition is still
-    /// borrowed, for the same reason [`Resolved`] is: the draw happens after
-    /// the `Ref` is dropped, so the query cannot happen here. Empty for every
-    /// other tool.
-    pub picked: &'a [Rect],
 }
 
 pub(super) fn preview(ui: &Ui, preview: Preview<'_>) {
@@ -970,7 +986,6 @@ pub(super) fn preview(ui: &Ui, preview: Preview<'_>) {
         kind,
         map,
         hover,
-        picked,
     } = preview;
     let Some(page) = doc.current_page() else {
         return;
@@ -999,22 +1014,50 @@ pub(super) fn preview(ui: &Ui, preview: Preview<'_>) {
     let color =
         snap::snap_indicator_tint(ctx).unwrap_or_else(|| ui.visuals().selection.stroke.color);
 
-    // ★ The picked objects, outlined, and drawn on EVERY frame the set is
+    // ★ The picked POINTS, marked, and drawn on EVERY frame the set is
     // non-empty — not only while the pointer is over the canvas.
     //
     // A `hover` of `None` means the pointer has left the widget, which for the
-    // other two tools means there is nothing to preview against. Here it means
-    // the operator has moved to the ribbon to press Finish, which is exactly
-    // when they most need to still be able to see what is in the set.
+    // other tools means there is nothing to preview against. Here it means the
+    // operator has moved to the Tool panel or the ribbon, which is exactly when
+    // they most need to still be able to see what is in the set.
+    //
+    // ★★ The marker's GLYPH is the snap kind's, through the same
+    // `snap::snap_marker_shapes` the hover indicator uses — so a point picked
+    // on an endpoint is marked the way an endpoint is marked, and the operator
+    // reads one vocabulary rather than two. A FREE point gets the endpoint
+    // glyph, because that is what it is: a terminus the operator asserted.
+    // Nothing distinguishes it ON THE CANVAS, deliberately — rule 4 puts that
+    // disclosure off-canvas, in the Tool panel's list, where it can be read
+    // rather than decoded.
     let painter = ui.painter();
     let stroke = egui::Stroke::new(1.5, color);
-    for rect in picked {
-        painter.rect_stroke(
-            map.rect_to_screen(*rect),
-            0.0,
-            stroke,
-            egui::StrokeKind::Outside,
-        );
+    for point in st.circular.points() {
+        // `None` when the page transform refuses the point — the same bail
+        // every other projection here takes, and the right one: one marker
+        // fewer beats a panic in the frame that is trying to draw.
+        let Some(at) = page_to_screen(point.at, page, map) else {
+            continue;
+        };
+        let kind = match point.origin {
+            pick::PickOrigin::Snapped(k) => k,
+            pick::PickOrigin::Free => pdfce_core::vector::snap::SnapKind::Endpoint,
+        };
+        painter.extend(snap::snap_marker_shapes(at, kind, color, SNAP_MARKER_PT));
+        // ★★ …and a ring around it, which is the ONE thing that distinguishes
+        // a committed pick from the hover marker under the pointer.
+        //
+        // Without it the two are the same glyph at the same size, and while the
+        // pointer is over a picked point the operator cannot tell *"this is in
+        // the fit"* from *"this is where a click would land"*. Those are
+        // different claims — rule 4 calls the second one the cursor — and a
+        // surface that renders both identically is one an operator has to
+        // decode rather than read.
+        //
+        // A ring rather than a second colour: colour is how this canvas says
+        // *kind*, and spending it on *state* would mean an endpoint pick and a
+        // midpoint pick stopped being distinguishable to make room.
+        painter.circle_stroke(at, SNAP_MARKER_PT * PICKED_RING_SCALE, stroke);
     }
 
     // ★★ The hovered entity, drawn UNDER the snap marker.
@@ -1221,6 +1264,14 @@ pub(super) fn preview(ui: &Ui, preview: Preview<'_>) {
 /// correcting one.
 pub(in crate::canvas) const SNAP_MARKER_PT: f32 = 6.0;
 
+/// How much wider than the snap glyph the **committed-pick ring** is drawn.
+///
+/// Big enough to read as a ring around the glyph rather than as a fatter glyph,
+/// small enough that four picks round a small hole do not merge into a blob.
+/// See the ring's own comment in [`preview`] for why the distinction exists at
+/// all.
+const PICKED_RING_SCALE: f32 = 1.7;
+
 /// **PDF user space → screen**, both hops, in one place.
 ///
 /// # ★ This function is the fix for a defect, and the defect had shipped
@@ -1285,7 +1336,9 @@ mod tests {
     fn arming_another_measure_tool_discards_the_circle_fit() {
         let ctx = egui::Context::default();
         let mut st = MeasureState::for_kind(0, MeasureKind::Circular);
-        st.circular.toggle_object(0, circle_samples());
+        for at in circle_samples() {
+            st.circular.toggle_point(at, pick::PickOrigin::Free, 0.1);
+        }
         store(&ctx, st);
 
         let switched = load(&ctx, 0, MeasureKind::Linear);
@@ -1302,7 +1355,9 @@ mod tests {
     fn navigating_to_another_page_discards_the_circle_fit() {
         let ctx = egui::Context::default();
         let mut st = MeasureState::for_kind(0, MeasureKind::Circular);
-        st.circular.toggle_object(0, circle_samples());
+        for at in circle_samples() {
+            st.circular.toggle_point(at, pick::PickOrigin::Free, 0.1);
+        }
         store(&ctx, st);
 
         let moved = load(&ctx, 1, MeasureKind::Circular);

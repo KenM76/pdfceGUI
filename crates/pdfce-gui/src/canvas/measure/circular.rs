@@ -59,13 +59,12 @@
 //! What it owns is *composition and lifetime*: which objects are in the set,
 //! when the set becomes a dimension, and when it is emptied.
 
-use egui::{Pos2, Rect};
+use pdfce_core::vector::snap::SnapKind;
 
+use super::pick::PickOrigin;
 use super::{MeasureKind, MeasureState, read, store};
 use crate::app::actions::Action;
 use crate::app::actions::dimensions::DimensionAction;
-use crate::canvas::mapping::PageMapping;
-use crate::canvas::target::CanvasTargetProvider;
 
 /// **The circular pick set that is ready to become a dimension**, or `None`.
 ///
@@ -175,138 +174,158 @@ pub fn finish(ctx: &egui::Context, actions: &mut Vec<Action>) -> bool {
     true
 }
 
-/// **Take one click for the radius/diameter tool** — a toggle, or the ending.
+/// **End the gesture on a double-click.**
 ///
-/// The whole of the gesture's input. Called from [`super::click`] before that
-/// function's point-resolution machinery runs, and its own docs carry the
-/// argument for that ordering: this pick commits no *point*, so the snap query
-/// and the derived-candidate two-click confirm have nothing to contribute and
-/// would cost the operator a click for nothing.
+/// The canvas half of the two endings — the other is `measure.finish` on the
+/// ribbon, and both reach [`commit`] and nothing else. Traces which ending
+/// asked, because a screenshot cannot distinguish them and neither can the
+/// engine.
 ///
-/// # The order of the two questions
-///
-/// A **double**-click finishes and picks nothing further. The first click of
-/// the pair has already been through here as an ordinary click and has already
-/// toggled whatever it landed on — see [`super::click`]'s section on why that
-/// is the right reading rather than an accident of how `egui` reports the pair.
-///
-/// Otherwise it is a pick, and it is resolved through
-/// [`CanvasTargetProvider::hit_test`] — **the same hit test a selecting click
-/// uses**, at the same tolerance, so the object the operator gets is the object
-/// they would have selected had the tool not been armed. A second rule for
-/// "which object is under the pointer" is exactly the drift
-/// [`crate::canvas::target`]'s header exists to prevent.
-///
-/// # ★ An object with no fit geometry is refused, not toggled in
-///
-/// [`crate::panels::objects::provider::ObjectModelProvider::object_sample_points`]
-/// contributes nothing for a text, image or form object — they carry no
-/// anchors, which is the same exclusion the snap engine applies. Adding one to
-/// the set anyway would be worse than doing nothing: the object would be
-/// outlined as though it were part of the fit, the count in the pick set would
-/// go up, and the fitted circle would not move. An affordance that says *"this
-/// is in the fit"* about something that is not in the fit is the placeholder
-/// rule broken from the inside.
-///
-/// A pick that is **already in the set** is toggled out regardless, because
-/// removing what you added must always work — an object cannot have got in
-/// without samples, so this costs nothing and closes the case where the
-/// document changed underneath.
-pub(super) fn click(
-    st: &mut MeasureState,
-    page_index: usize,
-    canvas_point: Pos2,
-    double: bool,
-    targets: Option<&dyn CanvasTargetProvider>,
-    map: &PageMapping,
-    actions: &mut Vec<Action>,
-) {
-    if double {
-        if !commit(st, page_index, actions) {
-            crate::diag::trace(|| {
-                // ui-text-exempt: diagnostic trace, never displayed in the UI
-                "measure-finish via=double-click outcome=declined reason=degenerate-fit".to_owned()
-            });
-            return;
-        }
+/// ★ **The first click of the pair has already picked a point**, and that is
+/// deliberate rather than an accident of how `egui` reports a double-click.
+/// Swallowing the pair would make the operator's last point need a separate
+/// click *and* a double-click somewhere harmless. It is also what
+/// `SelectionState::click` does with the same flag: the second click gets its
+/// own meaning rather than repeating the first's.
+pub(super) fn double_click(st: &mut MeasureState, page_index: usize, actions: &mut Vec<Action>) {
+    if !commit(st, page_index, actions) {
         crate::diag::trace(|| {
             // ui-text-exempt: diagnostic trace, never displayed in the UI
-            format!("measure-finish via=double-click page={page_index}")
+            "measure-finish via=double-click outcome=declined reason=degenerate-fit".to_owned()
         });
         return;
     }
-    // No decomposition means no object under the pointer — the honest answer,
-    // and a real case rather than a defensive one: the model is built only when
-    // something asks for it, and `canvas::interact` asks on every frame a
-    // measure tool is armed precisely so that this is `Some` when it matters.
-    let Some(targets) = targets else {
-        return;
-    };
-    let Some(target) = targets.hit_test(page_index, canvas_point, map.tolerance()) else {
-        return;
-    };
-    // ★ The circular fit takes **page** anchor samples, and
-    // `object_sample_points` indexes `PageObjects::objects`. A target inside a
-    // form XObject has no index in that list, so it cannot be picked — the
-    // same refusal a text or image object gets a few lines below, traced with
-    // its own reason so the two are not confused on the way back.
-    let Some(index) = target.page_object_index() else {
-        crate::diag::trace(|| {
-            // ui-text-exempt: diagnostic trace, never displayed in the UI
-            format!(
-                "measure-pick-declined leaf={} reason=inside-form",
-                target.raw()
-            )
-        });
-        return;
-    };
-    if st.circular.object_indices().any(|i| i == index) {
-        st.circular.toggle_object(index, Vec::new());
-        return;
-    }
-    let samples = targets.object_sample_points(page_index, index);
-    if samples.is_empty() {
-        crate::diag::trace(|| {
-            // ui-text-exempt: diagnostic trace, never displayed in the UI
-            format!("measure-pick-declined object={index} reason=no-fit-geometry")
-        });
-        return;
-    }
-    st.circular.toggle_object(index, samples);
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed in the UI
+        format!("measure-finish via=double-click page={page_index}")
+    });
 }
 
-/// **The pick set's object outlines, in canvas space.**
+/// **Take one point for the radius/diameter tool** — add it, or take it out.
 ///
-/// Called from `canvas::interact` **before** it drops the decomposition, which
-/// is the constraint that shaped this API — the identical constraint
-/// [`super::resolve_hover`] exists under, and the same answer: resolve while
-/// the borrow is live, draw from the resolved value afterwards.
+/// `at` is the point [`super::click`]'s snap machinery resolved: the anchor
+/// under the pointer, or the raw pointer position when nothing was within the
+/// catch radius. `candidate` is what produced it, `None` meaning the raw
+/// position.
 ///
-/// Empty for every other tool, so an armed Linear or Two-line pays one
-/// comparison and no queries. Empty, too, for an object the provider no longer
-/// knows: `bounds` returns `None` after an edit renumbered the page, and the
-/// correct response is to draw one outline fewer rather than to panic in the
-/// frame that is trying to draw.
-pub(in crate::canvas) fn pick_outlines(
-    ctx: &egui::Context,
-    page_index: usize,
-    kind: MeasureKind,
-    targets: Option<&dyn CanvasTargetProvider>,
-) -> Vec<Rect> {
-    if kind != MeasureKind::Circular {
-        return Vec::new();
-    }
-    let (Some(targets), Some(st)) = (targets, read(ctx)) else {
-        return Vec::new();
+/// # ★★★ Why this goes THROUGH the snap machinery, when it used to go around it
+///
+/// Until 2026-09-03 the circular pick was taken **before** the point
+/// resolution, and there was a written argument for it: the pick committed no
+/// point, it toggled an *object*, and the object under the pointer is the same
+/// object whether or not there is a midpoint six pixels away. That argument was
+/// sound and its premise is gone — see [`super::pick::CircularPick`] for the
+/// measurement that removed it, and `OPERATOR_REQUESTS.md` O105.
+///
+/// Now that a pick **is** a point, every part of that machinery is exactly what
+/// this tool wants:
+///
+/// * the **snap** puts the point on the drawing's own geometry, so three clicks
+///   round a hole give the hole rather than three approximations of it;
+/// * the **raw fallback** is what makes a bitmap measurable at all (O106) —
+///   `resolve::snapped` returns the pointer unchanged when nothing is near, and
+///   the operator's judgement is then the measurement;
+/// * the **derived-candidate two-click confirm** is rule 4 doing its job. A
+///   centerline pdfce inferred is not committed by the click that finds it.
+///   Under the object pick that confirm was a cost with no benefit; under a
+///   point pick it is the difference between fuzzy and sneaky.
+///
+/// # Returns
+///
+/// `true` when the set grew, `false` when the click took a point back out.
+pub(super) fn take_point(
+    st: &mut MeasureState,
+    at: pdfce_core::vector::Point,
+    candidate: Option<pdfce_core::vector::snap::SnapCandidate>,
+    tolerance: f64,
+) -> bool {
+    let origin = candidate.map_or(PickOrigin::Free, |c| PickOrigin::Snapped(c.kind));
+    let added = st.circular.toggle_point(at, origin, tolerance);
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed in the UI
+        //
+        // `origin` is on the line because a run that measured a raster and a
+        // run that measured vector geometry produce the same numbers and are
+        // not the same evidence — see `PickOrigin`.
+        // ★★★ The FIT is on this line, and it is the field the operator's
+        // report is about.
+        //
+        // O105 is *"selecting more points around a hole doesn't always get it
+        // to narrow down to the size of the hole"*, which is a claim about a
+        // number converging. A trace carrying only the count says the click
+        // registered and says nothing about whether the answer improved — and
+        // on the build that produced the report, the count went up while the
+        // radius stayed absurd. `r=none` is the honest reading of a set with
+        // fewer than three usable points; it is not zero, because zero is a
+        // radius.
+        let fit = st.circular.fit();
+        format!(
+            "measure-circular-point action={} origin={} x={:.3} y={:.3} n={} r={} resid={}",
+            if added { "add" } else { "remove" },
+            origin_tag(origin),
+            at.x,
+            at.y,
+            st.circular.point_count(),
+            fit.map_or_else(|| "none".to_owned(), |f| format!("{:.3}", f.radius)),
+            fit.map_or_else(|| "none".to_owned(), |f| format!("{:.4}", f.residual))
+        )
+    });
+    added
+}
+
+/// **Remove the point at `index`** — the Tool panel's route into the same set.
+///
+/// ★★ Two routes to one capability, and the panel's is the one that cannot be
+/// substituted. A pick set on a dense CAD sheet is invisible: the operator
+/// cannot tell four picked points from five, and cannot tell *which* four. See
+/// `OPERATOR_REQUESTS.md` O107.
+///
+/// Reads, mutates and writes back through [`super::read`]/[`super::store`],
+/// which is the same trip `finish` makes, so a panel removal and a canvas click
+/// are the same act on the same state.
+///
+/// Returns `false` when there is no such point — an out-of-range index is an
+/// ordinary race between a panel row drawn from last frame and a canvas click
+/// taken in this one, not a bug to crash on.
+pub fn remove_point(ctx: &egui::Context, index: usize) -> bool {
+    let Some(mut st) = read(ctx) else {
+        return false;
     };
-    if st.page_index != page_index {
-        return Vec::new();
+    let Some(gone) = st.circular.remove(index) else {
+        return false;
+    };
+    let remaining = st.circular.point_count();
+    store(ctx, st);
+    crate::diag::trace(|| {
+        // ui-text-exempt: diagnostic trace, never displayed in the UI
+        format!(
+            "measure-circular-point action=remove via=panel index={index} x={:.3} y={:.3} n={remaining}",
+            gone.at.x, gone.at.y
+        )
+    });
+    true
+}
+
+/// A short, stable tag for a pick's origin — trace only.
+///
+/// Deliberately not the operator-facing wording: a trace field is a machine
+/// contract a driven check matches on, and coupling it to a translatable string
+/// would make a wording change break the harness. `crate::text` owns what the
+/// operator reads.
+fn origin_tag(origin: PickOrigin) -> &'static str {
+    match origin {
+        PickOrigin::Free => "free",
+        PickOrigin::Snapped(kind) => match kind {
+            SnapKind::Node => "node",
+            SnapKind::Endpoint => "endpoint",
+            SnapKind::Center => "center",
+            SnapKind::Midpoint => "midpoint",
+            SnapKind::Intersection => "intersection",
+            SnapKind::SegmentCenterline => "on-segment",
+            SnapKind::DerivedCenterline => "derived-centerline",
+            SnapKind::Axis => "axis",
+        },
     }
-    st.circular
-        .object_indices()
-        .filter_map(|index| u64::try_from(index).ok())
-        .filter_map(|id| targets.bounds(page_index, crate::canvas::target::TargetId::Object(id)))
-        .collect()
 }
 
 /// Plant a pick set in memory, for tests in sibling modules.
@@ -324,7 +343,7 @@ pub(in crate::canvas) fn pick_outlines(
 /// same Escape test.
 ///
 /// `#[cfg(test)]` so it cannot become a second way for production code to build
-/// a pick set. The real one is [`click`], and a second entry point is how two
+/// a pick set. The real one is [`take_point`], and a second entry point is how two
 /// code paths come to disagree about what a pick is.
 ///
 /// The four points are a square inscribed in a circle of radius 10 centred at
@@ -335,7 +354,10 @@ pub(in crate::canvas) fn pick_outlines(
 #[cfg(test)]
 pub(crate) fn plant_pick_for_test(ctx: &egui::Context, page_index: usize) {
     let mut st = MeasureState::for_kind(page_index, MeasureKind::Circular);
-    st.circular.toggle_object(0, samples_on_a_circle());
+    for at in samples_on_a_circle() {
+        st.circular
+            .toggle_point(at, PickOrigin::Snapped(SnapKind::Node), 0.0);
+    }
     store(ctx, st);
 }
 
@@ -357,137 +379,133 @@ fn samples_on_a_circle() -> Vec<pdfce_core::vector::Point> {
 #[allow(clippy::panic, reason = "a test that cannot destructure has failed")] // ui-text-exempt: clippy lint justification, never displayed
 mod tests {
     use super::*;
-    use crate::canvas::target::StubTargets;
     use crate::canvas::tool::{self, CanvasTool};
+    use pdfce_core::vector::Point;
 
-    /// A stub page holding one object with [`samples_on_a_circle`] behind it,
-    /// plus a second object that carries **no** samples — the text/image case
-    /// the pick has to refuse.
-    fn targets() -> StubTargets {
-        StubTargets::new(
-            0,
-            [
-                egui::Rect::from_min_size(egui::Pos2::new(10.0, 10.0), egui::vec2(20.0, 20.0)),
-                egui::Rect::from_min_size(egui::Pos2::new(80.0, 80.0), egui::vec2(20.0, 20.0)),
-            ],
-        )
-        .with_samples(0, samples_on_a_circle())
-    }
+    /// A snapped node, which is what most picks are.
+    const NODE: PickOrigin = PickOrigin::Snapped(SnapKind::Node);
 
-    /// The frame map these tests resolve against — page at the origin, one
-    /// point per unit, so a canvas coordinate in a test reads as itself.
-    fn unit_map() -> PageMapping {
-        PageMapping::new(
-            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, 300.0)),
-            (200.0, 300.0),
-            1.0,
-        )
-    }
+    /// The removal radius these tests pick with. Small enough that the four
+    /// fixture points (10 apart) are never mistaken for each other, large
+    /// enough that a deliberately-near click lands inside it.
+    const TOL: f64 = 1.0;
 
-    /// ★ **A click toggles an object into the fit set, and a second click on
-    /// the same object toggles it out.**
+    /// ★★★ **A click adds one point; a click near an existing one takes that
+    /// point out.**
     ///
-    /// The whole of the pick, and both halves matter: a build that only added
+    /// The whole of the pick, and both halves matter. A build that only added
     /// would pass a test of the first click alone, and the operator's complaint
-    /// would be that a mis-picked arc cannot be removed without abandoning the
-    /// whole set.
+    /// would be `OPERATOR_REQUESTS.md` O107 — *"I can't unselect things once I
+    /// have selected them"* — which is how this behaviour came to be asked for
+    /// in the first place.
+    ///
+    /// ★ The second assertion is the one that could not exist under the old
+    /// object pick: it adds a point 0.5 pt from the first, and requires the set
+    /// to SHRINK. Under an object pick there was no such distance — the unit
+    /// was the whole object — which is exactly why *"selecting more points
+    /// around a hole"* did not narrow the fit.
     #[test]
-    fn a_click_toggles_an_object_into_the_fit_set_and_out_again() {
+    fn a_click_adds_a_point_and_a_click_near_it_takes_that_point_out() {
         let mut st = MeasureState::for_kind(0, MeasureKind::Circular);
-        let (targets, map) = (targets(), unit_map());
-        let on_object = egui::Pos2::new(20.0, 20.0);
-        let mut actions = Vec::new();
 
-        click(
-            &mut st,
-            0,
-            on_object,
-            false,
-            Some(&targets),
-            &map,
-            &mut actions,
+        assert!(take_point(&mut st, Point::new(10.0, 10.0), None, TOL));
+        assert_eq!(st.circular.point_count(), 1, "the click added a point");
+
+        assert!(take_point(&mut st, Point::new(40.0, 40.0), None, TOL));
+        assert_eq!(st.circular.point_count(), 2, "a second, far away, added");
+
+        assert!(
+            !take_point(&mut st, Point::new(10.4, 10.2), None, TOL),
+            "a click INSIDE the removal radius of an existing point removes it"
         );
-        assert_eq!(st.circular.object_count(), 1, "the click picked the object");
+        assert_eq!(st.circular.point_count(), 1);
         assert_eq!(
-            st.circular.samples(),
-            samples_on_a_circle(),
-            "with its anchors"
+            st.circular.points()[0].at,
+            Point::new(40.0, 40.0),
+            "and it removes the one that was near, not the last one added"
         );
-        assert!(actions.is_empty(), "a pick authors nothing on its own");
-
-        click(
-            &mut st,
-            0,
-            on_object,
-            false,
-            Some(&targets),
-            &map,
-            &mut actions,
-        );
-        assert_eq!(st.circular.object_count(), 0, "…and toggled it back out");
-        assert!(actions.is_empty());
     }
 
-    /// ★ **An object with no fit geometry is refused rather than outlined.**
+    /// ★★ **A click with nothing under it is still a point** —
+    /// `OPERATOR_REQUESTS.md` O106, the ask that makes a bitmap measurable.
     ///
-    /// A text, image or form object contributes no anchors — the same exclusion
-    /// the snap engine applies. Adding one to the set anyway would outline it
-    /// as though it were part of the fit and leave the fitted circle exactly
-    /// where it was: an affordance saying *"this is in"* about something that
-    /// is not, which is the no-placeholders rule broken from inside.
+    /// The origin is carried rather than discarded, because a set of five free
+    /// positions and a set of five snapped nodes produce the same numbers and
+    /// are not the same evidence. The Tool panel says which; the canvas does
+    /// not, which is rule 4's disclosure boundary.
     #[test]
-    fn an_object_with_no_anchors_is_refused_rather_than_added_to_the_set() {
+    fn a_pick_with_no_snap_candidate_is_recorded_as_a_free_position() {
         let mut st = MeasureState::for_kind(0, MeasureKind::Circular);
-        let (targets, map) = (targets(), unit_map());
-        let mut actions = Vec::new();
-        // Object 1 exists, is hit, and has no samples.
-        click(
-            &mut st,
-            0,
-            egui::Pos2::new(90.0, 90.0),
-            false,
-            Some(&targets),
-            &map,
-            &mut actions,
+        take_point(&mut st, Point::new(1.0, 2.0), None, TOL);
+        assert_eq!(
+            st.circular.points()[0].origin,
+            PickOrigin::Free,
+            "no candidate means the operator's own judgement, and it is recorded as such"
         );
-        assert_eq!(st.circular.object_count(), 0);
-        assert!(!st.gesture_in_progress(), "and no gesture was begun");
     }
 
-    /// ★ **The pick set is the tool's own and never touches the selection.**
+    /// ★ **Three free positions fit a circle**, which is the whole of O106.
     ///
-    /// `CircularPick`'s own docs state it (ui-spec §3.1) and this is the
-    /// hosting keeping it: a half-assembled circle fit is not a selection, and
-    /// borrowing the selection to hold it would arm the Format tab's Delete
-    /// over a set the operator assembled in order to measure with.
+    /// Asserted on the fit rather than on the count, because *"the points went
+    /// in"* is not the claim — the claim is that a drawing with no vector
+    /// geometry at all can still be measured.
+    #[test]
+    fn three_free_positions_on_a_raster_still_produce_a_circle() {
+        let mut st = MeasureState::for_kind(0, MeasureKind::Circular);
+        for at in samples_on_a_circle() {
+            take_point(&mut st, at, None, TOL);
+        }
+        let fit = st.circular.fit().expect("four free positions fit");
+        assert!(
+            (fit.radius - 10.0).abs() < 1e-6 && (fit.center.x - 30.0).abs() < 1e-6,
+            "the fit is the circle those points lie on: {fit:?}"
+        );
+    }
+
+    /// ★★ **The panel's removal and the canvas's removal are the same act.**
     ///
-    /// The strongest form of the property is in the **signature** — [`click`]
-    /// is handed no `SelectionState` at all — so a future edit that wanted to
-    /// touch the selection would have to add a parameter and would land in
-    /// front of this comment. What is asserted here is the consequence, in both
-    /// directions: picking does not select, and an existing selection is not
-    /// consumed by a pick.
+    /// `OPERATOR_REQUESTS.md` O107 asks for both routes, and the failure to
+    /// guard against is two pick sets: a panel that removed from its own copy
+    /// would leave the canvas drawing markers for points the fit no longer
+    /// contains, which is worse than having no panel.
+    #[test]
+    fn removing_a_point_from_the_panel_changes_the_set_the_canvas_draws() {
+        let ctx = egui::Context::default();
+        tool::select(&ctx, CanvasTool::Measure(MeasureKind::Circular));
+        plant_pick_for_test(&ctx, 0);
+        assert_eq!(read(&ctx).expect("planted").circular.point_count(), 4);
+
+        assert!(remove_point(&ctx, 1), "the second row is removable");
+        let st = read(&ctx).expect("still there");
+        assert_eq!(st.circular.point_count(), 3);
+        assert!(
+            !st.circular.points().iter().any(|p| p.at.y > 49.0),
+            "and the point that went is the one the row named: {:?}",
+            st.circular.points()
+        );
+
+        assert!(
+            !remove_point(&ctx, 9),
+            "an out-of-range row is refused rather than panicking — a row drawn \
+             from last frame and acted on in this one is an ordinary race"
+        );
+    }
+
+    /// ★ **The pick never reaches the selection.**
+    ///
+    /// A circle-fit attempt has no meaning as the substrate's general object
+    /// selection (ui-spec §3.1), and the two must not leak into each other.
     #[test]
     fn the_pick_never_reaches_the_selection() {
         use crate::canvas::selection::{ClickHit, SelectionState};
 
         let mut selection = SelectionState::default();
         let mut st = MeasureState::for_kind(0, MeasureKind::Circular);
-        let (targets, map) = (targets(), unit_map());
-        let mut actions = Vec::new();
-        click(
-            &mut st,
-            0,
-            egui::Pos2::new(20.0, 20.0),
-            false,
-            Some(&targets),
-            &map,
-            &mut actions,
-        );
-        assert_eq!(st.circular.object_count(), 1);
+        take_point(&mut st, Point::new(20.0, 20.0), None, TOL);
+        assert_eq!(st.circular.point_count(), 1);
         assert!(
             selection.is_empty(),
-            "picking an object for a circle fit must not select it"
+            "picking a point for a circle fit must not select anything"
         );
 
         selection.click(
@@ -499,15 +517,7 @@ mod tests {
             false,
             false,
         );
-        click(
-            &mut st,
-            0,
-            egui::Pos2::new(20.0, 20.0),
-            false,
-            Some(&targets),
-            &map,
-            &mut actions,
-        );
+        take_point(&mut st, Point::new(21.0, 21.0), None, TOL);
         assert_eq!(selection.len(), 1, "the selection is untouched either way");
     }
 
@@ -524,23 +534,19 @@ mod tests {
     fn the_double_click_and_the_command_author_the_same_dimension() {
         // Ending 1: the double-click, taken by the canvas.
         let mut by_click = MeasureState::for_kind(2, MeasureKind::Circular);
-        by_click.circular.toggle_object(7, samples_on_a_circle());
+        for at in samples_on_a_circle() {
+            by_click.circular.toggle_point(at, NODE, 0.0);
+        }
         let mut click_actions = Vec::new();
-        click(
-            &mut by_click,
-            2,
-            egui::Pos2::ZERO,
-            true,
-            None,
-            &unit_map(),
-            &mut click_actions,
-        );
+        double_click(&mut by_click, 2, &mut click_actions);
 
         // Ending 2: the ribbon command, through `egui::Memory`.
         let ctx = egui::Context::default();
         tool::select(&ctx, CanvasTool::Measure(MeasureKind::Circular));
         let mut by_command = MeasureState::for_kind(2, MeasureKind::Circular);
-        by_command.circular.toggle_object(7, samples_on_a_circle());
+        for at in samples_on_a_circle() {
+            by_command.circular.toggle_point(at, NODE, 0.0);
+        }
         store(&ctx, by_command);
         let mut command_actions = Vec::new();
         assert!(finish(&ctx, &mut command_actions), "the command finishes");
@@ -577,7 +583,9 @@ mod tests {
     #[test]
     fn finishing_empties_the_pick_set_so_it_cannot_be_committed_twice() {
         let mut st = MeasureState::for_kind(0, MeasureKind::Circular);
-        st.circular.toggle_object(0, samples_on_a_circle());
+        for at in samples_on_a_circle() {
+            st.circular.toggle_point(at, NODE, 0.0);
+        }
         let mut actions = Vec::new();
 
         assert!(commit(&mut st, 0, &mut actions));
@@ -594,20 +602,19 @@ mod tests {
     ///
     /// `CircularPick::author` returns `None` for fewer than three usable points
     /// or a numerically singular set, and its docs say that is precisely when
-    /// Accept must not be offered. Two picked arcs whose anchors happen to lie
-    /// on a line is the ordinary way to reach it — not a contrived one — and
-    /// the honest response is to place nothing rather than to guess a circle.
+    /// Finish must not be offered. Three points the operator clicked along a
+    /// straight edge is the ordinary way to reach it — not a contrived one —
+    /// and the honest response is to place nothing rather than to guess.
     #[test]
     fn a_degenerate_fit_is_refused_by_both_endings() {
-        use pdfce_core::vector::Point;
-
-        let collinear = vec![
+        let mut st = MeasureState::for_kind(0, MeasureKind::Circular);
+        for at in [
             Point::new(0.0, 0.0),
             Point::new(10.0, 0.0),
             Point::new(20.0, 0.0),
-        ];
-        let mut st = MeasureState::for_kind(0, MeasureKind::Circular);
-        st.circular.toggle_object(0, collinear);
+        ] {
+            st.circular.toggle_point(at, NODE, 0.0);
+        }
         assert!(st.circular.author().is_none(), "the fixture is degenerate");
 
         let mut actions = Vec::new();
@@ -615,19 +622,11 @@ mod tests {
         assert!(actions.is_empty(), "nothing is authored");
         assert!(
             st.circular.in_progress(),
-            "and the picks survive, so the operator can add another arc"
+            "and the picks survive, so the operator can add another point"
         );
 
         // …and the double-click reaches the same refusal rather than its own.
-        click(
-            &mut st,
-            0,
-            egui::Pos2::ZERO,
-            true,
-            None,
-            &unit_map(),
-            &mut actions,
-        );
+        double_click(&mut st, 0, &mut actions);
         assert!(actions.is_empty());
         assert!(st.circular.in_progress());
     }
@@ -640,7 +639,7 @@ mod tests {
     /// one that is easy to miss: putting the tool down does **not** discard the
     /// pick set (Escape's two rungs, `disarm_measure`'s own docs), so without
     /// the armed-tool check the ribbon would keep offering Finish for a set
-    /// nothing is outlining any more.
+    /// nothing is marking any more.
     #[test]
     fn finish_is_offered_only_when_there_is_a_fit_and_the_tool_is_armed() {
         let ctx = egui::Context::default();
@@ -661,7 +660,7 @@ mod tests {
         tool::select(&ctx, CanvasTool::Select);
         assert!(
             !finishable(&ctx),
-            "a set nothing is outlining must not keep offering Finish"
+            "a set nothing is marking must not keep offering Finish"
         );
         let mut actions = Vec::new();
         assert!(
@@ -691,33 +690,5 @@ mod tests {
             read(&ctx).is_none(),
             "the question must not answer itself into existence"
         );
-    }
-
-    /// ★ **The outlines drawn are the objects picked**, and they come from the
-    /// provider rather than from anything this module remembers.
-    ///
-    /// The operator's only way to see what is in the fit. A build that returned
-    /// an empty list would draw nothing, and toggling an arc in would change
-    /// the screen not at all — a gesture with no feedback, which for a tool
-    /// whose whole output is an inference is worse than no tool.
-    #[test]
-    fn the_pick_sets_outlines_are_resolved_from_the_decomposition() {
-        let ctx = egui::Context::default();
-        let targets = targets();
-        plant_pick_for_test(&ctx, 0);
-
-        let outlines = pick_outlines(&ctx, 0, MeasureKind::Circular, Some(&targets));
-        assert_eq!(outlines.len(), 1, "one picked object, one outline");
-        assert_eq!(
-            outlines[0],
-            egui::Rect::from_min_size(egui::Pos2::new(10.0, 10.0), egui::vec2(20.0, 20.0)),
-            "and it is that object's own bounds"
-        );
-
-        // Another tool asks for nothing, so an armed Linear runs no queries.
-        assert!(pick_outlines(&ctx, 0, MeasureKind::Linear, Some(&targets)).is_empty());
-        // A page this state does not target contributes nothing rather than
-        // outlining another sheet's objects.
-        assert!(pick_outlines(&ctx, 1, MeasureKind::Circular, Some(&targets)).is_empty());
     }
 }

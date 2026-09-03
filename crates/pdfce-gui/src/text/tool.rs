@@ -383,6 +383,136 @@ pub fn measure_perimeter_live(vertices: usize, length: &str) -> String {
     format!("{vertices} points so far, {length} around. Click the first point to close it.")
 }
 
+/// The radius/diameter tool's LIVE sentence — how many points are in the fit,
+/// and what circle they currently make.
+///
+/// # ★★ Why the SIZE is in it, and why that is the whole ask
+///
+/// `OPERATOR_REQUESTS.md` O105: *"selecting more points around a hole doesn't
+/// always get it to narrow down to the size of the hole."* An operator adding
+/// points to a fit is watching a number converge, and until 2026-09-03 there
+/// was no number to watch — the fitted circle was drawn on the canvas and its
+/// value appeared only once the dimension had been placed. So the tool could
+/// not be steered: every correction was a commit-and-undo.
+///
+/// The count is in it for the reason it is in the perimeter's sentence — it is
+/// the only thing on screen that says *whether the last click registered at
+/// all*, which for a tool with no fixed arity nothing else answers.
+///
+/// The measurement is formatted by the caller through the engine's own
+/// `format_measurement`, so this function never sees a number it could round
+/// differently from the committed label.
+#[must_use]
+pub fn measure_circular_live(points: usize, measurement: &str) -> String {
+    format!("{points} points, {measurement}. Add more, or finish it.")
+}
+
+/// The radius/diameter tool's sentence while the fit is still degenerate.
+///
+/// ★ It states the count AND what is missing, because "nothing yet" is exactly
+/// the report that sent the operator looking for a broken tool. Two points on
+/// an arc is not a failure, it is halfway.
+#[must_use]
+pub fn measure_circular_needs_more(points: usize) -> String {
+    match points {
+        0 => "No points yet. Click around the arc — three or more.".to_owned(),
+        1 => "1 point. Two more at least, spread around the arc.".to_owned(),
+        n => format!("{n} points, and no circle through them yet — spread them around the arc."),
+    }
+}
+
+/// The heading over the list of points in the circular fit.
+#[must_use]
+pub const fn measure_points_heading() -> &'static str {
+    "Points in this measurement"
+}
+
+/// One row in that list: its position in the set, where it came from, and where
+/// it is.
+///
+/// # ★★ Why the ORIGIN is on the row
+///
+/// Because a point snapped to the drawing's own geometry and a point the
+/// operator placed by eye on a scanned image produce the same numbers and are
+/// **not** the same evidence. `OPERATOR_REQUESTS.md` O106 asks for the second
+/// deliberately — it is what makes a bitmap measurable — and the honest
+/// consequence is that the operator can see which of their points are which.
+///
+/// ★★★ That disclosure is here and **not on the canvas**, and the placement is
+/// the rule rather than a preference. Rule 4: applied content renders exactly
+/// as saved content will, and a tint or a dashed marker saying *"this one is a
+/// guess"* would be pdfce marking its own uncertainty into the page view. The
+/// list is off-canvas, non-blocking, and positioned relative to nothing in the
+/// document — which is where a disclosure belongs.
+///
+/// The coordinates are page units to one decimal. Not the group's scale: these
+/// are *positions*, not a measurement, and running them through
+/// `format_measurement` would print a length unit beside something that is not
+/// a length.
+#[must_use]
+pub fn measure_point_row(ordinal: usize, origin: &str, x: f64, y: f64) -> String {
+    format!("{ordinal}. {origin} — {x:.1}, {y:.1}")
+}
+
+/// What a point's row does when it is clicked.
+///
+/// ★ A row that removes on a single click needs to say so before it is pressed,
+/// because the gesture is not recoverable through undo — a pick set is
+/// pre-commit state and never enters the document's history. One click to put
+/// it back is the whole cost, and the tooltip says which click.
+#[must_use]
+pub const fn measure_point_remove_hint() -> &'static str {
+    "Click to take this point out of the measurement"
+}
+
+/// The line drawn in place of the list when nothing has been picked.
+///
+/// ★ Not a placeholder row and not a greyed one: R9 reserves greying for a
+/// *temporarily* unavailable control, and an empty set is not that. This is a
+/// sentence, and it is the only thing this section renders until there is
+/// something to list.
+#[must_use]
+pub const fn measure_points_empty() -> &'static str {
+    "Nothing picked yet."
+}
+
+/// The operator-facing name for where a picked point came from.
+///
+/// # ★ Why this is a separate vocabulary from the trace's
+///
+/// `canvas::measure::circular::origin_tag` produces short machine tags that a
+/// driven check matches on. Those are a contract with `tools/ui-verify` and must
+/// not move when a word is reworded here; these are what the operator reads and
+/// must be free to. One function serving both would tie a harness assertion to
+/// a translatable string.
+///
+/// **Free position** is worded as a statement of fact rather than as a warning.
+/// It is a legitimate and often the only available pick — see
+/// `OPERATOR_REQUESTS.md` O106 — and language like *"unsnapped"* or
+/// *"approximate"* would be pdfce editorialising about a choice the operator
+/// made deliberately.
+#[must_use]
+pub const fn measure_point_origin(
+    origin: crate::canvas::measure::pick::PickOrigin,
+) -> &'static str {
+    use pdfce_core::vector::snap::SnapKind;
+
+    use crate::canvas::measure::pick::PickOrigin;
+    match origin {
+        PickOrigin::Free => "Free position",
+        PickOrigin::Snapped(kind) => match kind {
+            SnapKind::Node => "Node",
+            SnapKind::Endpoint => "Endpoint",
+            SnapKind::Center => "Centre",
+            SnapKind::Midpoint => "Midpoint",
+            SnapKind::Intersection => "Intersection",
+            SnapKind::SegmentCenterline => "On a line",
+            SnapKind::DerivedCenterline => "Centreline",
+            SnapKind::Axis => "Axis",
+        },
+    }
+}
+
 /// One measure kind's instruction, before any pick.
 #[must_use]
 pub const fn measure_instruction(kind: MeasureKind) -> &'static str {

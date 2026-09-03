@@ -93,11 +93,20 @@
 //!    substitutions above.
 
 use pdfce_core::dimension::{
-    DimensionKind, FitCircle, TwoLineAuthoring, TwoLinePlacement, TwoLineRefusal,
-    author_from_two_lines, fit_circle_taubin,
+    DimensionKind, TwoLineAuthoring, TwoLinePlacement, TwoLineRefusal, author_from_two_lines,
 };
 use pdfce_core::vector::linepick::{ParallelPolicy, PickedLine};
 use pdfce_core::vector::{AxisConstraint, Point, constrained_second_point, measured_length};
+
+/// ★ The circular pick set lives in [`super::circpick`] as of 2026-09-03 (R2),
+/// and is re-exported here.
+///
+/// Not a compatibility shim to be deleted: `pick` is the module every measure
+/// tool's pick type is reached through, and a reader looking for "the circular
+/// tool's pick" should find it named here whichever file it is written in. The
+/// alternative — twenty call sites naming a second module — would make the
+/// split a rename rather than a seam.
+pub use super::circpick::{CircPoint, CircularPick, PickOrigin};
 
 // ---------------------------------------------------------------------------
 // Linear pick — the A→B two-click state machine (ui-spec §2.1/§2.5)
@@ -707,116 +716,6 @@ pub fn dimension_preview_segments(kind: &DimensionKind) -> Vec<(Point, Point)> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Circular pick — the tool's OWN best-fit pick-set (ui-spec §3)
-// ---------------------------------------------------------------------------
-
-/// One object toggled into the circular fit set: its object index (into the
-/// page's `PageObjects`, for outlining the source + toggle bookkeeping) and
-/// its page-space anchor sample points (the fit input, ui-spec §3.2/§3.3).
-#[derive(Debug, Clone, PartialEq)]
-struct CircObject {
-    index: usize,
-    samples: Vec<Point>,
-}
-
-/// The radius/diameter tool's own pick-set (ui-spec §3.1: deliberately NOT
-/// `canvas_selection` — a circle-fit attempt has no meaning as the
-/// substrate's general object selection). Objects are toggle-added; the fit
-/// re-runs live on every change; Accept authors a [`DimensionKind::Circular`].
-///
-/// The display-only [`Self::show_diameter`] toggle (ui-spec §3.4) picks
-/// radius vs. diameter on the SAME fit — never a second fit (decision 011's
-/// value model: `diameter = 2×radius`, the same stored geometry).
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct CircularPick {
-    /// The toggled objects, in pick order, each with its sample points.
-    objects: Vec<CircObject>,
-    /// Display toggle: `true` ⇒ show the diameter, `false` ⇒ the radius
-    /// (ui-spec §3.4). Purely a display choice on the same [`FitCircle`].
-    pub show_diameter: bool,
-}
-
-impl CircularPick {
-    /// A fresh, empty pick-set showing the radius.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Toggle object `index` (with its page-space anchor `samples`) into or
-    /// out of the fit set (ui-spec §3.1/§3.2: a plain click toggle-adds/
-    /// removes). Adding a circle-like object's own anchors, or several small
-    /// line-segment objects' anchors, both feed the SAME fit. Returns `true`
-    /// if the object is now IN the set, `false` if it was toggled out.
-    pub fn toggle_object(&mut self, index: usize, samples: Vec<Point>) -> bool {
-        if let Some(pos) = self.objects.iter().position(|o| o.index == index) {
-            self.objects.remove(pos);
-            false
-        } else {
-            self.objects.push(CircObject { index, samples });
-            true
-        }
-    }
-
-    /// The object indices currently in the fit set (for outlining the picked
-    /// sources on the canvas).
-    pub fn object_indices(&self) -> impl Iterator<Item = usize> + '_ {
-        self.objects.iter().map(|o| o.index)
-    }
-
-    /// How many objects are in the fit set (the disclosure's "from N objects").
-    #[must_use]
-    pub fn object_count(&self) -> usize {
-        self.objects.len()
-    }
-
-    /// All picked sample points, concatenated in pick order — the exact input
-    /// to [`fit_circle_taubin`] (ui-spec §3.3). The same point set the CLI
-    /// would pass via `--points`, so the fit (and thus the authored kind) is
-    /// byte-identical to the CLI's for the same picks.
-    #[must_use]
-    pub fn samples(&self) -> Vec<Point> {
-        self.objects
-            .iter()
-            .flat_map(|o| o.samples.iter().copied())
-            .collect()
-    }
-
-    /// The live best-fit circle over the current pick-set, or `None` for a
-    /// degenerate set (< 3 usable points / numerically singular — ui-spec §3.3
-    /// / `fit_circle_taubin`). Re-run every frame the set changes; the preview
-    /// draws this dashed with its residual surfaced (ui-spec §3.4).
-    #[must_use]
-    pub fn fit(&self) -> Option<FitCircle> {
-        fit_circle_taubin(&self.samples())
-    }
-
-    /// The [`DimensionKind::Circular`] this pick-set authors on Accept, or
-    /// `None` when the fit is degenerate (Accept is disabled — fuzzy-never-
-    /// sneaky, never auto-applied). Reuses [`Self::fit`]; `show_diameter` is
-    /// the display toggle only.
-    #[must_use]
-    pub fn author(&self) -> Option<DimensionKind> {
-        self.fit().map(|fit| DimensionKind::Circular {
-            fit,
-            show_diameter: self.show_diameter,
-        })
-    }
-
-    /// Discard the whole pick-set (Escape stage 1 / Reject, ui-spec §1.3):
-    /// stay in the tool, forget the picked objects. Keeps the display toggle.
-    pub fn clear(&mut self) {
-        self.objects.clear();
-    }
-
-    /// Whether any object is picked (the tool is mid-gesture, discardable).
-    #[must_use]
-    pub fn in_progress(&self) -> bool {
-        !self.objects.is_empty()
-    }
-}
-
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,
@@ -989,86 +888,6 @@ mod tests {
             constraint,
             offset: 0.0,
             text_along: 0.0,
-        };
-
-        assert_eq!(gui_kind, cli_kind);
-    }
-
-    // ---- CircularPick fit-set → fit → author (ui-spec §3) ----------------
-
-    #[test]
-    fn circular_toggle_adds_then_removes_objects() {
-        let mut cp = CircularPick::new();
-        assert!(cp.toggle_object(3, vec![p(0.0, 0.0)]));
-        assert!(cp.toggle_object(7, vec![p(1.0, 1.0)]));
-        assert_eq!(cp.object_count(), 2);
-        // Toggling an already-picked object removes it.
-        assert!(!cp.toggle_object(3, vec![p(0.0, 0.0)]));
-        assert_eq!(cp.object_count(), 1);
-        assert_eq!(cp.object_indices().collect::<Vec<_>>(), vec![7]);
-    }
-
-    #[test]
-    fn circular_fits_a_circle_from_picked_samples_and_authors_it() {
-        // Four points on a unit circle centred at (5,5): a clean fit.
-        let mut cp = CircularPick::new();
-        cp.toggle_object(0, vec![p(6.0, 5.0), p(5.0, 6.0)]);
-        cp.toggle_object(1, vec![p(4.0, 5.0), p(5.0, 4.0)]);
-        let fit = cp.fit().expect("a 4-point circle fits");
-        assert!((fit.center.x - 5.0).abs() < 1e-9);
-        assert!((fit.center.y - 5.0).abs() < 1e-9);
-        assert!((fit.radius - 1.0).abs() < 1e-9);
-        // Author: radius by default.
-        let kind = cp.author().unwrap();
-        assert_eq!(
-            kind,
-            DimensionKind::Circular {
-                fit,
-                show_diameter: false
-            }
-        );
-        assert_eq!(kind.measured_points(), 1.0);
-        // Flip the display toggle → diameter (SAME fit, no re-fit).
-        cp.show_diameter = true;
-        let dia = cp.author().unwrap();
-        assert!(matches!(
-            dia,
-            DimensionKind::Circular {
-                show_diameter: true,
-                ..
-            }
-        ));
-        assert_eq!(dia.measured_points(), 2.0);
-    }
-
-    #[test]
-    fn circular_degenerate_set_authors_nothing() {
-        let mut cp = CircularPick::new();
-        // Fewer than 3 points → no fit, nothing to accept (fuzzy-never-sneaky).
-        cp.toggle_object(0, vec![p(0.0, 0.0), p(1.0, 0.0)]);
-        assert!(cp.fit().is_none());
-        assert!(cp.author().is_none());
-    }
-
-    /// **The canvas-authored == CLI-authored equivalence check (circular).**
-    /// The GUI concatenates its picked objects' sample points and fits; the CLI
-    /// fits the same `--points` vector. Same points ⇒ same `fit_circle_taubin`
-    /// result ⇒ identical `DimensionKind::Circular` ⇒ byte-identical output.
-    #[test]
-    fn gui_circular_kind_equals_cli_circular_kind() {
-        let pts = vec![p(10.0, 0.0), p(0.0, 10.0), p(-10.0, 0.0), p(0.0, -10.0)];
-
-        // GUI path: the points arrive as two toggled objects.
-        let mut cp = CircularPick::new();
-        cp.toggle_object(0, vec![pts[0], pts[1]]);
-        cp.toggle_object(1, vec![pts[2], pts[3]]);
-        cp.show_diameter = true;
-        let gui_kind = cp.author().unwrap();
-
-        // CLI path: fit the same points, diameter display.
-        let cli_kind = DimensionKind::Circular {
-            fit: fit_circle_taubin(&pts).unwrap(),
-            show_diameter: true,
         };
 
         assert_eq!(gui_kind, cli_kind);

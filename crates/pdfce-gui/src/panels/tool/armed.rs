@@ -10,6 +10,7 @@
 //! | 1 | **Identity** — the tool's name, its chord, its ribbon home | STATUS | always |
 //! | 2 | **Stage** — one fixed slot: the instruction before a gesture, the live stage during one | STATUS | always |
 //! | 3 | **Options** | OPTIONS | per tool; several families have none |
+//! | 3b | **Points in this measurement** — the circular fit's set, one removable row each | LIST | the radius/diameter tool only |
 //! | 4 | **Put the tool down** | verb | always |
 //!
 //! **Identity first** because it is the literal complaint — *"no side bar area
@@ -75,6 +76,7 @@ pub(super) fn block(
     stage(ui, ctx, doc, tool);
     ui.add_space(6.0);
     options(ui, ctx, tool);
+    measure_points(ui, ctx, tool);
     put_down(ui, ctx);
 }
 
@@ -175,6 +177,105 @@ fn options(ui: &mut Ui, ctx: &egui::Context, tool: CanvasTool) {
         });
         pen::store(ctx, current);
     }
+}
+
+/// Row 3b — **the radius/diameter tool's pick set, listed and removable.**
+///
+/// # ★★★ Why a list, when the points are drawn on the canvas already
+///
+/// `OPERATOR_REQUESTS.md` O107, in the operator's words: *"we should be able to
+/// unselect points/clicked locations, and it should have a box in the side
+/// panel showing what is part of our selection … clicking on a point or
+/// location listed should allow us to remove it."*
+///
+/// The canvas markers say *where* the points are. They cannot say **how many**,
+/// and on a dense CAD sheet — five thousand strokes on one A1 — a marker sitting
+/// on top of a junction is not distinguishable from the junction. An operator
+/// who has clicked five times and sees four markers has no way to find out
+/// which fact is wrong. The list is the only surface that answers *"what is
+/// actually in this fit?"*, and that question is the one behind the whole of
+/// O105: he could not see that a single click had contributed six thousand
+/// points.
+///
+/// # ★★ The row IS the remove control, and it says so before it is pressed
+///
+/// He asked for that literally, and it is also the conventional shape for a
+/// short authored list. What it needs is disclosure, because the gesture does
+/// **not** go through undo — a pick set is pre-commit state and never enters the
+/// document's history. So every row carries
+/// [`t::measure_point_remove_hint`] on hover, and the cost of a mistake is one
+/// click on the canvas to put the point back.
+///
+/// # ★ It draws nothing at all when no circular tool is armed
+///
+/// R9. Not a greyed list, not an empty box with a heading: greying is reserved
+/// for a *temporarily* unavailable control, and a pick list for a tool that is
+/// not armed is not that. When the tool IS armed and the set is empty, one
+/// sentence stands in for the list — an empty section under a heading reads as
+/// a surface that failed to draw.
+fn measure_points(ui: &mut Ui, ctx: &egui::Context, tool: CanvasTool) {
+    use crate::canvas::measure::MeasureKind;
+
+    if tool.measure_kind() != Some(MeasureKind::Circular) {
+        return;
+    }
+
+    ui.label(t::measure_points_heading());
+    crate::diag::ui_rect(super::REGION_MEASURE_POINTS, ui.min_rect());
+
+    let Some(st) = crate::canvas::measure::read(ctx) else {
+        ui.label(
+            egui::RichText::new(t::measure_points_empty())
+                .small()
+                .weak(),
+        );
+        ui.add_space(6.0);
+        return;
+    };
+    let points = st.circular.points();
+    if points.is_empty() {
+        ui.label(
+            egui::RichText::new(t::measure_points_empty())
+                .small()
+                .weak(),
+        );
+        ui.add_space(6.0);
+        return;
+    }
+
+    // ★★ The removal is applied AFTER the loop, never inside it.
+    //
+    // `st` is a copy read out of `egui::Memory`, and `points` borrows it. A
+    // removal that mutated mid-iteration would shift every row below the one
+    // pressed while the loop was still drawing them, which is the classic
+    // one-frame mis-aim: the operator presses row 3, row 4 slides up under the
+    // pointer, and the NEXT frame's press lands on something they did not
+    // choose. Recording the index and acting once is what keeps a row's
+    // position stable for the whole frame it is drawn in.
+    let mut remove: Option<usize> = None;
+    for (index, point) in points.iter().enumerate() {
+        let label = t::measure_point_row(
+            index + 1,
+            t::measure_point_origin(point.origin),
+            point.at.x,
+            point.at.y,
+        );
+        let response = ui.add(egui::Button::new(egui::RichText::new(label).small()).frame(false));
+        crate::diag::ui_rect(
+            &format!("{}{index}", super::REGION_MEASURE_POINT_PREFIX),
+            response.rect,
+        );
+        if response
+            .on_hover_text(t::measure_point_remove_hint())
+            .clicked()
+        {
+            remove = Some(index);
+        }
+    }
+    if let Some(index) = remove {
+        crate::canvas::measure::circular::remove_point(ctx, index);
+    }
+    ui.add_space(6.0);
 }
 
 /// The Select tool's option row — the three switches of `OPERATOR_REQUESTS.md`
@@ -400,6 +501,18 @@ fn stage(ui: &mut Ui, ctx: &egui::Context, doc: &crate::app::state::OpenDoc, too
         CanvasTool::Measure(crate::canvas::measure::MeasureKind::Perimeter) => {
             perimeter_stage(ctx, doc)
         }
+        // ★★★ The radius/diameter tool reports the SIZE IT HAS SO FAR, and
+        // that is the operator's ask rather than a nicety.
+        //
+        // `OPERATOR_REQUESTS.md` O105: *"selecting more points around a hole
+        // doesn't always get it to narrow down to the size of the hole."* An
+        // operator adding points to a fit is watching a number converge, and
+        // there was no number to watch — the circle was drawn on the canvas and
+        // its value appeared only once the dimension had been placed. So the
+        // tool could not be steered: every correction was a commit and an undo.
+        CanvasTool::Measure(crate::canvas::measure::MeasureKind::Circular) => {
+            circular_stage(ctx, doc)
+        }
         CanvasTool::Measure(kind) => t::measure_instruction(kind).to_owned(),
     };
     ui.label(egui::RichText::new(text).small());
@@ -443,6 +556,52 @@ fn perimeter_stage(ctx: &egui::Context, doc: &crate::app::state::OpenDoc) -> Str
         group.format,
     );
     t::measure_perimeter_live(picked, &shown.text)
+}
+
+/// The radius/diameter tool's live sentence: the instruction before the first
+/// click, the count and the current fit after it.
+///
+/// # ★★ The measurement goes through the ENGINE's formatter, like every other
+///
+/// [`pdfce_core::dimension::format_measurement`] and the authoring group's own
+/// scale, exactly as `perimeter_stage` does and for the identical reason: a
+/// live readout in points beside a committed dimension in millimetres would be
+/// two numbers for one measurement, and the operator would have to know which
+/// was which.
+///
+/// ★ **Radius or diameter follows the pick set's own display toggle**, so the
+/// number the panel shows is the number the placed dimension will show. A panel
+/// that always reported the radius would disagree with a committed diameter
+/// label by a factor of two, silently, and the operator would have no way to
+/// tell which of the two was the tool being wrong.
+///
+/// Falls back to the count-only sentence when the group cannot be read. That is
+/// the honest answer rather than a number in unknown units: a measurement whose
+/// scale is unknown is not a measurement.
+fn circular_stage(ctx: &egui::Context, doc: &crate::app::state::OpenDoc) -> String {
+    use crate::canvas::measure::MeasureKind;
+
+    let Some(st) = crate::canvas::measure::read(ctx) else {
+        return t::measure_instruction(MeasureKind::Circular).to_owned();
+    };
+    let picked = st.circular.point_count();
+    if picked == 0 {
+        return t::measure_instruction(MeasureKind::Circular).to_owned();
+    }
+    let Some(fit) = st.circular.fit() else {
+        return t::measure_circular_needs_more(picked);
+    };
+    let model = doc.session.dimension_model();
+    let Some(group) = model.group(st.group) else {
+        return t::measure_circular_needs_more(picked);
+    };
+    let value = if st.circular.show_diameter {
+        fit.radius * 2.0
+    } else {
+        fit.radius
+    };
+    let shown = pdfce_core::dimension::format_measurement(value, group.scale, group.format);
+    t::measure_circular_live(picked, &shown.text)
 }
 
 /// Row 4 — put the tool down.

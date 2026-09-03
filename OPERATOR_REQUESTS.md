@@ -80,6 +80,181 @@ Two observations that are mine to act on, not his to have to make again:
 
 # OPEN
 
+## O105 — ✅ **DRIVEN 2026-09-03** — the radius/diameter tool fits the wrong thing
+
+**Ken, 2026-09-03:** *"can you check our radius/diameter dimensioning tool?
+selecting a point sometimes makes a big circle, and selecting more points around
+a hole doesn't always get it to narrow down to the size of the hole."*
+
+### ★★★ The cause, and it is one line of code with a number beside it
+
+**The tool does not pick points. It picks whole PDF path objects**, and feeds
+*every anchor of every subpath of that object* to the circle fit.
+
+`canvas::measure::circular::click` hit-tests for an object, then calls
+`ObjectModelProvider::object_sample_points`, which is:
+
+```rust
+Some(VectorObject::Path(path)) => path
+    .page_subpaths()
+    .iter()
+    .flat_map(|sp| sp.anchors().collect::<Vec<_>>())
+    .collect(),
+```
+
+★★ **The size of that set is already measured, in this repository, thirty lines
+below the function that produces it.** Decision 028's note on the Objects panel:
+*"on a measured CAD export one path object holds **6,681 anchors**"*. So one
+click on a hole in such a drawing hands Taubin's fit 6,681 points scattered
+across the entire sheet, and the best-fit circle through them is enormous.
+
+⇒ *"selecting a point sometimes makes a big circle"* — exactly. It is not
+sometimes-random: it is whether the hole's arc happens to be its own small path
+object or part of a large one, which the operator cannot see and has no reason
+to think about.
+
+### And the second half follows from the first
+
+*"selecting more points around a hole doesn't always narrow it down"* has two
+causes, both from the same design:
+
+1. **A second click on the same object toggles it OUT.** Clicking twice around
+   one hole that is drawn as one object adds it and then removes it. Nothing on
+   screen distinguishes that from "the click did nothing".
+2. **A click on a different object adds another whole blob.** Adding a second
+   large object makes the fit worse, not better — the opposite of what "add more
+   points" means everywhere else.
+
+### ⇒ The fix: the tool takes POINTS, which is what he is already doing
+
+His own sentence — *"selecting more points around a hole"* — is the conventional
+model and the one every drafting package uses: three points on an arc give the
+arc. The machinery is already built and already used by the linear and perimeter
+tools: `measure::resolve::Resolved` returns the snapped anchor under the pointer,
+or the raw position when nothing is near. The circular tool is routed **around**
+it deliberately (`measure::click` has a comment explaining why an object pick
+should not go through point resolution), and that reasoning was correct for an
+object pick and is what has to go.
+
+★ The one thing lost is *"click the circle once and be done"*. That is worth
+having back later at **subpath** granularity — a subpath is the drawn entity, an
+object is not — but it is not what was asked for and is not being built in the
+same change. Recorded here so it is a decision rather than an omission.
+
+### ✅ Shipped, and the check was falsified in the direction that matters
+
+A click is one point. Three points on an arc give the arc.
+
+**Driven by `three_clicks_round_a_hole_measure_the_hole`**, on a fixture built
+to carry your geometry — `fixtures/hole-in-a-big-object.pdf`, **one** path
+object holding a 30 pt circle *and* forty unrelated segments across the page.
+The check pins that fixture and ignores `--pdf`, because on a document whose
+circles are their own objects the defect **cannot occur** and the broken build
+would pass.
+
+```
+click 1 → action=add origin=node n=1 r=none
+click 2 → action=add origin=node n=2 r=none
+click 3 → action=add origin=node n=3 r=30.000 resid=0.0000
+```
+
+★★★ **Falsified**: with one stray point fed into the fit the same check reports
+*"three clicks on the rim of a 30 pt hole fitted a circle of radius **299.78**"*
+— which is your sentence, as a number.
+
+★★ **You can also now watch it converge.** The Tool panel's live line reports
+the count and the current radius or diameter, through the engine's own
+formatter and the authoring group's scale — so it reads in the same units the
+placed dimension will. There was no number to watch before: the circle was drawn
+on the canvas and its value appeared only once the dimension had been placed, so
+every correction was a commit and an undo.
+
+---
+
+## O106 — ◑ **BUILT 2026-09-03, driven only in unit tests** — a click with nothing under it should still be a point
+
+**Ken, 2026-09-03:** *"also we should be able to click and it selects a position
+on a page if there is no point to select under the cursor (so we can measure off
+bitmaps too)."*
+
+Falls out of O105's fix and is listed separately because it is a separate
+promise: on a scanned or raster drawing there are no anchors to snap to, so
+every pick is a free position and the tool must still work. `resolve::snapped`
+already *returns the raw point unchanged when nothing is near* — its own doc
+says so — so what is needed is for the circular tool to use that path at all.
+
+★ It is also the honest disclosure boundary: a free position is the operator's
+own judgement of where the edge is, and the residual the fit reports is the only
+thing that says how well they did. That number already exists in the preview.
+
+### ◑ Built, and the row stays open because the DRIVEN half is not
+
+The tool takes `resolve::snapped`'s answer: the anchor under the pointer, or the
+raw pointer when nothing is within the catch radius. Unit tests cover the
+composition (`a_pick_with_no_snap_candidate_is_recorded_as_a_free_position`,
+`three_free_positions_on_a_raster_still_produce_a_circle`).
+
+★ **What is NOT driven is a click on an actual raster.** The circle check's
+fixture is vector geometry and every rim click correctly snaps, so it exercises
+the snapped path only. Driving the free path needs a raster fixture and a click
+where the snap declines — a different check, named here rather than left
+implied, and it is why this row is ◑ and not ✅.
+
+★★ The Tool panel's list says **Free position** on any point that came from one,
+so when you measure off a scan you can see which of your points were judgement
+and which were geometry. That disclosure is off-canvas on purpose: nothing marks
+a free pick on the page, because applied content must render exactly as saved
+content will.
+
+---
+
+## O107 — ✅ **DRIVEN 2026-09-03** — see what is in the pick set, and take things out of it
+
+**Ken, 2026-09-03:** *"also we should be able to unselect points/clicked
+locations, and it should have a box in the side panel showing what is part of
+our selection and we should be able to delete included points/locations from
+there - clicking on a point or location listed should allow us to remove it."*
+
+Two routes to one capability, and both are wanted:
+
+| route | what it does |
+|---|---|
+| **the canvas** | clicking a point already in the set takes it out again |
+| **the Tool panel** | a list of the picked points, each removable by clicking it |
+
+★★ The panel half is the one that cannot be substituted. A pick set on a dense
+CAD sheet is invisible — the operator cannot tell four picked points from five,
+and cannot tell *which* four. A list is the only surface that answers *"what is
+actually in this fit?"*, which is the question behind O105's whole report: he
+could not see that his click had contributed six thousand points.
+
+`panels::tool` is the home — it already shows the perimeter tool's live
+measurement, so a picked-set list for the circular tool is the same kind of
+thing in the same place.
+
+### ✅ Both routes shipped and both driven
+
+The Tool panel grows a **Points in this measurement** section: one row per
+point, numbered, saying where it came from and where it is. Clicking a row takes
+that point out; hovering says so first, because the removal does not go through
+undo (a pick set is pre-commit state and never enters the document's history).
+On the canvas, clicking within the snap radius of a point already picked removes
+it.
+
+Asserted inside `three_clicks_round_a_hole_measure_the_hole`:
+
+```
+the panel lists 3 rows, one per point
+clicking `tool.measure_point.0` removed that point: n=2
+clicking the canvas on a point already picked removed it: n=1
+```
+
+★★★ **Falsified** by making the row drawn-and-inert: the check then reports
+*"the row is drawn and inert — which is exactly the placeholder R9 forbids"*.
+
+---
+
+
 ## ★★★ THREE OF YOUR 2026-09-01 REQUESTS WERE BUILT WITHOUT EVER BEING WRITTEN DOWN
 
 **Found 2026-09-01 while writing the handoff, by grepping this file for your own
