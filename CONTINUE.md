@@ -35,6 +35,34 @@ regression.** Recorded because the confident-and-wrong failure report is the
 thing this project keeps meeting, and it does not stop being a risk when it is
 the harness making it.
 
+### ◑ `settle()` was a wall clock wearing the word "frames" — fixed, and it did NOT fix the flake
+
+`Session::settle(frames)` was `sleep(frames * 25ms)`. On an idle machine 25 ms is
+about a frame and the name is nearly true; **under load it is not**, so every
+check that settled and then clicked was acting before the interface had caught
+up. The application now emits `frame n=<count>` every tenth frame under
+`PDFCE_DIAG`, and `settle` waits for that count to advance — fast when idle,
+patient when loaded, capped so a stopped application is reported by the check's
+own assertions rather than hanging the suite.
+
+⬜ **It did not remove the intermittent failure it was written for**, and that is
+stated rather than glossed. `a_bookmark_lands_on_the_detail_it_names` still fails
+inside a batch and passes alone — three consecutive solo passes afterwards.
+
+★★ Two hypotheses were tested and **both were wrong**: the fixture is on a
+OneDrive path (it is, but the check copies it to `target/` first, so the
+application never reads from there), and the file might be a dehydrated cloud
+placeholder (it is hydrated). Recorded because a wrong hypothesis that was
+actually checked is worth more than a plausible one that was not — and because
+"contention" is a word, not an explanation, and it should stop being used as one
+here.
+
+⇒ **Next experiment, for whoever picks this up:** the failure is `zoom 0.382 →
+0.382`, so the click reached the bookmark row and the destination was not
+applied — or the click landed on the wrong row. Trace which row was clicked, not
+just what the zoom did. The check cannot currently tell those apart, which is
+why it has no better answer than "it failed".
+
 ### ⬜ The three that need a decision, not more work
 
 1. **Contention is real and unmeasured.** Three of 148 fail under batch load and

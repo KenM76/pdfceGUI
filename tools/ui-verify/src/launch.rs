@@ -330,14 +330,88 @@ impl Session {
         self.pid
     }
 
-    /// Give the application `n` frames' worth of time to settle.
+    /// Wait until the application has actually **drawn** `frames` frames.
     ///
-    /// Named in frames rather than milliseconds because that is the unit the
-    /// thing being waited for is measured in: a raster rebuild, a layout pass,
-    /// a provider swap. At 60 Hz a frame is about 17 ms; the extra margin is
-    /// for the frames that are not.
+    /// Named in frames because that is the unit the thing being waited for is
+    /// measured in: a raster rebuild, a layout pass, a provider swap.
+    ///
+    /// # ★★★ It used to be a wall clock wearing the word "frames"
+    ///
+    /// The whole body was `sleep(frames * 25ms)`. On an idle machine 25 ms is
+    /// about a frame and the name is nearly true. **Under load it is not** — the
+    /// application renders fewer frames in the same wall time, so every check
+    /// that settled and then clicked was acting before the interface had caught
+    /// up.
+    ///
+    /// Measured 2026-09-02, running the suite in batches: three checks failed
+    /// with substantive, believable messages — a bookmark that went to the page
+    /// and did not zoom, a canvas that stopped seeing the pointer, a list of
+    /// rows that never drew — and **all three passed when re-run alone against
+    /// the same binary**. The convenient reading was "contention", which
+    /// explains nothing and excuses everything. The mechanism was this function.
+    ///
+    /// # How it waits now
+    ///
+    /// The application emits `frame n=<count>` on the diagnostic channel every
+    /// tenth frame. This reads the newest such line, then polls until the count
+    /// has advanced by `frames`. Fast when idle, patient when loaded — which is
+    /// what the name always claimed.
+    ///
+    /// ★ **The old sleep is the floor, not the ceiling.** A short wall-clock
+    /// wait still happens first, because some of what a check waits for is not a
+    /// frame at all — a file written, a child viewport created, an OS window
+    /// map. Removing it would trade one class of flake for another.
+    ///
+    /// ★★ **And there is a cap**, after which it returns rather than blocking.
+    /// An application that has stopped drawing is a finding for the check's own
+    /// assertions to report, in their own words, against the state they can see.
+    /// A settle that waited forever would turn every such defect into a hung
+    /// suite with no message at all — which is strictly less informative than
+    /// the false failure this change removes.
     pub fn settle(&self, frames: u32) {
-        std::thread::sleep(Duration::from_millis(u64::from(frames) * 25));
+        let floor = Duration::from_millis(u64::from(frames) * 25);
+        std::thread::sleep(floor);
+        let Some(start) = self.frame_count() else {
+            // No counter on the channel — an older binary, or diagnostics off.
+            // The floor above is then the whole of the wait, which is exactly
+            // the previous behaviour.
+            return;
+        };
+        let want = start + u64::from(frames);
+        // Four times the floor, which on an idle machine is never reached and on
+        // a loaded one is the difference between a false failure and a true one.
+        let deadline = std::time::Instant::now() + floor * 4;
+        while std::time::Instant::now() < deadline {
+            if self.frame_count().is_some_and(|n| n >= want) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// The newest `frame n=` count on the diagnostic channel, if there is one.
+    ///
+    /// Reads the tail of the trace rather than the whole file: the counter is
+    /// emitted every tenth frame, so the answer is always within the last few
+    /// hundred bytes, and a sweep against a long-running session would otherwise
+    /// re-read megabytes on every settle.
+    fn frame_count(&self) -> Option<u64> {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut f = std::fs::File::open(&self.stderr_path).ok()?;
+        let len = f.metadata().ok()?.len();
+        let back = len.min(8192);
+        f.seek(SeekFrom::Start(len - back)).ok()?;
+        let mut buf = String::new();
+        f.take(back).read_to_string(&mut buf).ok();
+        buf.rsplit("frame n=")
+            .nth(0)
+            .filter(|_| buf.contains("frame n="))
+            .and_then(|rest| {
+                rest.split(|c: char| !c.is_ascii_digit())
+                    .next()
+                    .filter(|d| !d.is_empty())
+                    .and_then(|d| d.parse().ok())
+            })
     }
 }
 

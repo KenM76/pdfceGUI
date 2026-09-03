@@ -560,6 +560,56 @@ pub fn ui_rect(name: &str, rect: egui::Rect) {
     }
 }
 
+/// How many frames between `frame` lines.
+///
+/// Ten, which is one line per ~250 ms of animation and per ~0.2 s of a busy
+/// redraw — negligible beside the hundreds of `ui-rect` lines a frame already
+/// emits, and fine enough that `Session::settle` can wait on a count rather than
+/// on a clock.
+const FRAME_TICK_EVERY: u64 = 10;
+
+/// **A monotonic frame counter on the diagnostic channel.**
+///
+/// ```text
+/// pdfce-diag frame n=1230
+/// ```
+///
+/// # ★★★ Why this exists, and it is a fix for a whole class of false failure
+///
+/// `ui-verify`'s `Session::settle(frames)` was
+/// `sleep(frames * 25ms)` — a **wall clock wearing the word "frames"**. On an
+/// idle machine 25 ms is about a frame and the name is nearly true. Under load
+/// it is not: the application renders fewer frames in the same wall time, so
+/// every check that "settled" then clicked was acting before the interface had
+/// caught up.
+///
+/// Measured 2026-09-02, running the suite in batches: three checks failed with
+/// substantive, believable messages — a bookmark that went to the page and did
+/// not zoom, a canvas that stopped seeing the pointer, a list of rows that never
+/// drew — and **all three passed when re-run alone against the same binary**.
+/// The convenient reading was "contention", which explains nothing and excuses
+/// everything. The real mechanism is that the harness was measuring a UI that
+/// had not finished responding.
+///
+/// ⇒ With a counter on the channel, `settle` can wait for the application to
+/// actually **produce** frames, and becomes fast when idle and patient when
+/// loaded — which is what it always claimed to be.
+///
+/// ★ Only under `PDFCE_DIAG`, like everything here, and only every tenth frame.
+/// A per-frame line would be the one diagnostic that measurably changed the
+/// thing it measures.
+fn frame_tick() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static FRAMES: AtomicU64 = AtomicU64::new(0);
+    let n = FRAMES.fetch_add(1, Ordering::Relaxed) + 1;
+    if n.is_multiple_of(FRAME_TICK_EVERY) {
+        trace(|| {
+            // ui-text-exempt: diagnostic trace, never displayed in the UI
+            format!("frame n={n}")
+        });
+    }
+}
+
 /// **Close a frame's region census and report anything that stopped being
 /// drawn.**
 ///
@@ -587,6 +637,7 @@ pub fn end_ui_frame() {
     if !enabled() {
         return;
     }
+    frame_tick();
     let mut this = lock(&UI_RECTS_THIS_FRAME);
     let mut last = lock(&UI_RECTS_LAST_FRAME);
     let mut retired: Vec<String> = last.difference(&this).cloned().collect();

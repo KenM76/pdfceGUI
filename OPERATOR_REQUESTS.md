@@ -96,7 +96,7 @@ in commit messages, where you cannot see them and a cold session does not look.
 back-filled, and are marked as back-filled so the dates are not read as evidence
 of a process that worked.
 
-## O102 — ◑ **BUILT 2026-09-02, NOT YET DRIVEN** — closing asks about unsaved work, document by document
+## O102 — ✅ **DRIVEN 2026-09-02** — closing asks about unsaved work, document by document
 
 **Ken, 2026-09-02:**
 
@@ -178,7 +178,7 @@ requested and a modal answered — the pointer.
 
 ---
 
-## O101 — ◑ **BUILT 2026-09-02, NOT YET DRIVEN** — the build time in the top bar
+## O101 — ✅ **DRIVEN 2026-09-02** — the build time in the top bar
 
 **Ken, 2026-09-02:** *"also in the next release add the local compilation time
 to the top bar at the end of the date you added."*
@@ -224,7 +224,7 @@ driven check. Waiting on the pointer.
 
 ---
 
-## O100 — ◑ **BUILT 2026-09-02, NOT YET DRIVEN; the preset half is ANSWERED** — new colour-rendering options
+## O100 — ✅ **DRIVEN 2026-09-02; the preset half is ANSWERED and CONSUMED** — new colour-rendering options
 
 **Ken, 2026-09-02:**
 
@@ -590,7 +590,7 @@ are away.
 
 ---
 
-## O96 — ◑ **BUILT 2026-09-02, NOT YET DRIVEN** — the fillable fields are shaded
+## O96 — ✅ **DRIVEN 2026-09-02** — the fillable fields are shaded
 
 **Ken, 2026-09-02:**
 
@@ -673,7 +673,7 @@ from a fixture.
 
 ---
 
-## O95 — ◑ **BUILT 2026-09-02, NOT YET DRIVEN** — Save As, and then keep editing the NEW file
+## O95 — ✅ **DRIVEN 2026-09-02** — Save As, and then keep editing the NEW file
 
 **Ken, 2026-09-02:**
 
